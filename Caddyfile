@@ -1,0 +1,4 @@
+{$PUBLIC_HOSTNAME} {
+	encode zstd gzip
+	reverse_proxy live-location-receiver:8080
+}

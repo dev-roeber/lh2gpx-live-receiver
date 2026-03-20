@@ -8,6 +8,7 @@ Dieser erste Serverschritt ist absichtlich klein:
 - `POST /live-location`
 - optionaler Bearer-Token ueber ENV
 - append-only Speicherung als NDJSON
+- HTTPS-Termination ueber Caddy
 - keine Datenbank, kein Dashboard, kein Multi-User-Backend
 
 ## Repo-Truth / Input-Contract
@@ -79,29 +80,34 @@ cp .env.example .env
 
 ## Deploy-Entscheidung fuer diesen Host
 
-Fuer diesen Server ist genau **Docker Compose** umgesetzt.
+Fuer diesen Server ist genau **Docker Compose mit Caddy als kleinem TLS-Reverse-Proxy** umgesetzt.
 
 Begruendung anhand des Preflight-Ist-Zustands:
 - `docker` und `docker compose` sind vorhanden und der Docker-Daemon laeuft
 - globales `uvicorn` ist nicht vorhanden
-- kein `nginx` und kein `caddy` sind installiert
+- kein Host-`nginx` und kein Host-`caddy` sind installiert
 - es existiert aktuell kein vorhandener Compose-Stack fuer diesen Dienst
+- keine verifizierte eigene Domain ist vorhanden, aber `sslip.io` liefert fuer die Server-IP einen verifizierbaren Hostnamen
 
-Der Receiver wird deshalb direkt auf einem einzelnen TCP-Port betrieben. Auf diesem Host gibt es aktuell keine verifizierte Domain- oder Reverse-Proxy-Konfiguration fuer den Dienst.
+Der Receiver wird deshalb im bestehenden Compose-Stack betrieben:
+- FastAPI nur noch lokal auf `127.0.0.1:8080`
+- Caddy oeffentlich auf `80/443`
+- TLS-Endpunkt fuer die App: `https://178-104-51-78.sslip.io/live-location`
 
 ## Netzwerkstatus dieses Setups
 
-Dieses Setup ist aktuell **Testbetrieb / klein-produktionsnaher Direktbetrieb ohne HTTPS-Termination**:
-- direkter Port: `8080/tcp`
-- Erreichbarkeit: ueber die Server-IP
-- solange kein Reverse-Proxy mit TLS davorsteht, ist das oeffentliche HTTP nur ein temporaerer Zustand
+Dieses Setup ist jetzt **klein-produktionsnah fuer App-Tests mit gueltigem HTTPS-Endpunkt**:
+- oeffentliche Endpunkte: `80/tcp` und `443/tcp`
+- App-Ziel: `https://178-104-51-78.sslip.io/live-location`
+- lokaler Backend-Port: `127.0.0.1:8080`
+- `8080` ist kein oeffentlicher App-Endpunkt mehr
 
 ## Smoke-Test
 
 Ein kleines Skript liegt unter [scripts/smoke-test.sh](scripts/smoke-test.sh).
 Wenn im Repo eine `.env` liegt, nutzt das Skript diese automatisch.
 
-Direkte Beispiele:
+Direkte Beispiele lokal:
 
 ```bash
 curl http://127.0.0.1:8080/health
@@ -133,6 +139,12 @@ curl -X POST http://127.0.0.1:8080/live-location \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer ${LIVE_LOCATION_BEARER_TOKEN}" \
   -d @sample-payload.json
+```
+
+Oeffentlicher HTTPS-Check:
+
+```bash
+curl https://178-104-51-78.sslip.io/health
 ```
 
 ## Tests

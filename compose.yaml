@@ -7,7 +7,7 @@ services:
     env_file:
       - .env
     ports:
-      - "${PORT:-8080}:${PORT:-8080}"
+      - "127.0.0.1:${PORT:-8080}:${PORT:-8080}"
     volumes:
       - ./data:/app/data
     healthcheck:
@@ -21,3 +21,23 @@ services:
       retries: 3
       start_period: 5s
 
+  caddy:
+    image: caddy:2.8.4
+    container_name: lh2gpx-live-receiver-caddy
+    restart: unless-stopped
+    depends_on:
+      live-location-receiver:
+        condition: service_healthy
+    env_file:
+      - .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
