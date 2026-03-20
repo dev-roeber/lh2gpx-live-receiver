@@ -62,6 +62,23 @@ def test_valid_payload_without_auth_is_accepted(tmp_path: Path) -> None:
     assert stored_line["captureMode"] == "foregroundWhileInUse"
 
 
+def test_accept_log_contains_location_summary(tmp_path: Path, capsys) -> None:
+    client = make_client(tmp_path)
+
+    response = client.post("/live-location", json=valid_payload())
+    captured = capsys.readouterr()
+
+    assert response.status_code == 202
+    assert "pts=1" in captured.err
+    assert "first=52.520000,13.405000" in captured.err
+    assert "last=52.520000,13.405000" in captured.err
+    assert "firstTs=2026-03-20T11:59:59+00:00" in captured.err
+    assert "lastTs=2026-03-20T11:59:59+00:00" in captured.err
+    assert "session=123e4567-e89b-12d3-a456-426614174000" in captured.err
+    assert "source=LocationHistory2GPX-iOS" in captured.err
+    assert "mode=foregroundWhileInUse" in captured.err
+
+
 def test_invalid_payload_is_rejected(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     payload = valid_payload()
@@ -112,4 +129,3 @@ def read_single_stored_line(tmp_path: Path) -> dict[str, object]:
 
 def data_file(tmp_path: Path) -> Path:
     return tmp_path / "data" / "live-location.ndjson"
-

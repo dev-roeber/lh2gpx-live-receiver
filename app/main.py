@@ -47,11 +47,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> dict[str, object]:
         storage: NDJSONStorage = request.app.state.storage
         data_file = storage.append(payload)
+        summary = _build_point_log_summary(payload)
         LOGGER.info(
-            "Accepted %s point(s) for session %s from %s",
-            len(payload.points),
-            payload.sessionID,
-            request.client.host if request.client else "unknown",
+            summary,
         )
         response.headers["Cache-Control"] = "no-store"
         return {
@@ -69,6 +67,21 @@ def _configure_logging(log_level: str) -> None:
         level=level,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         force=True,
+    )
+
+
+def _build_point_log_summary(payload: LiveLocationRequest) -> str:
+    first_point = payload.points[0]
+    last_point = payload.points[-1]
+    return (
+        f"pts={len(payload.points)} "
+        f"first={first_point.latitude:.6f},{first_point.longitude:.6f} "
+        f"last={last_point.latitude:.6f},{last_point.longitude:.6f} "
+        f"firstTs={first_point.timestamp.isoformat()} "
+        f"lastTs={last_point.timestamp.isoformat()} "
+        f"mode={payload.captureMode} "
+        f"session={payload.sessionID} "
+        f"source={payload.source}"
     )
 
 
@@ -92,4 +105,3 @@ async def _require_bearer_token(
 
 
 app = create_app()
-
