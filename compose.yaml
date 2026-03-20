@@ -1,0 +1,23 @@
+services:
+  live-location-receiver:
+    build:
+      context: .
+    container_name: lh2gpx-live-receiver
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${PORT:-8080}:${PORT:-8080}"
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python3 -c \"import os, urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.getenv(\\\"PORT\\\", \\\"8080\\\")}/health', timeout=5).read()\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
