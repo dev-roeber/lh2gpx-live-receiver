@@ -3,6 +3,9 @@
 ## 2026-03-31
 
 ### Changed
+- Receiver-Admin-UI als receiver-first Operator-Workspace neu strukturiert: Dashboard, Navigation, Statuskarten, Tabellen und Detailseiten wurden visuell und inhaltlich deutlich modernisiert, ohne die Kernfunktion zu aendern.
+- die HTML-Oberflaeche fuehrt Daten-, Betriebs-, Sicherheits- und Systempfade jetzt ueber eine konsistente Hauptnavigation statt ueber ein einzelnes Minimal-Dashboard zusammen.
+- die Operator-Sicht zeigt jetzt deutlich mehr direkte Receiver-Infos wie Uptime, Erfolgsquote, Fehlerrate, Requests/Punkte heute bzw. 24h/7d, Response-Code-Verteilung, Storage-Dateigroessen und letzte Warnhinweise.
 - 4-Repo-Statusdokumentation ergaenzt: README beschreibt die Receiver-Rolle jetzt explizit als optionalen Self-Hosted-Baustein ohne Pflicht-Cloud und trennt frische Linux-Repo-Verifikation von der frueheren Live-Betriebspruefung.
 - `docs/OPEN_ITEMS.md` fuehrt Token-Rotation und appseitige Testserver-/Testtoken-Defaults jetzt expliziter als offene Security-/Produktpunkte.
 - neues timestamped Status-Audit `docs/AUDIT_RECEIVER_STATE_2026-03-31_08-48.md` dokumentiert den Receiver-Ist-Stand repo-wahr fuer diesen Lauf.
@@ -25,11 +28,12 @@
 - `GET /api/sessions`
 - `GET /api/sessions/{session_id}`
 - `GET /api/config-summary`
+- neue HTML-Views fuer `/dashboard/live-status`, `/dashboard/activity`, `/dashboard/points`, `/dashboard/points/{point_id}`, `/dashboard/requests`, `/dashboard/sessions`, `/dashboard/exports`, `/dashboard/config`, `/dashboard/storage`, `/dashboard/security`, `/dashboard/system`, `/dashboard/troubleshooting` und `/dashboard/open-items`
 - `GET /dashboard`, `/dashboard/requests/{request_id}` and `/dashboard/sessions/{session_id}`
 - CSV, JSON and NDJSON export for filtered point lists
 - operator-safe config summary with masked secrets
 - structured request logging with `request_id`, path, status, timing and ingest metadata
-- receiver tests for readiness, auth, validation, storage errors, unexpected errors, exports, dashboard rendering and secret masking
+- receiver tests for readiness, auth, validation, storage errors, unexpected errors, exports, dashboard rendering, navigation rendering and secret masking
 - receiver architecture, API, operations, troubleshooting, security, data-model and app-store/privacy notes
 
 ### Changed

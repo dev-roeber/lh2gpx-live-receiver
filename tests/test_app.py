@@ -181,9 +181,43 @@ def test_dashboard_renders_operator_ui(tmp_path: Path) -> None:
     response = client.get("/dashboard")
 
     assert response.status_code == 200
-    assert "Live receiver dashboard" in response.text
-    assert "Newest stored points" in response.text
+    assert "Receiver-Dashboard" in response.text
+    assert "Aktueller Betriebszustand" in response.text
+    assert "Letzte Requests" in response.text
     assert "52.520000" in response.text
+
+
+def test_dashboard_navigation_pages_render(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    ingest_response = client.post("/live-location", json=valid_payload())
+    request_id = ingest_response.json()["requestId"]
+    session_id = "123e4567-e89b-12d3-a456-426614174000"
+    point_id = query_scalar(tmp_path, "SELECT id FROM gps_points ORDER BY id ASC LIMIT 1")
+    headers = basic_auth_headers("operator", "dashboard-pass")
+
+    paths = [
+        "/dashboard",
+        "/dashboard/live-status",
+        "/dashboard/activity",
+        "/dashboard/points",
+        f"/dashboard/points/{point_id}",
+        "/dashboard/requests",
+        f"/dashboard/requests/{request_id}",
+        "/dashboard/sessions",
+        f"/dashboard/sessions/{session_id}",
+        "/dashboard/exports",
+        "/dashboard/config",
+        "/dashboard/storage",
+        "/dashboard/security",
+        "/dashboard/system",
+        "/dashboard/troubleshooting",
+        "/dashboard/open-items",
+    ]
+
+    for path in paths:
+        response = client.get(path, headers=headers)
+        assert response.status_code == 200, path
+        assert "LH2GPX Live Receiver" in response.text, path
 
 
 def test_config_summary_masks_secrets(tmp_path: Path) -> None:

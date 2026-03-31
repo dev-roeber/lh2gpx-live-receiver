@@ -1,87 +1,73 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="hero">
-  <div class="kicker">Session detail</div>
-  <h1>{{ session_item.session_id }}</h1>
-  <p>Grouped view over all stored points and requests for one session.</p>
-  <div style="display:flex; gap:10px; flex-wrap:wrap;">
-    <a class="button-link secondary" href="/dashboard">Back to dashboard</a>
-    <a class="button-link secondary" href="/api/sessions/{{ session_item.session_id }}">JSON API</a>
-  </div>
+<section class="metric-grid compact">
+  <article><span>Punkte</span><strong>{{ session_item.points_count }}</strong></article>
+  <article><span>Requests</span><strong>{{ session_item.requests_count or session_item.requests|length }}</strong></article>
+  <article><span>Accuracy Ø</span><strong>{{ session_item.avg_accuracy_m and ('%.2f'|format(session_item.avg_accuracy_m)) or 'n/a' }} m</strong></article>
+  <article><span>Dauer</span><strong>{{ format_duration(session_item.durationSeconds) }}</strong></article>
 </section>
 
-<section class="metric-grid">
-  <article><h2>Points</h2><p>{{ session_item.points_count }}</p></article>
-  <article><h2>First point</h2><p>{{ session_item.first_point_ts_utc }}</p></article>
-  <article><h2>Last point</h2><p>{{ session_item.last_point_ts_utc }}</p></article>
-  <article><h2>Duration</h2><p>{{ session_item.durationSeconds if session_item.durationSeconds is not none else 'n/a' }}</p></article>
-</section>
-
-<section class="split-grid">
-  <article class="table-card">
-    <h2>Session summary</h2>
-    <table>
-      <tbody>
-        <tr><th>Source</th><td>{{ session_item.source }}</td></tr>
-        <tr><th>Capture mode</th><td>{{ session_item.capture_mode }}</td></tr>
-        <tr><th>Bounding box</th><td>{{ session_item.boundingBox }}</td></tr>
-      </tbody>
-    </table>
+<section class="content-grid two-one">
+  <article class="panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Session-Summary</p><h3>{{ session_item.session_id }}</h3></div>
+      <div class="action-row">
+        <a class="button-link secondary" href="/dashboard/sessions">Zur Sessionliste</a>
+        <a class="button-link tertiary" href="/api/sessions/{{ session_item.session_id }}">JSON API</a>
+      </div>
+    </div>
+    <dl class="meta-list">
+      <div><dt>Source</dt><dd>{{ session_item.source }}</dd></div>
+      <div><dt>Capture-Mode</dt><dd>{{ session_item.capture_mode }}</dd></div>
+      <div><dt>Erster Punkt UTC</dt><dd>{{ format_timestamp(session_item.first_point_ts_utc).utc }}</dd></div>
+      <div><dt>Erster Punkt lokal</dt><dd>{{ format_timestamp(session_item.first_point_ts_utc).local }}</dd></div>
+      <div><dt>Letzter Punkt UTC</dt><dd>{{ format_timestamp(session_item.last_point_ts_utc).utc }}</dd></div>
+      <div><dt>Letzter Punkt lokal</dt><dd>{{ format_timestamp(session_item.last_point_ts_utc).local }}</dd></div>
+      <div><dt>Bounding Box</dt><dd>{{ session_item.boundingBox }}</dd></div>
+    </dl>
   </article>
-  <article class="table-card">
-    <h2>Related requests</h2>
+
+  <article class="panel table-panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Zugeordnete Requests</p><h3>Request-Kontext</h3></div>
+    </div>
     <table>
-      <thead>
-        <tr>
-          <th>Request</th>
-          <th>Received</th>
-          <th>Status</th>
-          <th>HTTP</th>
-          <th>Points</th>
-        </tr>
-      </thead>
+      <thead><tr><th>Request</th><th>Zeit</th><th>Status</th><th>HTTP</th><th>Punkte</th></tr></thead>
       <tbody>
         {% for item in session_item.requests %}
         <tr>
           <td><a href="/dashboard/requests/{{ item.request_id }}">{{ item.request_id }}</a></td>
-          <td>{{ item.received_at_utc }}</td>
-          <td>{{ item.ingest_status }}</td>
+          <td>{{ format_timestamp(item.received_at_utc).utc }}</td>
+          <td><span class="status-pill tone-{{ status_tone(item.ingest_status) }}">{{ item.ingest_status }}</span></td>
           <td>{{ item.http_status }}</td>
           <td>{{ item.points_count }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="muted">No requests recorded for this session.</td></tr>
+        <tr><td colspan="5" class="empty-cell">Keine Requests fuer diese Session vorhanden.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </article>
 </section>
 
-<section class="table-card" style="margin-top:20px;">
-  <h2>Points in this session</h2>
+<section class="panel table-panel">
+  <div class="panel-header">
+    <div><p class="eyebrow">Punkte in dieser Session</p><h3>Session-Spur im Tabellenformat</h3></div>
+  </div>
   <table>
-    <thead>
-      <tr>
-        <th>UTC timestamp</th>
-        <th>Local timestamp</th>
-        <th>Latitude</th>
-        <th>Longitude</th>
-        <th>Accuracy</th>
-        <th>Request</th>
-      </tr>
-    </thead>
+    <thead><tr><th>UTC</th><th>Lokal</th><th>Koordinate</th><th>Accuracy</th><th>Request</th><th>Detail</th></tr></thead>
     <tbody>
       {% for point in session_item.points %}
       <tr>
-        <td>{{ point.point_timestamp_utc }}</td>
+        <td>{{ format_timestamp(point.point_timestamp_utc).utc }}</td>
         <td>{{ point.point_timestamp_local }}</td>
-        <td>{{ "%.6f"|format(point.latitude) }}</td>
-        <td>{{ "%.6f"|format(point.longitude) }}</td>
-        <td>{{ point.horizontal_accuracy_m }}</td>
+        <td>{{ "%.6f"|format(point.latitude) }}, {{ "%.6f"|format(point.longitude) }}</td>
+        <td>{{ point.horizontal_accuracy_m }} m</td>
         <td><a href="/dashboard/requests/{{ point.request_id }}">{{ point.request_id }}</a></td>
+        <td><a href="/dashboard/points/{{ point.id }}">oeffnen</a></td>
       </tr>
       {% else %}
-      <tr><td colspan="6" class="muted">No points stored for this session.</td></tr>
+      <tr><td colspan="6" class="empty-cell">Keine Punkte in dieser Session gespeichert.</td></tr>
       {% endfor %}
     </tbody>
   </table>

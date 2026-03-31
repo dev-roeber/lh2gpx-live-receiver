@@ -64,6 +64,7 @@ Mit Admin-Credentials:
 - Basic-Auth Header pruefen
 - `ADMIN_USERNAME`
 - `ADMIN_PASSWORD`
+- falls einzelne Menuepunkte nicht laden: dieselbe Admin-Auth muss auch fuer `/dashboard/*` Unterseiten mitgesendet werden
 
 ## Punkte erscheinen nicht in der Liste
 
@@ -73,6 +74,7 @@ Pruefen:
 - `/api/points`
 - `receiver.sqlite3` existiert
 - Requestdetail unter `/api/requests/{request_id}`
+- HTML-Punktliste unter `/dashboard/points`
 
 ## Export leer
 
@@ -80,6 +82,7 @@ Pruefen:
 
 - aktive Filter im Dashboard oder Query-String
 - ob Punkte ueberhaupt in SQLite gespeichert wurden
+- fuer gefilterte HTML-Exporte zuerst `/dashboard/points` pruefen und die gesetzten Filter kontrollieren
 
 ## Was diese Fehlerhilfe bewusst nicht abdeckt
 

@@ -1,170 +1,254 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="hero">
-  <div class="kicker">Server-only receiver scope</div>
-  <h1>Live receiver dashboard</h1>
-  <p>Shows accepted and failed live-location ingests, point storage state, session activity and operator-safe configuration details. Secrets are masked by design.</p>
-  <div class="badge-row">
-    <div class="badge"><strong>Health</strong><span class="{{ 'status-ok' if readiness.is_ready else 'status-error' }}">{{ 'ready' if readiness.is_ready else 'not ready' }}</span></div>
-    <div class="badge"><strong>SQLite</strong><span>{{ stats.storage.sqlitePath }}</span></div>
-    <div class="badge"><strong>Raw NDJSON</strong><span>{{ stats.storage.rawPayloadNdjsonPath }}</span></div>
-    <div class="badge"><strong>Public base URL</strong><span>{{ config_summary.publicBaseUrl }}</span></div>
-  </div>
+<section class="hero-grid">
+  <article class="panel hero-card hero-primary">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Receiver im Fokus</p>
+        <h3>Aktueller Betriebszustand</h3>
+      </div>
+      <span class="status-pill tone-{{ receiver_summary.attentionState }}">{{ receiver_summary.attentionState == 'ok' and 'online' or 'pruefen' }}</span>
+    </div>
+    <div class="hero-status-grid">
+      <div class="status-box">
+        <span>Health</span>
+        <strong class="tone-{{ status_tone(receiver_summary.healthStatus) }}">{{ receiver_summary.healthStatus }}</strong>
+      </div>
+      <div class="status-box">
+        <span>Readiness</span>
+        <strong class="tone-{{ status_tone(receiver_summary.readinessStatus) }}">{{ receiver_summary.readinessStatus }}</strong>
+      </div>
+      <div class="status-box">
+        <span>Storage</span>
+        <strong class="tone-{{ status_tone(receiver_summary.storageStatus) }}">{{ receiver_summary.storageStatus }}</strong>
+      </div>
+      <div class="status-box">
+        <span>Auth</span>
+        <strong>{{ receiver_summary.authStatus }}</strong>
+      </div>
+    </div>
+    <div class="detail-grid two-up">
+      <article class="subpanel">
+        <p class="eyebrow">Letzte erfolgreiche Aktivitaet</p>
+        {% set success_time = format_timestamp(snapshot.totals.lastSuccessAt) %}
+        <h4>{{ success_time.relative }}</h4>
+        <p>{{ success_time.utc or 'Noch kein erfolgreicher Ingest gespeichert' }}</p>
+        <p>{{ success_time.local or 'Keine lokale Zeit verfuegbar' }}</p>
+      </article>
+      <article class="subpanel">
+        <p class="eyebrow">Letzte fehlerhafte Aktivitaet</p>
+        {% set failure_time = format_timestamp(snapshot.totals.lastFailureAt) %}
+        <h4>{{ failure_time.relative }}</h4>
+        <p>{{ snapshot.status.lastErrorCategory or 'Keine Fehlerkategorie gespeichert' }}</p>
+        <p>{{ snapshot.status.lastWarning or 'Kein aktueller Warnhinweis gespeichert' }}</p>
+      </article>
+    </div>
+    <div class="action-row">
+      <a class="button-link" href="/dashboard/live-status">Health & Readiness</a>
+      <a class="button-link secondary" href="/dashboard/activity">Letzte Aktivitaet</a>
+      <a class="button-link secondary" href="/dashboard/storage">Storage</a>
+      <a class="button-link secondary" href="/dashboard/security">Sicherheit</a>
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Wichtig jetzt</p>
+        <h3>Operator-Kurzuebersicht</h3>
+      </div>
+    </div>
+    <div class="metric-grid compact">
+      <article><span>Total Requests</span><strong>{{ snapshot.totals.totalRequests }}</strong></article>
+      <article><span>Total Punkte</span><strong>{{ snapshot.totals.totalPoints }}</strong></article>
+      <article><span>Total Sessions</span><strong>{{ snapshot.totals.totalSessions }}</strong></article>
+      <article><span>Fehler gesamt</span><strong>{{ snapshot.totals.failedRequests }}</strong></article>
+      <article><span>Requests heute</span><strong>{{ snapshot.periods.requestsToday }}</strong></article>
+      <article><span>Punkte heute</span><strong>{{ snapshot.periods.pointsToday }}</strong></article>
+      <article><span>Requests 24h</span><strong>{{ snapshot.periods.requests24h }}</strong></article>
+      <article><span>Punkte 24h</span><strong>{{ snapshot.periods.points24h }}</strong></article>
+    </div>
+    <dl class="meta-list">
+      <div><dt>Uptime</dt><dd>{{ receiver_summary.uptime }}</dd></div>
+      <div><dt>Public Hostname</dt><dd>{{ receiver_summary.publicHostname }}</dd></div>
+      <div><dt>Bind / Port</dt><dd>{{ receiver_summary.bindAddress }}</dd></div>
+      <div><dt>Letzter Request-Status</dt><dd>{{ receiver_summary.lastRequestStatus }}{% if receiver_summary.lastRequestCode %} ({{ receiver_summary.lastRequestCode }}){% endif %}</dd></div>
+    </dl>
+  </article>
 </section>
 
 <section class="metric-grid">
-  <article><h2>Total requests</h2><p>{{ stats.totals.total_requests or 0 }}</p></article>
-  <article><h2>Accepted requests</h2><p>{{ stats.totals.accepted_requests or 0 }}</p></article>
-  <article><h2>Failed requests</h2><p>{{ stats.totals.failed_requests or 0 }}</p></article>
-  <article><h2>Total points</h2><p>{{ stats.totals.total_points or 0 }}</p></article>
-  <article><h2>Last success</h2><p>{{ stats.totals.last_success_at or 'none' }}</p></article>
-  <article><h2>Last failure</h2><p>{{ stats.totals.last_failure_at or 'none' }}</p></article>
-  <article><h2>Points / 24h</h2><p>{{ stats.periods.points_24h or 0 }}</p></article>
-  <article><h2>Points / 7d</h2><p>{{ stats.periods.points_7d or 0 }}</p></article>
+  <article><span>Erfolgsquote</span><strong>{{ format_percent(snapshot.totals.successRate) }}</strong><small>{{ snapshot.totals.acceptedRequests }} akzeptiert</small></article>
+  <article><span>Fehlerrate</span><strong>{{ format_percent(snapshot.totals.failureRate) }}</strong><small>{{ snapshot.totals.failedRequests }} fehlgeschlagen</small></article>
+  <article><span>Sessions 24h</span><strong>{{ snapshot.periods.sessions24h }}</strong><small>{{ snapshot.periods.sessionEvents24h }} Session-Events</small></article>
+  <article><span>Sessions 7d</span><strong>{{ snapshot.periods.sessions7d }}</strong><small>{{ snapshot.periods.sessionEvents7d }} Session-Events</small></article>
+  <article><span>Accuracy Ø</span><strong>{{ snapshot.accuracy.avgAccuracyM or 'n/a' }} m</strong><small>min {{ snapshot.accuracy.minAccuracyM or 'n/a' }} · max {{ snapshot.accuracy.maxAccuracyM or 'n/a' }}</small></article>
+  <article><span>Exportformate</span><strong>{{ snapshot.exports|length }}</strong><small>CSV, JSON, NDJSON</small></article>
 </section>
 
-<section class="split-grid">
-  <article class="panel">
-    <h2>Point filters</h2>
-    <form class="filters" method="get">
-      <label>Date from<input type="date" name="date_from" value="{{ filters.date_from or '' }}"></label>
-      <label>Date to<input type="date" name="date_to" value="{{ filters.date_to or '' }}"></label>
-      <label>Time from<input type="time" step="1" name="time_from" value="{{ filters.time_from or '' }}"></label>
-      <label>Time to<input type="time" step="1" name="time_to" value="{{ filters.time_to or '' }}"></label>
-      <label>Session ID<input type="text" name="session_id" value="{{ filters.session_id or '' }}"></label>
-      <label>Capture mode<input type="text" name="capture_mode" value="{{ filters.capture_mode or '' }}"></label>
-      <label>Source<input type="text" name="source" value="{{ filters.source or '' }}"></label>
-      <label>Search<input type="text" name="search" value="{{ filters.search or '' }}"></label>
-      <label>Page size<input type="number" min="1" name="page_size" value="{{ filters.page_size }}"></label>
-    </form>
-    <div style="display:flex; gap:10px; flex-wrap:wrap;">
-      <button type="submit" formmethod="get">Apply filters</button>
-      <a class="button-link secondary" href="/dashboard">Reset</a>
-      <a class="button-link secondary" href="/api/points?format=csv{% if filters.date_from %}&date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&date_to={{ filters.date_to }}{% endif %}{% if filters.time_from %}&time_from={{ filters.time_from }}{% endif %}{% if filters.time_to %}&time_to={{ filters.time_to }}{% endif %}{% if filters.session_id %}&session_id={{ filters.session_id }}{% endif %}{% if filters.capture_mode %}&capture_mode={{ filters.capture_mode }}{% endif %}{% if filters.source %}&source={{ filters.source }}{% endif %}{% if filters.search %}&search={{ filters.search }}{% endif %}">Export CSV</a>
-      <a class="button-link secondary" href="/api/points?format=json{% if filters.date_from %}&date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&date_to={{ filters.date_to }}{% endif %}{% if filters.time_from %}&time_from={{ filters.time_from }}{% endif %}{% if filters.time_to %}&time_to={{ filters.time_to }}{% endif %}{% if filters.session_id %}&session_id={{ filters.session_id }}{% endif %}{% if filters.capture_mode %}&capture_mode={{ filters.capture_mode }}{% endif %}{% if filters.source %}&source={{ filters.source }}{% endif %}{% if filters.search %}&search={{ filters.search }}{% endif %}">Export JSON</a>
-      <a class="button-link secondary" href="/api/points?format=ndjson{% if filters.date_from %}&date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&date_to={{ filters.date_to }}{% endif %}{% if filters.time_from %}&time_from={{ filters.time_from }}{% endif %}{% if filters.time_to %}&time_to={{ filters.time_to }}{% endif %}{% if filters.session_id %}&session_id={{ filters.session_id }}{% endif %}{% if filters.capture_mode %}&capture_mode={{ filters.capture_mode }}{% endif %}{% if filters.source %}&source={{ filters.source }}{% endif %}{% if filters.search %}&search={{ filters.search }}{% endif %}">Export NDJSON</a>
+<section class="content-grid two-one">
+  <article class="panel table-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Letzte Requests</p>
+        <h3>Die letzten 6 Ingests</h3>
+      </div>
+      <a class="button-link secondary" href="/dashboard/requests">Alle Requests</a>
     </div>
-    <p class="footer-note">The dashboard is local-only unless ADMIN_USERNAME and ADMIN_PASSWORD are configured. Bearer tokens are never rendered here.</p>
-  </article>
-  <article class="panel">
-    <h2>Operator summary</h2>
-    <div class="config-grid">
-      {% for item in config_explanations %}
-        <div class="badge">
-          <strong>{{ item.label }}</strong>
-          <span>{{ item.text }}</span>
-        </div>
-      {% endfor %}
-    </div>
-  </article>
-</section>
-
-<section class="table-card">
-  <h2>Newest stored points</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Date</th>
-        <th>Time</th>
-        <th>UTC</th>
-        <th>Local timestamp</th>
-        <th>Latitude</th>
-        <th>Longitude</th>
-        <th>Accuracy</th>
-        <th>Session</th>
-        <th>Source</th>
-        <th>Mode</th>
-        <th>Request</th>
-        <th>Received</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for point in points_items %}
-      <tr>
-        <td>{{ point.point_date_local }}</td>
-        <td>{{ point.point_time_local }}</td>
-        <td>{{ point.point_timestamp_utc }}</td>
-        <td>{{ point.point_timestamp_local }}</td>
-        <td>{{ "%.6f"|format(point.latitude) }}</td>
-        <td>{{ "%.6f"|format(point.longitude) }}</td>
-        <td>{{ point.horizontal_accuracy_m }}</td>
-        <td><a href="/dashboard/sessions/{{ point.session_id }}">{{ point.session_id }}</a></td>
-        <td>{{ point.source }}</td>
-        <td>{{ point.capture_mode }}</td>
-        <td><a href="/dashboard/requests/{{ point.request_id }}">{{ point.request_id }}</a></td>
-        <td>{{ point.received_at_utc }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="12" class="muted">No points stored for the current filter set.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <p class="footer-note">Page {{ points.page }} · page size {{ points.pageSize }} · total rows {{ points.total }}</p>
-</section>
-
-<section class="split-grid" style="margin-top:20px;">
-  <article class="table-card">
-    <h2>Recent requests</h2>
     <table>
       <thead>
         <tr>
-          <th>Received</th>
+          <th>Zeit</th>
           <th>Status</th>
           <th>HTTP</th>
-          <th>Points</th>
+          <th>Punkte</th>
           <th>Session</th>
-          <th>Source</th>
-          <th>Mode</th>
           <th>Detail</th>
         </tr>
       </thead>
       <tbody>
         {% for item in recent_requests %}
+        {% set received = format_timestamp(item.received_at_utc) %}
         <tr>
-          <td>{{ item.received_at_utc }}</td>
-          <td class="{{ 'status-ok' if item.ingest_status == 'accepted' else 'status-error' }}">{{ item.ingest_status }}</td>
+          <td>
+            <strong>{{ received.relative }}</strong>
+            <span>{{ received.utc }}</span>
+          </td>
+          <td><span class="status-pill tone-{{ status_tone(item.ingest_status) }}">{{ item.ingest_status }}</span></td>
           <td>{{ item.http_status }}</td>
           <td>{{ item.points_count }}</td>
-          <td>{{ item.session_id or '' }}</td>
-          <td>{{ item.source or '' }}</td>
-          <td>{{ item.capture_mode or '' }}</td>
-          <td><a href="/dashboard/requests/{{ item.request_id }}">open</a></td>
+          <td>{{ item.session_id or 'n/a' }}</td>
+          <td><a href="/dashboard/requests/{{ item.request_id }}">oeffnen</a></td>
         </tr>
         {% else %}
-        <tr><td colspan="8" class="muted">No requests stored yet.</td></tr>
+        <tr><td colspan="6" class="empty-cell">Noch keine Requests gespeichert.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </article>
-  <article class="table-card">
-    <h2>Sessions</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Session</th>
-          <th>Points</th>
-          <th>First point</th>
-          <th>Last point</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for item in sessions %}
-        <tr>
-          <td><a href="/dashboard/sessions/{{ item.session_id }}">{{ item.session_id }}</a></td>
-          <td>{{ item.points_count }}</td>
-          <td>{{ item.first_point_ts_utc }}</td>
-          <td>{{ item.last_point_ts_utc }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="4" class="muted">No sessions stored yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+
+  <article class="panel stack-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Top Sessions</p>
+        <h3>Aktivste Sessions</h3>
+      </div>
+      <a class="button-link secondary" href="/dashboard/sessions">Alle Sessions</a>
+    </div>
+    <div class="stack-list">
+      {% for item in top_sessions %}
+      {% set session_last = format_timestamp(item.last_point_ts_utc) %}
+      <a class="list-card" href="/dashboard/sessions/{{ item.session_id }}">
+        <strong>{{ item.session_id }}</strong>
+        <span>{{ item.points_count }} Punkte · {{ item.requests_count }} Requests</span>
+        <span>{{ session_last.relative }}</span>
+      </a>
+      {% else %}
+      <div class="empty-state">
+        <strong>Keine Sessiondaten vorhanden.</strong>
+        <span>Sobald Punkte gespeichert sind, erscheint hier die aktivste Sessionliste.</span>
+      </div>
+      {% endfor %}
+    </div>
   </article>
 </section>
 
-<section class="code-card">
-  <h2>Config summary</h2>
-  <pre>{{ config_summary | tojson(indent=2) }}</pre>
+<section class="content-grid two-one">
+  <article class="panel table-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Neueste Punkte</p>
+        <h3>Zuletzt eingegangene GPS-Punkte</h3>
+      </div>
+      <div class="action-row">
+        <a class="button-link secondary" href="/dashboard/points">Punktliste</a>
+        {% for item in point_filter_exports %}
+        <a class="button-link tertiary" href="{{ item.href }}">{{ item.label }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Zeit</th>
+          <th>Lokal</th>
+          <th>Koordinate</th>
+          <th>Accuracy</th>
+          <th>Session</th>
+          <th>Request</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for point in recent_points %}
+        {% set point_time = format_timestamp(point.point_timestamp_utc) %}
+        <tr>
+          <td>
+            <strong>{{ point_time.relative }}</strong>
+            <span>{{ point_time.utc }}</span>
+          </td>
+          <td>{{ point.point_timestamp_local }}</td>
+          <td>{{ "%.6f"|format(point.latitude) }}, {{ "%.6f"|format(point.longitude) }}</td>
+          <td>{{ point.horizontal_accuracy_m }} m</td>
+          <td><a href="/dashboard/sessions/{{ point.session_id }}">{{ point.session_id }}</a></td>
+          <td><a href="/dashboard/requests/{{ point.request_id }}">{{ point.request_id }}</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty-cell">Noch keine Punkte vorhanden.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+
+  <article class="panel stack-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Konfiguration</p>
+        <h3>Schnell erklaert</h3>
+      </div>
+      <a class="button-link secondary" href="/dashboard/config">Zur Konfiguration</a>
+    </div>
+    <div class="stack-list">
+      {% for item in config_explanations[:4] %}
+      <div class="list-card static">
+        <strong>{{ item.label }}</strong>
+        <span>{{ item.text }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </article>
+</section>
+
+<section class="content-grid two-one">
+  <article class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Storage & Sicherheit</p>
+        <h3>Wichtige Betriebsdetails</h3>
+      </div>
+    </div>
+    <dl class="meta-list">
+      <div><dt>SQLite-Pfad</dt><dd>{{ snapshot.storage.sqlitePath }}</dd></div>
+      <div><dt>SQLite-Groesse</dt><dd>{{ format_bytes(snapshot.storage.sqliteFile.sizeBytes) }}</dd></div>
+      <div><dt>SQLite zuletzt geaendert</dt><dd>{{ format_timestamp(snapshot.storage.sqliteFile.lastModifiedUtc).utc or 'n/a' }}</dd></div>
+      <div><dt>Raw-Audit aktiv</dt><dd>{{ snapshot.storage.rawPayloadNdjsonEnabled and 'ja' or 'nein' }}</dd></div>
+      <div><dt>Raw-Audit-Pfad</dt><dd>{{ snapshot.storage.rawPayloadNdjsonPath }}</dd></div>
+      <div><dt>Letzte Warnung</dt><dd>{{ snapshot.status.lastWarning or 'Keine aktuelle Warnung gespeichert' }}</dd></div>
+    </dl>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Direktzugriff</p>
+        <h3>Wohin als Nächstes?</h3>
+      </div>
+    </div>
+    <div class="stack-list">
+      <a class="list-card" href="/dashboard/live-status"><strong>Live-Status</strong><span>Health, Readiness und letzte Fehler kompakt pruefen.</span></a>
+      <a class="list-card" href="/dashboard/activity"><strong>Letzte Aktivitaet</strong><span>Requests, Sessions und Zeitfenster im Verlauf lesen.</span></a>
+      <a class="list-card" href="/dashboard/troubleshooting"><strong>Troubleshooting</strong><span>Bekannte Fehlerbilder und Hilfepfade direkt abrufen.</span></a>
+      <a class="list-card" href="/dashboard/open-items"><strong>Open Items</strong><span>Bewusst offene Folgearbeiten des Receiver-Strangs einsehen.</span></a>
+    </div>
+  </article>
 </section>
 {% endblock %}

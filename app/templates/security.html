@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="metric-grid">
+  <article><span>Bearer-Token</span><strong>{{ config_summary.authRequired and 'aktiv' or 'inaktiv' }}</strong><small>{{ config_summary.bearerToken or 'nicht gesetzt' }}</small></article>
+  <article><span>Admin-Schutz</span><strong>{{ config_summary.adminAuthEnabled and 'aktiv' or 'local-only' }}</strong><small>{{ config_summary.adminUsername or 'kein Admin-User gesetzt' }}</small></article>
+  <article><span>Trust Proxy Headers</span><strong>{{ config_summary.trustProxyHeaders and 'aktiv' or 'inaktiv' }}</strong><small>Auswertung von `X-Forwarded-For`</small></article>
+  <article><span>Letzte Fehlerkategorie</span><strong>{{ snapshot.status.lastErrorCategory or 'keine' }}</strong><small>zuletzt gespeicherte Fehlerkategorie</small></article>
+</section>
+
+<section class="content-grid two-one">
+  <article class="panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Sicherheitsdoku</p><h3>Receiver-Hinweise</h3></div>
+    </div>
+    {% for section in doc_sections.sections %}
+    <div class="doc-section">
+      <h4>{{ section.heading }}</h4>
+      {% for paragraph in section.paragraphs %}
+      <p>{{ paragraph }}</p>
+      {% endfor %}
+      {% if section["items"] %}
+      <ul class="doc-list">
+        {% for item in section["items"] %}
+        <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Relevante Open Items</p><h3>Noch offene Folgearbeiten</h3></div>
+    </div>
+    {% for section in open_items.sections[:3] %}
+    <div class="doc-section">
+      <h4>{{ section.heading }}</h4>
+      {% if section["items"] %}
+      <ul class="doc-list">
+        {% for item in section["items"] %}
+        <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </article>
+</section>
+{% endblock %}

@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="metric-grid compact">
+  <article><span>Point-ID</span><strong>#{{ point_item.id }}</strong></article>
+  <article><span>Accuracy</span><strong>{{ point_item.horizontal_accuracy_m }} m</strong></article>
+  <article><span>Session</span><strong>{{ point_item.session_id }}</strong></article>
+  <article><span>Source</span><strong>{{ point_item.source }}</strong></article>
+</section>
+
+<section class="content-grid two-one">
+  <article class="panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Punktdetail</p><h3>#{{ point_item.id }}</h3></div>
+      <div class="action-row">
+        <a class="button-link secondary" href="/dashboard/points">Zur Punktliste</a>
+        <a class="button-link tertiary" href="/api/points/{{ point_item.id }}">JSON API</a>
+      </div>
+    </div>
+    <dl class="meta-list">
+      <div><dt>UTC-Zeit</dt><dd>{{ format_timestamp(point_item.point_timestamp_utc).utc }}</dd></div>
+      <div><dt>Lokale Zeit</dt><dd>{{ point_item.point_timestamp_local }}</dd></div>
+      <div><dt>Empfangen UTC</dt><dd>{{ format_timestamp(point_item.received_at_utc).utc }}</dd></div>
+      <div><dt>Latitude</dt><dd>{{ "%.6f"|format(point_item.latitude) }}</dd></div>
+      <div><dt>Longitude</dt><dd>{{ "%.6f"|format(point_item.longitude) }}</dd></div>
+      <div><dt>Accuracy</dt><dd>{{ point_item.horizontal_accuracy_m }} m</dd></div>
+      <div><dt>Session</dt><dd><a href="/dashboard/sessions/{{ point_item.session_id }}">{{ point_item.session_id }}</a></dd></div>
+      <div><dt>Request</dt><dd><a href="/dashboard/requests/{{ point_item.request_id }}">{{ point_item.request_id }}</a></dd></div>
+      <div><dt>Source</dt><dd>{{ point_item.source }}</dd></div>
+      <div><dt>Capture-Mode</dt><dd>{{ point_item.capture_mode }}</dd></div>
+    </dl>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Einordnung</p><h3>Operator-Kontext</h3></div>
+    </div>
+    <div class="stack-list">
+      <div class="list-card static">
+        <strong>Zeitvergleich</strong>
+        <span>{{ format_timestamp(point_item.point_timestamp_utc).utc }} · {{ format_timestamp(point_item.point_timestamp_utc).local }}</span>
+      </div>
+      <div class="list-card static">
+        <strong>Koordinate</strong>
+        <span>{{ "%.6f"|format(point_item.latitude) }}, {{ "%.6f"|format(point_item.longitude) }}</span>
+      </div>
+      <div class="list-card static">
+        <strong>Verkettung</strong>
+        <span>Punkt gehoert zu Session {{ point_item.session_id }} und Request {{ point_item.request_id }}.</span>
+      </div>
+    </div>
+  </article>
+</section>
+{% endblock %}

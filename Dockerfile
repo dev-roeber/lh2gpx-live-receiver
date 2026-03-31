@@ -12,6 +12,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+COPY docs ./docs
+COPY CHANGELOG.md ./CHANGELOG.md
 COPY scripts ./scripts
 
 RUN chmod +x /app/scripts/run-local.sh /app/scripts/smoke-test.sh /app/scripts/container-entrypoint.sh \

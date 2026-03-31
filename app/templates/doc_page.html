@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="panel-header">
+    <div><p class="eyebrow">Dokumentation</p><h3>{{ doc_sections.title }}</h3></div>
+    <span class="inline-code">{{ doc_sections.path }}</span>
+  </div>
+  {% for section in doc_sections.sections %}
+  <div class="doc-section">
+    <h4>{{ section.heading }}</h4>
+    {% for paragraph in section.paragraphs %}
+    <p>{{ paragraph }}</p>
+    {% endfor %}
+    {% if section["items"] %}
+    <ul class="doc-list">
+      {% for item in section["items"] %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endblock %}

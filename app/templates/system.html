@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="metric-grid">
+  <article><span>App-Version</span><strong>{{ runtime_info.appVersion }}</strong><small>FastAPI-Anwendung</small></article>
+  <article><span>Python</span><strong>{{ runtime_info.pythonVersion }}</strong><small>Laufzeit im aktuellen Prozess</small></article>
+  <article><span>Gestartet</span><strong>{{ format_timestamp(runtime_info.startedAtUtc).relative }}</strong><small>{{ format_timestamp(runtime_info.startedAtUtc).utc }}</small></article>
+  <article><span>Uptime</span><strong>{{ runtime_info.uptime }}</strong><small>seit letztem Start</small></article>
+</section>
+
+<section class="content-grid two-one">
+  <article class="panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Laufzeit</p><h3>Aktuelle Systeminfos</h3></div>
+    </div>
+    <dl class="meta-list">
+      <div><dt>Aktuelle UTC-Zeit</dt><dd>{{ format_timestamp(runtime_info.currentUtc).utc }}</dd></div>
+      <div><dt>Aktuelle lokale Zeit</dt><dd>{{ format_timestamp(runtime_info.currentUtc).local }}</dd></div>
+      <div><dt>Public Hostname</dt><dd>{{ receiver_summary.publicHostname }}</dd></div>
+      <div><dt>Bind / Port</dt><dd>{{ receiver_summary.bindAddress }}</dd></div>
+      <div><dt>Local Timezone</dt><dd>{{ receiver_summary.localTimezone }}</dd></div>
+    </dl>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Storage-Stand</p><h3>Dateigroessen und letzte Schreibzeit</h3></div>
+    </div>
+    <dl class="meta-list">
+      <div><dt>SQLite</dt><dd>{{ format_bytes(snapshot.storage.sqliteFile.sizeBytes) }}</dd></div>
+      <div><dt>SQLite zuletzt geaendert</dt><dd>{{ format_timestamp(snapshot.storage.sqliteFile.lastModifiedUtc).utc or 'n/a' }}</dd></div>
+      <div><dt>Raw-Audit</dt><dd>{{ format_bytes(snapshot.storage.rawPayloadFile.sizeBytes) }}</dd></div>
+      <div><dt>Raw-Audit zuletzt geaendert</dt><dd>{{ format_timestamp(snapshot.storage.rawPayloadFile.lastModifiedUtc).utc or 'n/a' }}</dd></div>
+    </dl>
+  </article>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <div><p class="eyebrow">Changelog</p><h3>Zuletzt dokumentierte Receiver-Aenderungen</h3></div>
+  </div>
+  {% for section in changelog_sections.sections[:4] %}
+  <div class="doc-section">
+    <h4>{{ section.heading }}</h4>
+    {% if section["items"] %}
+    <ul class="doc-list">
+      {% for item in section["items"] %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endblock %}

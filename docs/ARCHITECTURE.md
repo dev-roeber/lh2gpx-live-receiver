@@ -10,7 +10,7 @@ Der Receiver nimmt optionale Live-Location-Uploads an und macht sie fuer den Ser
 - SQLite-Datenbank fuer Requests und GPS-Punkte
 - optionales NDJSON fuer Rohpayload-Audit
 - Caddy als TLS-Reverse-Proxy
-- Operator-Dashboard in serverseitig gerendertem HTML
+- receiver-first Operator-UI in serverseitig gerendertem HTML mit mehreren Admin-Views
 
 ## Request-Fluss
 
@@ -48,6 +48,18 @@ Der Receiver nimmt optionale Live-Location-Uploads an und macht sie fuer den Ser
 - Operator-UI lokal-only, bis Admin-Credentials gesetzt sind
 - keine Secret-Anzeige in API oder HTML
 - JSON-Access-Logs ueber Caddy
+
+## Informationsarchitektur der Operator-UI
+
+Die HTML-Oberflaeche ist entlang des Receiver-Betriebs gruppiert:
+
+- Receiver: Dashboard, Live-Status, Letzte Aktivitaet
+- Daten: Punkte, Requests, Sessions, Exporte
+- Betrieb: Konfiguration, Storage, Troubleshooting, Open Items
+- Sicherheit: Auth-Status und Security-Hinweise
+- System: Version, Laufzeit und Changelog-Ausschnitte
+
+Das erlaubt eine klarere Operator-Sicht, ohne die Ingest-, Storage- oder API-Logik umzubauen.
 
 ## Bewusst nicht umgesetzt
 

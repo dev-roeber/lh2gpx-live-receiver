@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="metric-grid">
+  <article><span>Receiver</span><strong>{{ receiver_summary.serviceStatus }}</strong><small>FastAPI-Prozess aktiv</small></article>
+  <article><span>Health</span><strong class="tone-{{ status_tone(receiver_summary.healthStatus) }}">{{ receiver_summary.healthStatus }}</strong><small>Liveness des Prozesses</small></article>
+  <article><span>Readiness</span><strong class="tone-{{ status_tone(receiver_summary.readinessStatus) }}">{{ receiver_summary.readinessStatus }}</strong><small>{{ snapshot.storage.readiness.message }}</small></article>
+  <article><span>Storage</span><strong class="tone-{{ status_tone(receiver_summary.storageStatus) }}">{{ receiver_summary.storageStatus }}</strong><small>SQLite und Audit-Datei</small></article>
+  <article><span>Ingest-Auth</span><strong>{{ receiver_summary.authStatus }}</strong><small>Bearer-Token fuer POST /live-location</small></article>
+  <article><span>Admin-Zugriff</span><strong>{{ receiver_summary.adminStatus }}</strong><small>Basic Auth oder local-only</small></article>
+</section>
+
+<section class="content-grid two-one">
+  <article class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Letzte Requests</p>
+        <h3>Status der juengsten Ingests</h3>
+      </div>
+    </div>
+    <dl class="meta-list">
+      {% set last_request = snapshot.latest.request %}
+      {% set last_request_time = format_timestamp(last_request.received_at_utc if last_request else None) %}
+      <div><dt>Letzter Request</dt><dd>{{ last_request_time.utc or 'keine Daten' }}</dd></div>
+      <div><dt>Status</dt><dd>{{ snapshot.status.lastIngestStatus or 'keine Daten' }}</dd></div>
+      <div><dt>HTTP-Code</dt><dd>{{ snapshot.status.lastHttpStatus or 'keine Daten' }}</dd></div>
+      <div><dt>Session</dt><dd>{{ last_request.session_id if last_request else 'keine Daten' }}</dd></div>
+      <div><dt>Capture-Mode</dt><dd>{{ last_request.capture_mode if last_request else 'keine Daten' }}</dd></div>
+      <div><dt>Punkte im letzten Request</dt><dd>{{ last_request.points_count if last_request else 0 }}</dd></div>
+    </dl>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Warnungen</p>
+        <h3>Problemhinweise</h3>
+      </div>
+    </div>
+    <div class="stack-list">
+      <div class="list-card static">
+        <strong>Letzte Fehlerkategorie</strong>
+        <span>{{ snapshot.status.lastErrorCategory or 'Keine gespeicherte Fehlerkategorie' }}</span>
+      </div>
+      <div class="list-card static">
+        <strong>Letzter Warnhinweis</strong>
+        <span>{{ snapshot.status.lastWarning or 'Kein aktueller Warnhinweis' }}</span>
+      </div>
+      <div class="list-card static">
+        <strong>Receiver-Befund</strong>
+        <span>{{ receiver_summary.attentionMessage }}</span>
+      </div>
+    </div>
+  </article>
+</section>
+
+<section class="content-grid two-one">
+  <article class="panel table-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Antwortcodes</p>
+        <h3>Verteilung der HTTP-Responses</h3>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>HTTP</th><th>Anzahl</th></tr></thead>
+      <tbody>
+        {% for item in snapshot.lists.responseCodes %}
+        <tr><td>{{ item.label }}</td><td>{{ item.value }}</td></tr>
+        {% else %}
+        <tr><td colspan="2" class="empty-cell">Keine Response-Codes vorhanden.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+
+  <article class="panel table-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Fehlerkategorien</p>
+        <h3>Gespeicherte Fehlerverteilung</h3>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>Kategorie</th><th>Anzahl</th></tr></thead>
+      <tbody>
+        {% for item in snapshot.lists.errorDistribution %}
+        <tr><td>{{ item.label }}</td><td>{{ item.value }}</td></tr>
+        {% else %}
+        <tr><td colspan="2" class="empty-cell">Keine Fehler gespeichert.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+</section>
+{% endblock %}

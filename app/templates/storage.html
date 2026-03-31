@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="metric-grid">
+  <article><span>SQLite-Datei</span><strong>{{ format_bytes(snapshot.storage.sqliteFile.sizeBytes) }}</strong><small>{{ snapshot.storage.sqliteFile.path }}</small></article>
+  <article><span>Raw Audit</span><strong>{{ snapshot.storage.rawPayloadNdjsonEnabled and 'aktiv' or 'inaktiv' }}</strong><small>{{ format_bytes(snapshot.storage.rawPayloadFile.sizeBytes) }}</small></article>
+  <article><span>Readiness</span><strong class="tone-{{ status_tone(receiver_summary.readinessStatus) }}">{{ receiver_summary.readinessStatus }}</strong><small>{{ snapshot.storage.readiness.message }}</small></article>
+  <article><span>Writability</span><strong class="tone-{{ status_tone(receiver_summary.storageStatus) }}">{{ receiver_summary.storageStatus }}</strong><small>Probe auf Schreibbarkeit des DATA_DIR</small></article>
+</section>
+
+<section class="content-grid two-one">
+  <article class="panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Dateistand</p><h3>Storage-Dateien</h3></div>
+    </div>
+    <dl class="meta-list">
+      <div><dt>SQLite-Pfad</dt><dd>{{ snapshot.storage.sqlitePath }}</dd></div>
+      <div><dt>SQLite zuletzt geaendert</dt><dd>{{ format_timestamp(snapshot.storage.sqliteFile.lastModifiedUtc).utc or 'n/a' }}</dd></div>
+      <div><dt>Raw-Payload-Pfad</dt><dd>{{ snapshot.storage.rawPayloadNdjsonPath }}</dd></div>
+      <div><dt>Raw-Payload zuletzt geaendert</dt><dd>{{ format_timestamp(snapshot.storage.rawPayloadFile.lastModifiedUtc).utc or 'n/a' }}</dd></div>
+      <div><dt>Legacy-Importquelle</dt><dd>{{ snapshot.storage.legacyRequestNdjsonPath }}</dd></div>
+      <div><dt>Storage-Meldung</dt><dd>{{ snapshot.storage.readiness.message }}</dd></div>
+    </dl>
+  </article>
+
+  <article class="panel stack-panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Verstaendlich erklaert</p><h3>Was Operatoren wissen muessen</h3></div>
+    </div>
+    <div class="stack-list">
+      <div class="list-card static">
+        <strong>SQLite ist der Primaer-Storage</strong>
+        <span>Requests und Punkte werden strukturiert in `receiver.sqlite3` gehalten und von allen Admin-Seiten gelesen.</span>
+      </div>
+      <div class="list-card static">
+        <strong>NDJSON ist ein Auditpfad</strong>
+        <span>Wenn aktiviert, wird der Rohpayload zusaetzlich append-only gesichert. Das ist hilfreich fuer Diagnose und Nachvollziehbarkeit.</span>
+      </div>
+      <div class="list-card static">
+        <strong>Readiness ist entscheidend</strong>
+        <span>`readyz` zeigt an, ob der Receiver aktuell sicher schreiben kann. `health` zeigt nur, dass der Prozess lebt.</span>
+      </div>
+    </div>
+  </article>
+</section>
+{% endblock %}

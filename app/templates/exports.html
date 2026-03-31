@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="metric-grid compact">
+  <article><span>Exportformate</span><strong>{{ snapshot.exports|length }}</strong><small>CSV, JSON, NDJSON</small></article>
+  <article><span>Receiver-Punkte</span><strong>{{ snapshot.totals.totalPoints }}</strong><small>Grundlage aller Punkt-Exporte</small></article>
+  <article><span>Requests gesamt</span><strong>{{ snapshot.totals.totalRequests }}</strong><small>Rueckverfolgung ueber Request-Details</small></article>
+  <article><span>Sessions gesamt</span><strong>{{ snapshot.totals.totalSessions }}</strong><small>Session-Kontext ueber Session-Views</small></article>
+</section>
+
+<section class="content-grid two-one">
+  <article class="panel stack-panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Punkt-Exporte</p><h3>Direkte Datenabzuege</h3></div>
+    </div>
+    <div class="stack-list">
+      {% for export in snapshot.exports %}
+      <a class="list-card" href="{{ export.path }}">
+        <strong>{{ export.label }}</strong>
+        <span>{{ export.path }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Arbeitsweise</p><h3>Wie Exporte gedacht sind</h3></div>
+    </div>
+    <div class="stack-list">
+      <div class="list-card static">
+        <strong>Komplettexport</strong>
+        <span>Die Links links exportieren die gesamte aktuelle Punktbasis direkt ueber `/api/points`.</span>
+      </div>
+      <div class="list-card static">
+        <strong>Gefilterter Export</strong>
+        <span>Fuer gefilterte Daten zuerst die Punktliste oeffnen und dort Datum, Uhrzeit, Session, Source oder Capture-Mode setzen.</span>
+      </div>
+      <div class="list-card static">
+        <strong>Request- und Sessionkontext</strong>
+        <span>Fuer tieferen Kontext die HTML-Detailseiten oder die JSON-APIs unter `/api/requests/...` und `/api/sessions/...` nutzen.</span>
+      </div>
+    </div>
+  </article>
+</section>
+{% endblock %}

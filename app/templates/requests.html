@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="panel-header">
+    <div><p class="eyebrow">Filter</p><h3>Requestliste filtern</h3></div>
+  </div>
+  <form class="filters" method="get">
+    <label>Datum von<input type="date" name="date_from" value="{{ filters.date_from or '' }}"></label>
+    <label>Datum bis<input type="date" name="date_to" value="{{ filters.date_to or '' }}"></label>
+    <label>Zeit von<input type="time" step="1" name="time_from" value="{{ filters.time_from or '' }}"></label>
+    <label>Zeit bis<input type="time" step="1" name="time_to" value="{{ filters.time_to or '' }}"></label>
+    <label>Session-ID<input type="text" name="session_id" value="{{ filters.session_id or '' }}"></label>
+    <label>Capture-Mode<input type="text" name="capture_mode" value="{{ filters.capture_mode or '' }}"></label>
+    <label>Source<input type="text" name="source" value="{{ filters.source or '' }}"></label>
+    <label>Status<input type="text" name="ingest_status" value="{{ filters.ingest_status or '' }}"></label>
+    <label>Suche<input type="text" name="search" value="{{ filters.search or '' }}"></label>
+    <label>Page Size<input type="number" min="1" name="page_size" value="{{ filters.page_size }}"></label>
+    <div class="filter-actions">
+      <button type="submit">Filter anwenden</button>
+      <a class="button-link secondary" href="/dashboard/requests">Reset</a>
+    </div>
+  </form>
+</section>
+
+<section class="metric-grid compact">
+  <article><span>Gefilterte Requests</span><strong>{{ requests_payload["total"] }}</strong></article>
+  <article><span>Fehler gesamt</span><strong>{{ snapshot.totals.failedRequests }}</strong></article>
+  <article><span>Letzte Fehlerkategorie</span><strong>{{ snapshot.status.lastErrorCategory or 'keine' }}</strong></article>
+  <article><span>Antwortcodes</span><strong>{{ snapshot.lists.responseCodes|length }}</strong></article>
+</section>
+
+<section class="panel table-panel">
+  <div class="panel-header">
+    <div><p class="eyebrow">Requests</p><h3>Gespeicherte Ingest-Requests</h3></div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Empfangen</th>
+        <th>Status</th>
+        <th>HTTP</th>
+        <th>Punkte</th>
+        <th>Session</th>
+        <th>Source</th>
+        <th>Mode</th>
+        <th>Fehlerkategorie</th>
+        <th>Detail</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in requests_payload["items"] %}
+      {% set received = format_timestamp(item.received_at_utc) %}
+      <tr>
+        <td><strong>{{ received.relative }}</strong><span>{{ received.utc }}</span></td>
+        <td><span class="status-pill tone-{{ status_tone(item.ingest_status) }}">{{ item.ingest_status }}</span></td>
+        <td>{{ item.http_status }}</td>
+        <td>{{ item.points_count }}</td>
+        <td>{{ item.session_id or 'n/a' }}</td>
+        <td>{{ item.source or 'n/a' }}</td>
+        <td>{{ item.capture_mode or 'n/a' }}</td>
+        <td>{{ item.error_category or 'n/a' }}</td>
+        <td><a href="/dashboard/requests/{{ item.request_id }}">oeffnen</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9" class="empty-cell">Keine Requests fuer diese Filterkombination gefunden.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

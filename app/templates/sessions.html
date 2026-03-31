@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="metric-grid compact">
+  <article><span>Sessions gesamt</span><strong>{{ snapshot.totals.totalSessions }}</strong></article>
+  <article><span>Sessions 24h</span><strong>{{ snapshot.periods.sessions24h }}</strong></article>
+  <article><span>Sessions 7d</span><strong>{{ snapshot.periods.sessions7d }}</strong></article>
+  <article><span>Juengste Session</span><strong>{{ snapshot.latest.lastPoint.session_id if snapshot.latest.lastPoint else 'n/a' }}</strong></article>
+</section>
+
+<section class="content-grid two-one">
+  <article class="panel table-panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Sessions</p><h3>Alle gespeicherten Sessions</h3></div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Session</th>
+          <th>Punkte</th>
+          <th>Requests</th>
+          <th>Accuracy Ø</th>
+          <th>Erster Punkt</th>
+          <th>Letzter Punkt</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in sessions %}
+        {% set first_point = format_timestamp(item.first_point_ts_utc) %}
+        {% set last_point = format_timestamp(item.last_point_ts_utc) %}
+        <tr>
+          <td><a href="/dashboard/sessions/{{ item.session_id }}">{{ item.session_id }}</a></td>
+          <td>{{ item.points_count }}</td>
+          <td>{{ item.requests_count }}</td>
+          <td>{{ item.avg_accuracy_m and ('%.2f'|format(item.avg_accuracy_m)) or 'n/a' }} m</td>
+          <td>{{ first_point.utc }}</td>
+          <td>{{ last_point.relative }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty-cell">Noch keine Sessions gespeichert.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+
+  <article class="panel stack-panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Top Sessions</p><h3>Nach Punktvolumen</h3></div>
+    </div>
+    <div class="stack-list">
+      {% for item in snapshot.lists.topSessions %}
+      {% set session_last = format_timestamp(item.last_point_ts_utc) %}
+      <a class="list-card" href="/dashboard/sessions/{{ item.session_id }}">
+        <strong>{{ item.session_id }}</strong>
+        <span>{{ item.points_count }} Punkte · {{ item.requests_count }} Requests</span>
+        <span>{{ session_last.relative }}</span>
+      </a>
+      {% else %}
+      <div class="empty-state"><strong>Keine Top-Sessions vorhanden.</strong><span>Es wurden noch keine Sessiondaten gespeichert.</span></div>
+      {% endfor %}
+    </div>
+  </article>
+</section>
+{% endblock %}

@@ -5,7 +5,7 @@ import io
 import json
 import sqlite3
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import sha1
 from pathlib import Path
@@ -351,6 +351,427 @@ class ReceiverStorage:
             "pointsPerSession": points_per_session,
         }
 
+    def get_dashboard_snapshot(self) -> dict[str, Any]:
+        self._require_ready()
+        now_utc = datetime.now(timezone.utc)
+        since_24h = isoformat_utc(now_utc - timedelta(hours=24))
+        since_7d = isoformat_utc(now_utc - timedelta(days=7))
+        today_local = now_utc.astimezone(self._timezone).strftime("%Y-%m-%d")
+
+        with self._connect() as connection:
+            totals = connection.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_requests,
+                    SUM(CASE WHEN ingest_status = 'accepted' THEN 1 ELSE 0 END) AS accepted_requests,
+                    SUM(CASE WHEN ingest_status != 'accepted' THEN 1 ELSE 0 END) AS failed_requests,
+                    SUM(points_count) AS total_points,
+                    COUNT(DISTINCT CASE WHEN ingest_status = 'accepted' THEN session_id END) AS total_sessions,
+                    MAX(CASE WHEN ingest_status = 'accepted' THEN received_at_utc END) AS last_success_at,
+                    MAX(CASE WHEN ingest_status != 'accepted' THEN received_at_utc END) AS last_failure_at
+                FROM ingest_requests
+                """
+            ).fetchone()
+
+            periods = connection.execute(
+                """
+                SELECT
+                    SUM(CASE WHEN received_at_utc >= ? THEN 1 ELSE 0 END) AS requests_24h,
+                    SUM(CASE WHEN received_at_utc >= ? THEN 1 ELSE 0 END) AS requests_7d,
+                    SUM(CASE WHEN ingest_status = 'accepted' AND received_at_utc >= ? THEN points_count ELSE 0 END) AS points_24h,
+                    SUM(CASE WHEN ingest_status = 'accepted' AND received_at_utc >= ? THEN points_count ELSE 0 END) AS points_7d,
+                    SUM(CASE WHEN ingest_status = 'accepted' AND substr(received_at_utc, 1, 10) = ? THEN 1 ELSE 0 END) AS requests_today,
+                    SUM(CASE WHEN ingest_status = 'accepted' AND session_id IS NOT NULL AND received_at_utc >= ? THEN 1 ELSE 0 END) AS session_events_24h,
+                    SUM(CASE WHEN ingest_status = 'accepted' AND session_id IS NOT NULL AND received_at_utc >= ? THEN 1 ELSE 0 END) AS session_events_7d
+                FROM ingest_requests
+                """,
+                (since_24h, since_7d, since_24h, since_7d, today_local, since_24h, since_7d),
+            ).fetchone()
+
+            points_today = connection.execute(
+                """
+                SELECT COUNT(*) AS points_today
+                FROM gps_points
+                WHERE point_date_local = ?
+                """,
+                (today_local,),
+            ).fetchone()
+
+            session_counts = connection.execute(
+                """
+                SELECT
+                    COUNT(DISTINCT CASE WHEN ingest_status = 'accepted' AND received_at_utc >= ? THEN session_id END) AS sessions_24h,
+                    COUNT(DISTINCT CASE WHEN ingest_status = 'accepted' AND received_at_utc >= ? THEN session_id END) AS sessions_7d
+                FROM ingest_requests
+                """,
+                (since_24h, since_7d),
+            ).fetchone()
+
+            last_request = connection.execute(
+                """
+                SELECT
+                    request_id,
+                    received_at_utc,
+                    sent_at_utc,
+                    source,
+                    session_id,
+                    capture_mode,
+                    points_count,
+                    ingest_status,
+                    http_status,
+                    error_category,
+                    error_detail
+                FROM ingest_requests
+                ORDER BY received_at_utc DESC, request_id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+
+            last_success = connection.execute(
+                """
+                SELECT
+                    request_id,
+                    received_at_utc,
+                    sent_at_utc,
+                    source,
+                    session_id,
+                    capture_mode,
+                    points_count,
+                    ingest_status,
+                    http_status
+                FROM ingest_requests
+                WHERE ingest_status = 'accepted'
+                ORDER BY received_at_utc DESC, request_id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+
+            last_failure = connection.execute(
+                """
+                SELECT
+                    request_id,
+                    received_at_utc,
+                    sent_at_utc,
+                    source,
+                    session_id,
+                    capture_mode,
+                    points_count,
+                    ingest_status,
+                    http_status,
+                    error_category,
+                    error_detail
+                FROM ingest_requests
+                WHERE ingest_status != 'accepted'
+                ORDER BY received_at_utc DESC, request_id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+
+            latest_point = connection.execute(
+                """
+                SELECT
+                    id,
+                    request_id,
+                    received_at_utc,
+                    sent_at_utc,
+                    point_timestamp_utc,
+                    point_timestamp_local,
+                    point_date_local,
+                    point_time_local,
+                    latitude,
+                    longitude,
+                    horizontal_accuracy_m,
+                    session_id,
+                    source,
+                    capture_mode
+                FROM gps_points
+                ORDER BY point_timestamp_utc DESC, id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+
+            first_point = connection.execute(
+                """
+                SELECT
+                    id,
+                    request_id,
+                    received_at_utc,
+                    sent_at_utc,
+                    point_timestamp_utc,
+                    point_timestamp_local,
+                    point_date_local,
+                    point_time_local,
+                    latitude,
+                    longitude,
+                    horizontal_accuracy_m,
+                    session_id,
+                    source,
+                    capture_mode
+                FROM gps_points
+                ORDER BY point_timestamp_utc ASC, id ASC
+                LIMIT 1
+                """
+            ).fetchone()
+
+            accuracy = connection.execute(
+                """
+                SELECT
+                    MIN(horizontal_accuracy_m) AS min_accuracy_m,
+                    AVG(horizontal_accuracy_m) AS avg_accuracy_m,
+                    MAX(horizontal_accuracy_m) AS max_accuracy_m
+                FROM gps_points
+                """
+            ).fetchone()
+
+            recent_requests = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT
+                        request_id,
+                        received_at_utc,
+                        sent_at_utc,
+                        source,
+                        session_id,
+                        capture_mode,
+                        points_count,
+                        first_point_ts_utc,
+                        last_point_ts_utc,
+                        ingest_status,
+                        http_status,
+                        error_category,
+                        error_detail
+                    FROM ingest_requests
+                    ORDER BY received_at_utc DESC, request_id DESC
+                    LIMIT 10
+                    """
+                ).fetchall()
+            ]
+
+            recent_points = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT
+                        id,
+                        request_id,
+                        received_at_utc,
+                        sent_at_utc,
+                        point_timestamp_utc,
+                        point_timestamp_local,
+                        point_date_local,
+                        point_time_local,
+                        latitude,
+                        longitude,
+                        horizontal_accuracy_m,
+                        session_id,
+                        source,
+                        capture_mode
+                    FROM gps_points
+                    ORDER BY point_timestamp_utc DESC, id DESC
+                    LIMIT 10
+                    """
+                ).fetchall()
+            ]
+
+            recent_sessions = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT
+                        session_id,
+                        source,
+                        capture_mode,
+                        COUNT(*) AS points_count,
+                        COUNT(DISTINCT request_id) AS requests_count,
+                        AVG(horizontal_accuracy_m) AS avg_accuracy_m,
+                        MIN(point_timestamp_utc) AS first_point_ts_utc,
+                        MAX(point_timestamp_utc) AS last_point_ts_utc
+                    FROM gps_points
+                    GROUP BY session_id, source, capture_mode
+                    ORDER BY last_point_ts_utc DESC
+                    LIMIT 10
+                    """
+                ).fetchall()
+            ]
+
+            top_sessions = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT
+                        session_id,
+                        source,
+                        capture_mode,
+                        COUNT(*) AS points_count,
+                        COUNT(DISTINCT request_id) AS requests_count,
+                        AVG(horizontal_accuracy_m) AS avg_accuracy_m,
+                        MIN(point_timestamp_utc) AS first_point_ts_utc,
+                        MAX(point_timestamp_utc) AS last_point_ts_utc
+                    FROM gps_points
+                    GROUP BY session_id, source, capture_mode
+                    ORDER BY points_count DESC, last_point_ts_utc DESC
+                    LIMIT 5
+                    """
+                ).fetchall()
+            ]
+
+            points_per_day = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT point_date_local AS period_label, COUNT(*) AS value
+                    FROM gps_points
+                    GROUP BY point_date_local
+                    ORDER BY point_date_local DESC
+                    LIMIT 14
+                    """
+                ).fetchall()
+            ]
+
+            requests_per_day = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT substr(received_at_utc, 1, 10) AS period_label, COUNT(*) AS value
+                    FROM ingest_requests
+                    GROUP BY substr(received_at_utc, 1, 10)
+                    ORDER BY period_label DESC
+                    LIMIT 14
+                    """
+                ).fetchall()
+            ]
+
+            response_codes = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT http_status AS label, COUNT(*) AS value
+                    FROM ingest_requests
+                    GROUP BY http_status
+                    ORDER BY value DESC, http_status ASC
+                    """
+                ).fetchall()
+            ]
+
+            source_distribution = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT source AS label, COUNT(*) AS value
+                    FROM gps_points
+                    GROUP BY source
+                    ORDER BY value DESC, source ASC
+                    """
+                ).fetchall()
+            ]
+
+            capture_mode_distribution = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT capture_mode AS label, COUNT(*) AS value
+                    FROM gps_points
+                    GROUP BY capture_mode
+                    ORDER BY value DESC, capture_mode ASC
+                    """
+                ).fetchall()
+            ]
+
+            error_distribution = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT COALESCE(error_category, 'none') AS label, COUNT(*) AS value
+                    FROM ingest_requests
+                    WHERE ingest_status != 'accepted'
+                    GROUP BY COALESCE(error_category, 'none')
+                    ORDER BY value DESC, label ASC
+                    """
+                ).fetchall()
+            ]
+
+        total_requests = int(totals["total_requests"] or 0)
+        failed_requests = int(totals["failed_requests"] or 0)
+        accepted_requests = int(totals["accepted_requests"] or 0)
+        success_rate = round((accepted_requests / total_requests) * 100, 1) if total_requests else 0.0
+        failure_rate = round((failed_requests / total_requests) * 100, 1) if total_requests else 0.0
+        last_issue = dict(last_failure) if last_failure else None
+        last_request_dict = dict(last_request) if last_request else None
+
+        return {
+            "generatedAtUtc": isoformat_utc(now_utc),
+            "storage": {
+                "sqlitePath": str(self.sqlite_path),
+                "rawPayloadNdjsonPath": str(self.raw_ndjson_path),
+                "legacyRequestNdjsonPath": str(self.settings.legacy_request_ndjson_path),
+                "rawPayloadNdjsonEnabled": self.settings.raw_payload_ndjson_enabled,
+                "readiness": asdict(self.readiness()),
+                "sqliteFile": _file_info(self.sqlite_path),
+                "rawPayloadFile": _file_info(self.raw_ndjson_path),
+            },
+            "totals": {
+                "totalRequests": total_requests,
+                "acceptedRequests": accepted_requests,
+                "failedRequests": failed_requests,
+                "totalPoints": int(totals["total_points"] or 0),
+                "totalSessions": int(totals["total_sessions"] or 0),
+                "lastSuccessAt": totals["last_success_at"],
+                "lastFailureAt": totals["last_failure_at"],
+                "successRate": success_rate,
+                "failureRate": failure_rate,
+            },
+            "periods": {
+                "requests24h": int(periods["requests_24h"] or 0),
+                "requests7d": int(periods["requests_7d"] or 0),
+                "requestsToday": int(periods["requests_today"] or 0),
+                "points24h": int(periods["points_24h"] or 0),
+                "points7d": int(periods["points_7d"] or 0),
+                "pointsToday": int(points_today["points_today"] or 0),
+                "sessions24h": int(session_counts["sessions_24h"] or 0),
+                "sessions7d": int(session_counts["sessions_7d"] or 0),
+                "sessionEvents24h": int(periods["session_events_24h"] or 0),
+                "sessionEvents7d": int(periods["session_events_7d"] or 0),
+            },
+            "latest": {
+                "request": last_request_dict,
+                "success": dict(last_success) if last_success else None,
+                "failure": last_issue,
+                "firstPoint": dict(first_point) if first_point else None,
+                "lastPoint": dict(latest_point) if latest_point else None,
+            },
+            "accuracy": {
+                "minAccuracyM": round(float(accuracy["min_accuracy_m"]), 2) if accuracy["min_accuracy_m"] is not None else None,
+                "avgAccuracyM": round(float(accuracy["avg_accuracy_m"]), 2) if accuracy["avg_accuracy_m"] is not None else None,
+                "maxAccuracyM": round(float(accuracy["max_accuracy_m"]), 2) if accuracy["max_accuracy_m"] is not None else None,
+            },
+            "lists": {
+                "recentRequests": recent_requests,
+                "recentPoints": recent_points,
+                "recentSessions": recent_sessions,
+                "topSessions": top_sessions,
+                "pointsPerDay": points_per_day,
+                "requestsPerDay": requests_per_day,
+                "responseCodes": response_codes,
+                "sourceDistribution": source_distribution,
+                "captureModeDistribution": capture_mode_distribution,
+                "errorDistribution": error_distribution,
+            },
+            "status": {
+                "hasIssues": (not self.readiness().is_ready) or bool(last_issue) or bool(last_request_dict and last_request_dict["ingest_status"] != "accepted"),
+                "lastErrorCategory": last_issue["error_category"] if last_issue else None,
+                "lastErrorDetail": last_issue["error_detail"] if last_issue else None,
+                "lastWarning": self._last_error or (last_issue["error_detail"] if last_issue else None),
+                "lastHttpStatus": last_request_dict["http_status"] if last_request_dict else None,
+                "lastIngestStatus": last_request_dict["ingest_status"] if last_request_dict else None,
+            },
+            "exports": [
+                {"label": "CSV export", "format": "csv", "path": "/api/points?format=csv"},
+                {"label": "JSON export", "format": "json", "path": "/api/points?format=json"},
+                {"label": "NDJSON export", "format": "ndjson", "path": "/api/points?format=ndjson"},
+            ],
+        }
+
     def list_points(self, filters: PointFilters) -> dict[str, Any]:
         self._require_ready()
         where_clause, parameters = _build_shared_filters(
@@ -605,6 +1026,8 @@ class ReceiverStorage:
                     source,
                     capture_mode,
                     COUNT(*) AS points_count,
+                    COUNT(DISTINCT request_id) AS requests_count,
+                    AVG(horizontal_accuracy_m) AS avg_accuracy_m,
                     MIN(point_timestamp_utc) AS first_point_ts_utc,
                     MAX(point_timestamp_utc) AS last_point_ts_utc,
                     MIN(latitude) AS min_latitude,
@@ -628,6 +1051,8 @@ class ReceiverStorage:
                     source,
                     capture_mode,
                     COUNT(*) AS points_count,
+                    COUNT(DISTINCT request_id) AS requests_count,
+                    AVG(horizontal_accuracy_m) AS avg_accuracy_m,
                     MIN(point_timestamp_utc) AS first_point_ts_utc,
                     MAX(point_timestamp_utc) AS last_point_ts_utc,
                     MIN(latitude) AS min_latitude,
@@ -967,6 +1392,19 @@ def _duration_seconds(start: str | None, end: str | None) -> int | None:
     except ValueError:
         return None
     return max(0, int((end_dt - start_dt).total_seconds()))
+
+
+def _file_info(path: Path) -> dict[str, Any]:
+    exists = path.exists()
+    if not exists:
+        return {"path": str(path), "exists": False, "sizeBytes": 0, "lastModifiedUtc": None}
+    stat = path.stat()
+    return {
+        "path": str(path),
+        "exists": True,
+        "sizeBytes": stat.st_size,
+        "lastModifiedUtc": isoformat_utc(datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)),
+    }
 
 
 def isoformat_utc(value: datetime | None) -> str | None:

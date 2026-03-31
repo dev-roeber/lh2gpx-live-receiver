@@ -89,15 +89,47 @@ Unbekannte additive Zusatzfelder werden weiter toleriert und im Rohpayload gespe
 
 ## Operator-UI
 
-Das Dashboard zeigt:
+Die Admin-Oberflaeche ist jetzt als receiver-first Operator-Workspace aufgebaut.
 
-- Gesamtanzahl Requests
-- Gesamtanzahl Punkte
-- letzte erfolgreiche Annahme
-- letzte Fehler
-- Storage-Pfade und Schreibstatus
-- Punkte pro Tag
-- Punkte pro Session
+Hauptnavigation:
+
+- Receiver
+  - Dashboard
+  - Live-Status
+  - Letzte Aktivitaet
+- Daten
+  - Punkte
+  - Requests
+  - Sessions
+  - Exporte
+- Betrieb
+  - Konfiguration
+  - Storage
+  - Troubleshooting
+  - Open Items
+- Sicherheit
+  - Auth-Status und Hinweise
+- System
+  - Version und Laufzeit
+
+Das Dashboard zeigt direkt und prominent:
+
+- Receiver online/offline
+- Health-Status
+- Readiness-Status
+- Storage schreibbar / nicht schreibbar
+- Ingest-Auth aktiv / inaktiv
+- Admin-Zugriffsmodus
+- letzter erfolgreicher Ingest
+- letzter fehlgeschlagener Ingest
+- Erfolgsquote und Fehlerrate
+- Gesamtanzahl Requests, Punkte und Sessions
+- Requests und Punkte heute / 24h / 7d
+- letzte Fehlerkategorie und letzter Warnhinweis
+- Schnellzugriffe auf Live-Status, Aktivitaet, Storage, Sicherheit, Punkte, Requests und Sessions
+
+Weitere Operator-Seiten zeigen unter anderem:
+
 - gefilterte Punkteliste mit:
   - Datum
   - lokale Uhrzeit
@@ -111,7 +143,13 @@ Das Dashboard zeigt:
   - Capture-Mode
   - Request-ID
   - Empfangszeit
-- Request- und Session-Detailseiten
+- separate Request-, Session- und Punkt-Detailseiten
+- Request-Historie mit Fehlerkategorien
+- Session-Uebersicht mit Requestanzahl und Accuracy-Mittelwert
+- Storage-Dateigroessen und letzte Schreibzeiten
+- maskierte Konfigurations- und Auth-Uebersicht
+- Troubleshooting- und Open-Items-Doku direkt in der UI
+- Systemseite mit Version, Laufzeit und Changelog-Ausschnitten
 - CSV-, JSON- und NDJSON-Export der Punkteliste
 
 Wenn `ADMIN_USERNAME` und `ADMIN_PASSWORD` leer sind, ist das Dashboard absichtlich nur lokal nutzbar. Mit gesetzten Credentials ist HTTP Basic Auth aktiv.

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="de">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,8 +7,113 @@
     <link rel="stylesheet" href="/static/style.css">
   </head>
   <body>
-    <main class="shell">
-      {% block content %}{% endblock %}
-    </main>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">LH</div>
+          <div>
+            <p class="eyebrow">Receiver Admin</p>
+            <h1>LH2GPX Live Receiver</h1>
+          </div>
+        </div>
+
+        <section class="sidebar-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Receiver</p>
+              <h2>Direktstatus</h2>
+            </div>
+            <span class="status-pill tone-{{ receiver_summary.attentionState }}">{{ receiver_summary.attentionState == 'ok' and 'alles ok' or 'Aufmerksamkeit' }}</span>
+          </div>
+          <dl class="meta-list compact">
+            <div><dt>Service</dt><dd>{{ receiver_summary.serviceStatus }}</dd></div>
+            <div><dt>Health</dt><dd class="tone-{{ status_tone(receiver_summary.healthStatus) }}">{{ receiver_summary.healthStatus }}</dd></div>
+            <div><dt>Readiness</dt><dd class="tone-{{ status_tone(receiver_summary.readinessStatus) }}">{{ receiver_summary.readinessStatus }}</dd></div>
+            <div><dt>Storage</dt><dd class="tone-{{ status_tone(receiver_summary.storageStatus) }}">{{ receiver_summary.storageStatus }}</dd></div>
+            <div><dt>Auth</dt><dd>{{ receiver_summary.authStatus }}</dd></div>
+            <div><dt>Admin</dt><dd>{{ receiver_summary.adminStatus }}</dd></div>
+            <div><dt>Uptime</dt><dd>{{ receiver_summary.uptime }}</dd></div>
+            <div><dt>Host</dt><dd>{{ receiver_summary.publicHostname }}</dd></div>
+          </dl>
+          <p class="sidebar-note">{{ receiver_summary.attentionMessage }}</p>
+        </section>
+
+        <nav class="sidebar-nav" aria-label="Hauptnavigation">
+          {% for group in nav_groups %}
+          <section>
+            <p class="nav-group-title">{{ group["title"] }}</p>
+            <ul>
+              {% for item in group["items"] %}
+              <li>
+                <a href="{{ item["href"] }}" class="{{ 'active' if active_nav == item["key"] else '' }}">{{ item["label"] }}</a>
+              </li>
+              {% endfor %}
+            </ul>
+          </section>
+          {% endfor %}
+        </nav>
+
+        <section class="sidebar-panel">
+          <p class="nav-group-title">API & Schnellwege</p>
+          <div class="sidebar-links">
+            {% for item in api_links %}
+            <a href="{{ item.href }}">{{ item.label }}</a>
+            {% endfor %}
+          </div>
+        </section>
+      </aside>
+
+      <main class="page-shell">
+        <header class="topbar">
+          <div class="topbar-copy">
+            <p class="eyebrow">{{ page_kicker }}</p>
+            <h2>{{ page_title }}</h2>
+            <p>{{ page_description }}</p>
+          </div>
+          <div class="topbar-actions">
+            {% for item in quick_actions %}
+            <a class="button-link secondary" href="{{ item.href }}">{{ item.label }}</a>
+            {% endfor %}
+          </div>
+        </header>
+
+        <section class="status-strip">
+          <article class="status-card">
+            <p class="eyebrow">Letzter erfolgreicher Ingest</p>
+            {% set last_success = format_timestamp(snapshot.totals.lastSuccessAt) %}
+            <h3>{{ last_success.relative }}</h3>
+            <p>{{ last_success.utc or 'Noch kein erfolgreicher Ingest' }}</p>
+            <p>{{ last_success.local or 'Keine lokale Zeit verfuegbar' }}</p>
+          </article>
+          <article class="status-card">
+            <p class="eyebrow">Letzter fehlgeschlagener Ingest</p>
+            {% set last_failure = format_timestamp(snapshot.totals.lastFailureAt) %}
+            <h3>{{ last_failure.relative }}</h3>
+            <p>{{ last_failure.utc or 'Kein Fehler gespeichert' }}</p>
+            <p>{{ snapshot.status.lastErrorCategory or 'Keine Fehlerkategorie gespeichert' }}</p>
+          </article>
+          <article class="status-card">
+            <p class="eyebrow">Requests / Punkte / Sessions</p>
+            <h3>{{ snapshot.totals.totalRequests }} / {{ snapshot.totals.totalPoints }} / {{ snapshot.totals.totalSessions }}</h3>
+            <p>{{ format_percent(snapshot.totals.successRate) }} Erfolg · {{ format_percent(snapshot.totals.failureRate) }} Fehler</p>
+            <p>Heute {{ snapshot.periods.requestsToday }} Requests und {{ snapshot.periods.pointsToday }} Punkte</p>
+          </article>
+        </section>
+
+        {% if receiver_summary.attentionState != 'ok' %}
+        <section class="notice danger">
+          <strong>Aufmerksamkeit noetig.</strong>
+          <span>{{ receiver_summary.attentionMessage }}</span>
+        </section>
+        {% else %}
+        <section class="notice success">
+          <strong>Receiver stabil.</strong>
+          <span>Health, Readiness und letzter Ingest zeigen aktuell keinen akuten Handlungsbedarf.</span>
+        </section>
+        {% endif %}
+
+        {% block content %}{% endblock %}
+      </main>
+    </div>
   </body>
 </html>
