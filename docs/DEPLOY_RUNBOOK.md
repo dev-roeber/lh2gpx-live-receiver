@@ -28,6 +28,23 @@ curl http://127.0.0.1:8080/readyz
 ./scripts/smoke-test.sh
 ```
 
+## Post-merge verification auf `main`
+
+Nach dem finalen Merge wurde `main` noch einmal direkt im laufenden Setup geprueft mit:
+
+- `docker compose pull`
+- `docker compose build`
+- `docker compose up -d`
+- `docker compose ps`
+- `./scripts/smoke-test.sh`
+
+Ergebnis:
+
+- Receiver und Caddy liefen weiter sauber
+- `health` und `readyz` blieben erfolgreich
+- Live-Ingest, Dashboard und Punkteliste blieben funktionsfaehig
+- aus diesem Check war kein weiterer Receiver-Commit noetig
+
 ## Update-Deploy
 
 ```bash

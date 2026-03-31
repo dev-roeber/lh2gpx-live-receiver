@@ -7,6 +7,13 @@
 - `curl http://127.0.0.1:8080/readyz`
 - `./scripts/smoke-test.sh`
 
+## Aktueller Status
+
+- der Receiver gilt fuer jetzt als abgeschlossen
+- `main` wurde nach dem Merge noch einmal direkt im laufenden Setup geprueft
+- aus dieser Post-Merge-Verifikation ergaben sich keine weiteren Sofortmassnahmen im Receiver-Repo
+- ein parallel beobachteter erfolgreicher Upload-Betrieb passt zum aktuellen Receiver-Zustand, fuehrt hier aber nicht zu App-/Wrapper-Aenderungen
+
 ## Backups
 
 Mindestens sichern:

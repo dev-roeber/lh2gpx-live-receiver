@@ -90,3 +90,9 @@ Dieses Troubleshooting beschreibt den aktuellen Receiver-Kern. Noch nicht Teil d
 - App- oder Wrapper-seitige Fehlersuche ausserhalb dieses Repos
 
 Die offen verschobenen Punkte stehen gesammelt in [OPEN_ITEMS.md](OPEN_ITEMS.md).
+
+## Aktueller Abschlussstand
+
+- der aktuelle Receiver-Kern ist verifiziert und nach `main` gemergt
+- ein zusaetzlicher Post-Merge-Check auf `main` zeigte keinen unerwarteten Rueckschritt
+- neue Probleme aus diesem Abschlusscheck muessen derzeit nicht nachgezogen werden

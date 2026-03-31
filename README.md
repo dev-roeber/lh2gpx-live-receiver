@@ -13,6 +13,13 @@ Diese Arbeit hat bewusst nur dieses Receiver-Repo und den Serverbetrieb geaender
 - lokale oder Basic-Auth-geschuetzte Operator-Oberflaeche
 - Docker-Compose-Deployment mit Caddy als TLS-Reverse-Proxy
 
+## Current state
+
+- der Receiver-Hardening-Lauf ist fuer jetzt abgeschlossen
+- der Receiver-Stand wurde nach `main` gemergt und anschliessend direkt auf `main` im laufenden Server-Setup erneut geprueft
+- aus dieser Post-Merge-Verifikation waren keine weiteren Receiver-Aenderungen noetig
+- App, Wrapper, App-Daten und Importdateien blieben in diesem Lauf bewusst unberuehrt
+
 ## Root cause des bisherigen HTTP-500
 
 Der bisherige 500er war kein Client-Schemafehler, sondern ein Server-Storage-Problem:
@@ -163,6 +170,34 @@ Der Smoke-Test prueft:
 - `GET /readyz`
 - `POST /live-location`
 - lokal optional Dashboard- und Punktlisten-Zugriff
+
+## Real verifizierter Stand
+
+Im finalen Receiver-Lauf wurden auf dem Server unter anderem erfolgreich geprueft:
+
+- `docker compose pull`
+- `docker compose build`
+- `docker compose up -d`
+- `docker compose ps`
+- `./scripts/smoke-test.sh`
+
+Relevant bestaetigt wurden dabei:
+
+- Receiver laeuft
+- Caddy laeuft
+- `health` liefert `200`
+- `readyz` liefert `200`
+- Live-Ingest liefert `202`
+- Dashboard und Punkteliste sind erreichbar
+- reale Punkte mit Koordinaten und Zeitstempeln werden gespeichert und angezeigt
+
+Beobachteter Betriebsbefund:
+
+- parallel laufende Uploads kamen erfolgreich am Receiver an
+- dieser Befund wird hier nur als beobachteter Server-/Betriebszustand festgehalten
+- daraus wurden in diesem Lauf bewusst keine App- oder Wrapper-Schluesse abgeleitet
+
+Die bewussten Folgearbeiten stehen gesammelt in [docs/OPEN_ITEMS.md](docs/OPEN_ITEMS.md).
 
 ## Weiterfuehrende Doku
 

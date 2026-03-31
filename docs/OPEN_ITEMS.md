@@ -13,6 +13,16 @@ Diese Datei trennt bewusst zwischen dem jetzt abgeschlossenen Receiver-Kern und 
 - strukturierte Logs mit `request_id`
 - redigierte Secret-Darstellung in Logs, API und Dashboard
 - Docker-/Compose-/Caddy-Deployment mit erfolgreichen lokalen und oeffentlichen Smoke-Checks
+- Merge nach `main`
+- erfolgreiche Post-Merge-Verifikation auf `main`
+- aus der Post-Merge-Verifikation keine weiteren Receiver-Aenderungen noetig
+
+## Fuer jetzt abgeschlossen
+
+- der Receiver-Strang gilt fuer den aktuellen Scope als abgeschlossen
+- weitere Arbeit an Receiver-Haertung Phase 2 bleibt bewusst getrennt
+- App-/Wrapper-Abgleich bleibt bewusst getrennt
+- ein echter End-to-End-iPhone-Gegenlauf gegen den finalen Receiver-Stand folgt spaeter separat
 
 ## Bewusst verschoben, um Scope klein und stabil zu halten
 
