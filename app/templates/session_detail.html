@@ -1,18 +1,20 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="metric-grid compact">
-  <article><span>Punkte</span><strong>{{ session_item.points_count }}</strong></article>
-  <article><span>Requests</span><strong>{{ session_item.requests_count or session_item.requests|length }}</strong></article>
-  <article><span>Accuracy Ø</span><strong>{{ session_item.avg_accuracy_m and ('%.2f'|format(session_item.avg_accuracy_m)) or 'n/a' }} m</strong></article>
-  <article><span>Dauer</span><strong>{{ format_duration(session_item.durationSeconds) }}</strong></article>
-</section>
 
-<section class="content-grid two-one">
+<div class="metric-row">
+  <div class="metric-card"><span class="mc-label">Punkte</span><span class="mc-value">{{ session_item.points_count }}</span></div>
+  <div class="metric-card"><span class="mc-label">Requests</span><span class="mc-value">{{ session_item.requests_count or session_item.requests|length }}</span></div>
+  <div class="metric-card"><span class="mc-label">Accuracy Ø</span><span class="mc-value">{{ session_item.avg_accuracy_m and ('%.2f'|format(session_item.avg_accuracy_m)) or 'n/a' }} m</span></div>
+  <div class="metric-card"><span class="mc-label">Dauer</span><span class="mc-value" style="font-size:1rem">{{ format_duration(session_item.durationSeconds) }}</span></div>
+</div>
+
+<div class="content-grid two-one">
+
   <article class="panel">
     <div class="panel-header">
       <div><p class="eyebrow">Session-Summary</p><h3>{{ session_item.session_id }}</h3></div>
-      <div class="action-row">
-        <a class="button-link secondary" href="/dashboard/sessions">Zur Sessionliste</a>
+      <div class="action-row" style="margin-top:0">
+        <a class="button-link secondary" href="/dashboard/sessions">Sessionliste</a>
         <a class="button-link tertiary" href="/api/sessions/{{ session_item.session_id }}">JSON API</a>
       </div>
     </div>
@@ -38,7 +40,7 @@
         <tr>
           <td><a href="/dashboard/requests/{{ item.request_id }}">{{ item.request_id }}</a></td>
           <td>{{ format_timestamp(item.received_at_utc).utc }}</td>
-          <td><span class="status-pill tone-{{ status_tone(item.ingest_status) }}">{{ item.ingest_status }}</span></td>
+          <td><span class="status-badge {{ status_tone(item.ingest_status) }}">{{ item.ingest_status }}</span></td>
           <td>{{ item.http_status }}</td>
           <td>{{ item.points_count }}</td>
         </tr>
@@ -48,28 +50,29 @@
       </tbody>
     </table>
   </article>
-</section>
 
-<section class="panel table-panel">
+</div>
+
+<article class="panel table-panel">
   <div class="panel-header">
-    <div><p class="eyebrow">Punkte in dieser Session</p><h3>Session-Spur im Tabellenformat</h3></div>
+    <div><p class="eyebrow">Punkte in dieser Session</p><h3>Session-Spur</h3></div>
   </div>
   <table>
-    <thead><tr><th>UTC</th><th>Lokal</th><th>Koordinate</th><th>Accuracy</th><th>Request</th><th>Detail</th></tr></thead>
+    <thead><tr><th>UTC</th><th>Lokal</th><th>Koordinate</th><th>Accuracy</th><th>Request</th><th></th></tr></thead>
     <tbody>
       {% for point in session_item.points %}
       <tr>
         <td>{{ format_timestamp(point.point_timestamp_utc).utc }}</td>
         <td>{{ point.point_timestamp_local }}</td>
-        <td>{{ "%.6f"|format(point.latitude) }}, {{ "%.6f"|format(point.longitude) }}</td>
+        <td>{{ "%.5f"|format(point.latitude) }}, {{ "%.5f"|format(point.longitude) }}</td>
         <td>{{ point.horizontal_accuracy_m }} m</td>
         <td><a href="/dashboard/requests/{{ point.request_id }}">{{ point.request_id }}</a></td>
-        <td><a href="/dashboard/points/{{ point.id }}">oeffnen</a></td>
+        <td><a href="/dashboard/points/{{ point.id }}">Detail</a></td>
       </tr>
       {% else %}
       <tr><td colspan="6" class="empty-cell">Keine Punkte in dieser Session gespeichert.</td></tr>
       {% endfor %}
     </tbody>
   </table>
-</section>
+</article>
 {% endblock %}

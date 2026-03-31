@@ -1,16 +1,36 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="metric-grid">
-  <article><span>App-Version</span><strong>{{ runtime_info.appVersion }}</strong><small>FastAPI-Anwendung</small></article>
-  <article><span>Python</span><strong>{{ runtime_info.pythonVersion }}</strong><small>Laufzeit im aktuellen Prozess</small></article>
-  <article><span>Gestartet</span><strong>{{ format_timestamp(runtime_info.startedAtUtc).relative }}</strong><small>{{ format_timestamp(runtime_info.startedAtUtc).utc }}</small></article>
-  <article><span>Uptime</span><strong>{{ runtime_info.uptime }}</strong><small>seit letztem Start</small></article>
-</section>
 
-<section class="content-grid two-one">
+{# ── Metric row ───────────────────────────────────────────── #}
+<div class="metric-row">
+  <div class="metric-card">
+    <span class="mc-label">App-Version</span>
+    <span class="mc-value">{{ runtime_info.appVersion }}</span>
+    <span class="mc-sub">FastAPI-Anwendung</span>
+  </div>
+  <div class="metric-card">
+    <span class="mc-label">Python</span>
+    <span class="mc-value">{{ runtime_info.pythonVersion }}</span>
+    <span class="mc-sub">Laufzeit im Prozess</span>
+  </div>
+  <div class="metric-card">
+    <span class="mc-label">Gestartet</span>
+    <span class="mc-value">{{ format_timestamp(runtime_info.startedAtUtc).relative }}</span>
+    <span class="mc-sub">{{ format_timestamp(runtime_info.startedAtUtc).utc }}</span>
+  </div>
+  <div class="metric-card">
+    <span class="mc-label">Uptime</span>
+    <span class="mc-value">{{ runtime_info.uptime }}</span>
+    <span class="mc-sub">seit letztem Start</span>
+  </div>
+</div>
+
+{# ── Laufzeit + Storage-Stand ─────────────────────────────── #}
+<div class="content-grid two-one">
+
   <article class="panel">
     <div class="panel-header">
-      <div><p class="eyebrow">Laufzeit</p><h3>Aktuelle Systeminfos</h3></div>
+      <div><p class="eyebrow">Laufzeit</p><h3>Systeminfos</h3></div>
     </div>
     <dl class="meta-list">
       <div><dt>Aktuelle UTC-Zeit</dt><dd>{{ format_timestamp(runtime_info.currentUtc).utc }}</dd></div>
@@ -23,7 +43,7 @@
 
   <article class="panel">
     <div class="panel-header">
-      <div><p class="eyebrow">Storage-Stand</p><h3>Dateigroessen und letzte Schreibzeit</h3></div>
+      <div><p class="eyebrow">Storage-Stand</p><h3>Dateigroessen</h3></div>
     </div>
     <dl class="meta-list">
       <div><dt>SQLite</dt><dd>{{ format_bytes(snapshot.storage.sqliteFile.sizeBytes) }}</dd></div>
@@ -32,11 +52,13 @@
       <div><dt>Raw-Audit zuletzt geaendert</dt><dd>{{ format_timestamp(snapshot.storage.rawPayloadFile.lastModifiedUtc).utc or 'n/a' }}</dd></div>
     </dl>
   </article>
-</section>
 
-<section class="panel">
+</div>
+
+{# ── Changelog ────────────────────────────────────────────── #}
+<article class="panel">
   <div class="panel-header">
-    <div><p class="eyebrow">Changelog</p><h3>Zuletzt dokumentierte Receiver-Aenderungen</h3></div>
+    <div><p class="eyebrow">Changelog</p><h3>Zuletzt dokumentierte Aenderungen</h3></div>
   </div>
   {% for section in changelog_sections.sections[:4] %}
   <div class="doc-section">
@@ -50,5 +72,5 @@
     {% endif %}
   </div>
   {% endfor %}
-</section>
+</article>
 {% endblock %}

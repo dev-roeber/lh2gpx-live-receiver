@@ -1,17 +1,18 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="metric-grid compact">
-  <article><span>Point-ID</span><strong>#{{ point_item.id }}</strong></article>
-  <article><span>Accuracy</span><strong>{{ point_item.horizontal_accuracy_m }} m</strong></article>
-  <article><span>Session</span><strong>{{ point_item.session_id }}</strong></article>
-  <article><span>Source</span><strong>{{ point_item.source }}</strong></article>
-</section>
 
-<section class="content-grid two-one">
+<div class="metric-row">
+  <div class="metric-card"><span class="mc-label">Point-ID</span><span class="mc-value">#{{ point_item.id }}</span></div>
+  <div class="metric-card"><span class="mc-label">Accuracy</span><span class="mc-value">{{ point_item.horizontal_accuracy_m }} m</span></div>
+  <div class="metric-card"><span class="mc-label">Session</span><span class="mc-value" style="font-size:1rem">{{ point_item.session_id }}</span></div>
+  <div class="metric-card"><span class="mc-label">Source</span><span class="mc-value" style="font-size:1rem">{{ point_item.source }}</span></div>
+</div>
+
+<div class="content-grid two-one">
   <article class="panel">
     <div class="panel-header">
       <div><p class="eyebrow">Punktdetail</p><h3>#{{ point_item.id }}</h3></div>
-      <div class="action-row">
+      <div class="action-row" style="margin-top:0">
         <a class="button-link secondary" href="/dashboard/points">Zur Punktliste</a>
         <a class="button-link tertiary" href="/api/points/{{ point_item.id }}">JSON API</a>
       </div>
@@ -36,18 +37,18 @@
     </div>
     <div class="stack-list">
       <div class="list-card static">
-        <strong>Zeitvergleich</strong>
-        <span>{{ format_timestamp(point_item.point_timestamp_utc).utc }} · {{ format_timestamp(point_item.point_timestamp_utc).local }}</span>
-      </div>
-      <div class="list-card static">
         <strong>Koordinate</strong>
         <span>{{ "%.6f"|format(point_item.latitude) }}, {{ "%.6f"|format(point_item.longitude) }}</span>
       </div>
       <div class="list-card static">
+        <strong>Zeitvergleich</strong>
+        <span>{{ format_timestamp(point_item.point_timestamp_utc).utc }} · lokal: {{ format_timestamp(point_item.point_timestamp_utc).local }}</span>
+      </div>
+      <div class="list-card static">
         <strong>Verkettung</strong>
-        <span>Punkt gehoert zu Session {{ point_item.session_id }} und Request {{ point_item.request_id }}.</span>
+        <span>Punkt gehoert zu Session <a href="/dashboard/sessions/{{ point_item.session_id }}">{{ point_item.session_id }}</a> und Request <a href="/dashboard/requests/{{ point_item.request_id }}">{{ point_item.request_id }}</a>.</span>
       </div>
     </div>
   </article>
-</section>
+</div>
 {% endblock %}

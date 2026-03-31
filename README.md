@@ -89,44 +89,41 @@ Unbekannte additive Zusatzfelder werden weiter toleriert und im Rohpayload gespe
 
 ## Operator-UI
 
-Die Admin-Oberflaeche ist jetzt als receiver-first Operator-Workspace aufgebaut.
+Die Admin-Oberflaeche (v0.5) ist als receiver-first Operator-Workspace mit moderner Informationsarchitektur aufgebaut.
 
-Hauptnavigation:
+### Informationsarchitektur
 
-- Receiver
-  - Dashboard
-  - Live-Status
-  - Letzte Aktivitaet
-- Daten
-  - Punkte
-  - Requests
-  - Sessions
-  - Exporte
-- Betrieb
-  - Konfiguration
-  - Storage
-  - Troubleshooting
-  - Open Items
-- Sicherheit
-  - Auth-Status und Hinweise
-- System
-  - Version und Laufzeit
+Jede Seite hat:
+- **Global Header**: Hostname | Receiver-Status | Auth | Uptime | letzter Ingest | Version
+- **Alert Strip**: akuter Receiver-Zustand in Farbe (gruen OK / gelb WARN / rot CRIT)
+- **Seiteninhalt**
+- **Quick Actions**: kompakte Schnellwege zu den wichtigsten Operator-Seiten
+- **Context Footer**: Bind, Storage-Status, Admin-Modus, Timezone
 
-Das Dashboard zeigt direkt und prominent:
+### Startseite (Overview / Dashboard)
 
-- Receiver online/offline
-- Health-Status
-- Readiness-Status
-- Storage schreibbar / nicht schreibbar
-- Ingest-Auth aktiv / inaktiv
-- Admin-Zugriffsmodus
-- letzter erfolgreicher Ingest
-- letzter fehlgeschlagener Ingest
-- Erfolgsquote und Fehlerrate
-- Gesamtanzahl Requests, Punkte und Sessions
-- Requests und Punkte heute / 24h / 7d
-- letzte Fehlerkategorie und letzter Warnhinweis
-- Schnellzugriffe auf Live-Status, Aktivitaet, Storage, Sicherheit, Punkte, Requests und Sessions
+6 kompakte Status-Kacheln mit STATUS-Badge (OK / WARN / CRIT / INFO):
+- **Receiver**: Health, Readiness, letzter Ingest, Erfolgsquote
+- **Security**: Ingest-Auth, Admin-Zugriff, letzte Fehlerkategorie
+- **Storage**: SQLite-Groesse, Raw-Audit-Groesse, Schreibbarkeit
+- **System**: Uptime, Startzeit
+- **Ingest-Volumen**: Requests/Punkte/Sessions gesamt, Fehler gesamt
+- **Aktivitaet**: Requests/Punkte heute und 24h
+
+Darunter: priorisierte Next-Actions, juengste Requests-Tabelle, Top-Sessions, neueste GPS-Punkte.
+
+### Navigation (task-orientiert)
+
+- **Overview**: Overview · Receiver Health · Aktivitaet
+- **Daten**: Requests · Sessions · Punkte · Exporte
+- **Betrieb &amp; Sicherheit**: Security · Storage · Konfiguration · System
+- **Hilfe**: Troubleshooting · Open Items
+
+### Compact / Full Mode
+
+- schmale Terminals und Portrait-Geraete (unter 600px): Kacheln einspaltg, Tabellen vereinfacht
+- Standard-Desktopbreiten: volle 3-spaltige Kacheln, 2-spaltige Content-Grids
+- unter 900px: Sidebar wird zur Top-Navigation, kein sticky Scrollbereich
 
 Weitere Operator-Seiten zeigen unter anderem:
 

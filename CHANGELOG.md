@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-03-31 (v0.5 — UI-Redesign)
+
+### Changed
+- vollstaendiges Redesign des Operator-Dashboards: neue Informationsarchitektur mit Global-Header-Strip, Alert-Strip, Status-Kacheln (tile grid), Next-Actions-Block, Quick-Actions-Bar und Context-Footer
+- Navigation neu strukturiert nach Task-Orientierung: Overview / Daten / Betrieb &amp; Sicherheit / Hilfe; Reihenfolge priorisiert Receiver-Betrieb vor Detail-Navigationsgruppen
+- neue Startseite (Overview / Dashboard) zeigt 6 kompakte Status-Kacheln: Receiver, Security, Storage, System, Ingest-Volumen, Aktivitaet — je mit STATUS-Badge (OK/WARN/CRIT/INFO) und 2-4 wichtigen Kennzahlen
+- jede Seite erhaelt konsistenten Global-Header (Host, Receiver-Status, Auth, Uptime, letzter Ingest, Version) und Context-Footer (Bind, Storage, Admin, Timezone)
+- Alert-Strip ersetzt die bisherigen `notice`-Banner im Content-Bereich: gruen/gelb/rot semantisch je nach Receiver-Zustand
+- Quick-Actions-Bar am Seitenende mit primaeren und sekundaeren Schnellwegen auf jeder Seite
+- Farbsystem ueberarbeitet: semantisch (rot=crit, gelb=warn, gruen=ok, blau=info, grau=meta) statt zuvor dekorativ
+- Live-Status, Aktivitaet, Security, Storage, System — alle Seiten auf neue Kachel/Metriken-Architektur umgestellt
+- Detail-Seiten (Request, Session, Punkt) mit neuen Metric-Rows statt alter metric-grid compact
+- Responsive-Breakpoints verbessert: kompakteres Portrait-Layout fuer Mobilgeraete / iPhone
+- CSS komplett neu — kein harter Vollrahmen mehr, mehr Whitespace, kleinere Sidebar, konsistenteres Typografiesystem
+- App-Version jetzt im Global-Header sichtbar
+- Tests angepasst: Assertions auf geaenderte Texte (neue UI-Texte statt alter Panel-Ueberschriften)
+
 ## 2026-03-31
 
 ### Changed

@@ -34,41 +34,36 @@ TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 NAV_GROUPS = [
     {
-        "title": "Receiver",
+        "title": "Overview",
         "items": [
-            {"key": "dashboard", "label": "Dashboard", "href": "/dashboard"},
-            {"key": "live_status", "label": "Live-Status", "href": "/dashboard/live-status"},
-            {"key": "activity", "label": "Letzte Aktivitaet", "href": "/dashboard/activity"},
+            {"key": "dashboard", "label": "Overview", "href": "/dashboard"},
+            {"key": "live_status", "label": "Receiver Health", "href": "/dashboard/live-status"},
+            {"key": "activity", "label": "Aktivitaet", "href": "/dashboard/activity"},
         ],
     },
     {
         "title": "Daten",
         "items": [
-            {"key": "points", "label": "Punkte", "href": "/dashboard/points"},
             {"key": "requests", "label": "Requests", "href": "/dashboard/requests"},
             {"key": "sessions", "label": "Sessions", "href": "/dashboard/sessions"},
+            {"key": "points", "label": "Punkte", "href": "/dashboard/points"},
             {"key": "exports", "label": "Exporte", "href": "/dashboard/exports"},
         ],
     },
     {
-        "title": "Betrieb",
+        "title": "Betrieb & Sicherheit",
         "items": [
-            {"key": "config", "label": "Konfiguration", "href": "/dashboard/config"},
+            {"key": "security", "label": "Security", "href": "/dashboard/security"},
             {"key": "storage", "label": "Storage", "href": "/dashboard/storage"},
+            {"key": "config", "label": "Konfiguration", "href": "/dashboard/config"},
+            {"key": "system", "label": "System", "href": "/dashboard/system"},
+        ],
+    },
+    {
+        "title": "Hilfe",
+        "items": [
             {"key": "troubleshooting", "label": "Troubleshooting", "href": "/dashboard/troubleshooting"},
             {"key": "open_items", "label": "Open Items", "href": "/dashboard/open-items"},
-        ],
-    },
-    {
-        "title": "Sicherheit",
-        "items": [
-            {"key": "security", "label": "Auth-Status & Hinweise", "href": "/dashboard/security"},
-        ],
-    },
-    {
-        "title": "System",
-        "items": [
-            {"key": "system", "label": "Version & Laufzeit", "href": "/dashboard/system"},
         ],
     },
 ]
@@ -973,6 +968,7 @@ def _base_template_context(
     page_kicker: str,
     page_description: str,
     snapshot: dict[str, Any],
+    page_header_actions: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     settings = _settings(request)
     started_at_utc = request.app.state.started_at_utc
@@ -980,17 +976,12 @@ def _base_template_context(
         "page_title": page_title,
         "page_kicker": page_kicker,
         "page_description": page_description,
+        "page_header_actions": page_header_actions or [],
         "active_nav": active_nav,
         "nav_groups": NAV_GROUPS,
         "snapshot": snapshot,
+        "app_version": request.app.version,
         "receiver_summary": _receiver_summary(snapshot, settings, started_at_utc),
-        "quick_actions": [
-            {"label": "Dashboard", "href": "/dashboard"},
-            {"label": "Live-Status", "href": "/dashboard/live-status"},
-            {"label": "Punkte", "href": "/dashboard/points"},
-            {"label": "Requests", "href": "/dashboard/requests"},
-            {"label": "Sessions", "href": "/dashboard/sessions"},
-        ],
         "api_links": [
             {"label": "Health JSON", "href": "/health"},
             {"label": "Readiness JSON", "href": "/readyz"},

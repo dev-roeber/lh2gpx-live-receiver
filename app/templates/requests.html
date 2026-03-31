@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="panel">
+<article class="panel">
   <div class="panel-header">
     <div><p class="eyebrow">Filter</p><h3>Requestliste filtern</h3></div>
   </div>
@@ -20,16 +20,16 @@
       <a class="button-link secondary" href="/dashboard/requests">Reset</a>
     </div>
   </form>
-</section>
+</article>
 
-<section class="metric-grid compact">
-  <article><span>Gefilterte Requests</span><strong>{{ requests_payload["total"] }}</strong></article>
-  <article><span>Fehler gesamt</span><strong>{{ snapshot.totals.failedRequests }}</strong></article>
-  <article><span>Letzte Fehlerkategorie</span><strong>{{ snapshot.status.lastErrorCategory or 'keine' }}</strong></article>
-  <article><span>Antwortcodes</span><strong>{{ snapshot.lists.responseCodes|length }}</strong></article>
-</section>
+<div class="metric-row">
+  <div class="metric-card"><span class="mc-label">Gefilterte Requests</span><span class="mc-value">{{ requests_payload["total"] }}</span></div>
+  <div class="metric-card"><span class="mc-label">Fehler gesamt</span><span class="mc-value">{{ snapshot.totals.failedRequests }}</span></div>
+  <div class="metric-card"><span class="mc-label">Letzte Fehlerkategorie</span><span class="mc-value" style="font-size:1rem">{{ snapshot.status.lastErrorCategory or '—' }}</span></div>
+  <div class="metric-card"><span class="mc-label">Antwortcode-Typen</span><span class="mc-value">{{ snapshot.lists.responseCodes|length }}</span></div>
+</div>
 
-<section class="panel table-panel">
+<article class="panel table-panel">
   <div class="panel-header">
     <div><p class="eyebrow">Requests</p><h3>Gespeicherte Ingest-Requests</h3></div>
   </div>
@@ -52,7 +52,7 @@
       {% set received = format_timestamp(item.received_at_utc) %}
       <tr>
         <td><strong>{{ received.relative }}</strong><span>{{ received.utc }}</span></td>
-        <td><span class="status-pill tone-{{ status_tone(item.ingest_status) }}">{{ item.ingest_status }}</span></td>
+        <td><span class="status-badge {{ status_tone(item.ingest_status) }}">{{ item.ingest_status }}</span></td>
         <td>{{ item.http_status }}</td>
         <td>{{ item.points_count }}</td>
         <td>{{ item.session_id or 'n/a' }}</td>
@@ -66,5 +66,5 @@
       {% endfor %}
     </tbody>
   </table>
-</section>
+</article>
 {% endblock %}

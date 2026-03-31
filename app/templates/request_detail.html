@@ -1,64 +1,70 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="metric-grid compact">
-  <article><span>Status</span><strong class="tone-{{ status_tone(request_item.ingest_status) }}">{{ request_item.ingest_status }}</strong></article>
-  <article><span>HTTP</span><strong>{{ request_item.http_status }}</strong></article>
-  <article><span>Punkte</span><strong>{{ request_item.points_count }}</strong></article>
-  <article><span>Dauer</span><strong>{{ format_duration(request_item.durationSeconds) }}</strong></article>
-</section>
 
-<section class="content-grid two-one">
+<div class="metric-row">
+  <div class="metric-card">
+    <span class="mc-label">Status</span>
+    <span class="mc-value {{ status_tone(request_item.ingest_status) }}" style="font-size:1.2rem">{{ request_item.ingest_status }}</span>
+  </div>
+  <div class="metric-card"><span class="mc-label">HTTP</span><span class="mc-value">{{ request_item.http_status }}</span></div>
+  <div class="metric-card"><span class="mc-label">Punkte</span><span class="mc-value">{{ request_item.points_count }}</span></div>
+  <div class="metric-card"><span class="mc-label">Dauer</span><span class="mc-value" style="font-size:1rem">{{ format_duration(request_item.durationSeconds) }}</span></div>
+</div>
+
+<div class="content-grid two-one">
+
   <article class="panel">
     <div class="panel-header">
       <div><p class="eyebrow">Request-Metadaten</p><h3>{{ request_item.request_id }}</h3></div>
-      <div class="action-row">
-        <a class="button-link secondary" href="/dashboard/requests">Zur Requestliste</a>
+      <div class="action-row" style="margin-top:0">
+        <a class="button-link secondary" href="/dashboard/requests">Requestliste</a>
         <a class="button-link tertiary" href="/api/requests/{{ request_item.request_id }}">JSON API</a>
       </div>
     </div>
     <dl class="meta-list">
       <div><dt>Empfangen UTC</dt><dd>{{ format_timestamp(request_item.received_at_utc).utc }}</dd></div>
       <div><dt>Empfangen lokal</dt><dd>{{ format_timestamp(request_item.received_at_utc).local }}</dd></div>
-      <div><dt>Sent at UTC</dt><dd>{{ request_item.sent_at_utc or 'n/a' }}</dd></div>
-      <div><dt>Session</dt><dd>{% if request_item.session_id %}<a href="/dashboard/sessions/{{ request_item.session_id }}">{{ request_item.session_id }}</a>{% else %}n/a{% endif %}</dd></div>
-      <div><dt>Source</dt><dd>{{ request_item.source or 'n/a' }}</dd></div>
-      <div><dt>Capture-Mode</dt><dd>{{ request_item.capture_mode or 'n/a' }}</dd></div>
-      <div><dt>User Agent</dt><dd>{{ request_item.user_agent or 'n/a' }}</dd></div>
-      <div><dt>Remote IP</dt><dd>{{ request_item.remote_addr or 'n/a' }}</dd></div>
-      <div><dt>Forwarded IP</dt><dd>{{ request_item.proxied_ip or 'n/a' }}</dd></div>
-      <div><dt>Fehlerkategorie</dt><dd>{{ request_item.error_category or 'n/a' }}</dd></div>
-      <div><dt>Fehlerdetail</dt><dd>{{ request_item.error_detail or 'n/a' }}</dd></div>
-      <div><dt>Bounding Box</dt><dd>{{ request_item.boundingBox or 'n/a' }}</dd></div>
+      <div><dt>Sent at UTC</dt><dd>{{ request_item.sent_at_utc or '—' }}</dd></div>
+      <div><dt>Session</dt><dd>{% if request_item.session_id %}<a href="/dashboard/sessions/{{ request_item.session_id }}">{{ request_item.session_id }}</a>{% else %}—{% endif %}</dd></div>
+      <div><dt>Source</dt><dd>{{ request_item.source or '—' }}</dd></div>
+      <div><dt>Capture-Mode</dt><dd>{{ request_item.capture_mode or '—' }}</dd></div>
+      <div><dt>User Agent</dt><dd>{{ request_item.user_agent or '—' }}</dd></div>
+      <div><dt>Remote IP</dt><dd>{{ request_item.remote_addr or '—' }}</dd></div>
+      <div><dt>Forwarded IP</dt><dd>{{ request_item.proxied_ip or '—' }}</dd></div>
+      <div><dt>Fehlerkategorie</dt><dd>{{ request_item.error_category or '—' }}</dd></div>
+      <div><dt>Fehlerdetail</dt><dd>{{ request_item.error_detail or '—' }}</dd></div>
+      <div><dt>Bounding Box</dt><dd>{{ request_item.boundingBox or '—' }}</dd></div>
     </dl>
   </article>
 
   <article class="panel code-panel">
     <div class="panel-header">
-      <div><p class="eyebrow">Rohpayload</p><h3>Gespeicherter Request-Body</h3></div>
+      <div><p class="eyebrow">Rohpayload</p><h3>Request-Body</h3></div>
     </div>
     <pre>{{ request_item.raw_payload_json }}</pre>
   </article>
-</section>
 
-<section class="panel table-panel">
+</div>
+
+<article class="panel table-panel">
   <div class="panel-header">
     <div><p class="eyebrow">Punkte in diesem Request</p><h3>Akzeptierte GPS-Punkte</h3></div>
   </div>
   <table>
-    <thead><tr><th>UTC</th><th>Lokal</th><th>Koordinate</th><th>Accuracy</th><th>Detail</th></tr></thead>
+    <thead><tr><th>UTC</th><th>Lokal</th><th>Koordinate</th><th>Accuracy</th><th></th></tr></thead>
     <tbody>
       {% for point in request_item.points %}
       <tr>
         <td>{{ format_timestamp(point.point_timestamp_utc).utc }}</td>
         <td>{{ point.point_timestamp_local }}</td>
-        <td>{{ "%.6f"|format(point.latitude) }}, {{ "%.6f"|format(point.longitude) }}</td>
+        <td>{{ "%.5f"|format(point.latitude) }}, {{ "%.5f"|format(point.longitude) }}</td>
         <td>{{ point.horizontal_accuracy_m }} m</td>
-        <td><a href="/dashboard/points/{{ point.id }}">oeffnen</a></td>
+        <td><a href="/dashboard/points/{{ point.id }}">Detail</a></td>
       </tr>
       {% else %}
       <tr><td colspan="5" class="empty-cell">Keine akzeptierten Punkte in diesem Request gespeichert.</td></tr>
       {% endfor %}
     </tbody>
   </table>
-</section>
+</article>
 {% endblock %}

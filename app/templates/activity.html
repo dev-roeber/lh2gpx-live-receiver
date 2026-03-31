@@ -1,18 +1,36 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="metric-grid">
-  <article><span>Requests heute</span><strong>{{ snapshot.periods.requestsToday }}</strong><small>akzeptierte Requests am heutigen lokalen Datum</small></article>
-  <article><span>Requests 24h</span><strong>{{ snapshot.periods.requests24h }}</strong><small>letzte 24 Stunden</small></article>
-  <article><span>Punkte heute</span><strong>{{ snapshot.periods.pointsToday }}</strong><small>GPS-Punkte am heutigen lokalen Datum</small></article>
-  <article><span>Punkte 24h</span><strong>{{ snapshot.periods.points24h }}</strong><small>letzte 24 Stunden</small></article>
-  <article><span>Punkte 7d</span><strong>{{ snapshot.periods.points7d }}</strong><small>letzte 7 Tage</small></article>
-  <article><span>Jungste Session</span><strong>{{ snapshot.latest.lastPoint.session_id if snapshot.latest.lastPoint else 'n/a' }}</strong><small>laut juengstem Punkt</small></article>
-</section>
 
-<section class="content-grid two-one">
+{# ── Metric row ───────────────────────────────────────────── #}
+<div class="metric-row">
+  <div class="metric-card">
+    <span class="mc-label">Requests heute</span>
+    <span class="mc-value">{{ snapshot.periods.requestsToday }}</span>
+    <span class="mc-sub">lokales Datum</span>
+  </div>
+  <div class="metric-card">
+    <span class="mc-label">Requests 24h</span>
+    <span class="mc-value">{{ snapshot.periods.requests24h }}</span>
+    <span class="mc-sub">letzte 24 Stunden</span>
+  </div>
+  <div class="metric-card">
+    <span class="mc-label">Punkte heute</span>
+    <span class="mc-value">{{ snapshot.periods.pointsToday }}</span>
+    <span class="mc-sub">lokales Datum</span>
+  </div>
+  <div class="metric-card">
+    <span class="mc-label">Punkte 7d</span>
+    <span class="mc-value">{{ snapshot.periods.points7d }}</span>
+    <span class="mc-sub">letzte 7 Tage</span>
+  </div>
+</div>
+
+{# ── Bar charts ────────────────────────────────────────────── #}
+<div class="content-grid two-one">
+
   <article class="panel">
     <div class="panel-header">
-      <div><p class="eyebrow">Trend</p><h3>Punkte pro lokalem Tag</h3></div>
+      <div><p class="eyebrow">Trend</p><h3>Punkte pro Tag</h3></div>
     </div>
     <div class="bar-list">
       {% for item in snapshot.lists.pointsPerDay %}
@@ -22,7 +40,7 @@
         <strong>{{ item.value }}</strong>
       </div>
       {% else %}
-      <div class="empty-state"><strong>Keine Tagesdaten vorhanden.</strong><span>Sobald Punkte gespeichert werden, erscheinen hier Tagesverlaeufe.</span></div>
+      <div class="empty-state"><strong>Keine Tagesdaten vorhanden.</strong></div>
       {% endfor %}
     </div>
   </article>
@@ -39,20 +57,23 @@
         <strong>{{ item.value }}</strong>
       </div>
       {% else %}
-      <div class="empty-state"><strong>Keine Requestdaten vorhanden.</strong><span>Die Tagesverteilung erscheint nach den ersten Ingests.</span></div>
+      <div class="empty-state"><strong>Keine Requestdaten vorhanden.</strong></div>
       {% endfor %}
     </div>
   </article>
-</section>
 
-<section class="content-grid two-one">
+</div>
+
+{# ── Recent points + sessions ─────────────────────────────── #}
+<div class="content-grid two-one">
+
   <article class="panel table-panel">
     <div class="panel-header">
-      <div><p class="eyebrow">Neueste Punkte</p><h3>Letzte 10 Punkt-Events</h3></div>
-      <a class="button-link secondary" href="/dashboard/points">Punktliste</a>
+      <div><p class="eyebrow">Neueste Punkte</p><h3>Letzte 10 GPS-Punkte</h3></div>
+      <a class="button-link secondary" href="/dashboard/points">Alle Punkte</a>
     </div>
     <table>
-      <thead><tr><th>Zeit</th><th>Lokal</th><th>Accuracy</th><th>Session</th><th>Detail</th></tr></thead>
+      <thead><tr><th>Zeit</th><th>Lokal</th><th>Accuracy</th><th>Session</th><th></th></tr></thead>
       <tbody>
         {% for point in snapshot.lists.recentPoints %}
         {% set point_time = format_timestamp(point.point_timestamp_utc) %}
@@ -61,7 +82,7 @@
           <td>{{ point.point_timestamp_local }}</td>
           <td>{{ point.horizontal_accuracy_m }} m</td>
           <td>{{ point.session_id }}</td>
-          <td><a href="/dashboard/points/{{ point.id }}">oeffnen</a></td>
+          <td><a href="/dashboard/points/{{ point.id }}">Detail</a></td>
         </tr>
         {% else %}
         <tr><td colspan="5" class="empty-cell">Noch keine Punkte vorhanden.</td></tr>
@@ -72,8 +93,8 @@
 
   <article class="panel table-panel">
     <div class="panel-header">
-      <div><p class="eyebrow">Sessions</p><h3>Juengste Session-Aktivitaet</h3></div>
-      <a class="button-link secondary" href="/dashboard/sessions">Sessionliste</a>
+      <div><p class="eyebrow">Sessions</p><h3>Session-Aktivitaet</h3></div>
+      <a class="button-link secondary" href="/dashboard/sessions">Alle Sessions</a>
     </div>
     <table>
       <thead><tr><th>Session</th><th>Punkte</th><th>Requests</th><th>Letzter Punkt</th></tr></thead>
@@ -92,9 +113,12 @@
       </tbody>
     </table>
   </article>
-</section>
 
-<section class="content-grid two-one">
+</div>
+
+{# ── Distribution tables ───────────────────────────────────── #}
+<div class="content-grid two-one">
+
   <article class="panel table-panel">
     <div class="panel-header">
       <div><p class="eyebrow">Sources</p><h3>Source-Verteilung</h3></div>
@@ -126,5 +150,6 @@
       </tbody>
     </table>
   </article>
-</section>
+
+</div>
 {% endblock %}

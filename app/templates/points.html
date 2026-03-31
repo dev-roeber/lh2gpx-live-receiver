@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="panel">
+<article class="panel">
   <div class="panel-header">
     <div><p class="eyebrow">Filter & Exporte</p><h3>Punktliste filtern</h3></div>
   </div>
@@ -22,16 +22,16 @@
       {% endfor %}
     </div>
   </form>
-</section>
+</article>
 
-<section class="metric-grid compact">
-  <article><span>Gefilterte Punkte</span><strong>{{ points["total"] }}</strong></article>
-  <article><span>Page</span><strong>{{ points["page"] }}</strong></article>
-  <article><span>Page Size</span><strong>{{ points["pageSize"] }}</strong></article>
-  <article><span>Receiver gesamt</span><strong>{{ snapshot.totals.totalPoints }}</strong></article>
-</section>
+<div class="metric-row">
+  <div class="metric-card"><span class="mc-label">Gefilterte Punkte</span><span class="mc-value">{{ points["total"] }}</span></div>
+  <div class="metric-card"><span class="mc-label">Seite</span><span class="mc-value">{{ points["page"] }}</span><span class="mc-sub">Page-Size: {{ points["pageSize"] }}</span></div>
+  <div class="metric-card"><span class="mc-label">Punkte gesamt</span><span class="mc-value">{{ snapshot.totals.totalPoints }}</span></div>
+  <div class="metric-card"><span class="mc-label">Requests gesamt</span><span class="mc-value">{{ snapshot.totals.totalRequests }}</span></div>
+</div>
 
-<section class="panel table-panel">
+<article class="panel table-panel">
   <div class="panel-header">
     <div><p class="eyebrow">Punkte</p><h3>Gespeicherte GPS-Punkte</h3></div>
   </div>
@@ -68,5 +68,5 @@
       {% endfor %}
     </tbody>
   </table>
-</section>
+</article>
 {% endblock %}

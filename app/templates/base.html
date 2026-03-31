@@ -7,41 +7,51 @@
     <link rel="stylesheet" href="/static/style.css">
   </head>
   <body>
-    <div class="app-shell">
-      <aside class="sidebar">
-        <div class="brand">
-          <div class="brand-mark">LH</div>
-          <div>
-            <p class="eyebrow">Receiver Admin</p>
-            <h1>LH2GPX Live Receiver</h1>
-          </div>
+
+    {# ── Global header bar ─────────────────────────────────── #}
+    <header class="global-header">
+      <div class="gh-brand">
+        <div class="gh-brand-mark">LH</div>
+        <span class="gh-brand-name">LH2GPX Receiver</span>
+      </div>
+      <div class="gh-strip">
+        <div class="gh-item">
+          <span class="gh-label">Host</span>
+          <span class="gh-value">{{ receiver_summary.publicHostname }}</span>
         </div>
+        <div class="gh-item">
+          <span class="gh-label">Receiver</span>
+          {% set rs = receiver_summary.attentionState %}
+          {% set pill_cls = 'ok' if rs == 'ok' else 'crit' %}
+          <span class="gh-pill {{ pill_cls }}">{{ receiver_summary.serviceStatus }}</span>
+        </div>
+        <div class="gh-item">
+          <span class="gh-label">Auth</span>
+          <span class="gh-value">{{ receiver_summary.authStatus }}</span>
+        </div>
+        <div class="gh-item">
+          <span class="gh-label">Uptime</span>
+          <span class="gh-value">{{ receiver_summary.uptime }}</span>
+        </div>
+        <div class="gh-item">
+          <span class="gh-label">Letzter Ingest</span>
+          {% set ls = format_timestamp(snapshot.totals.lastSuccessAt) %}
+          <span class="gh-value">{{ ls.relative }}</span>
+        </div>
+        <div class="gh-item">
+          <span class="gh-label">v{{ app_version }}</span>
+        </div>
+      </div>
+    </header>
 
-        <section class="sidebar-panel">
-          <div class="panel-header">
-            <div>
-              <p class="eyebrow">Receiver</p>
-              <h2>Direktstatus</h2>
-            </div>
-            <span class="status-pill tone-{{ receiver_summary.attentionState }}">{{ receiver_summary.attentionState == 'ok' and 'alles ok' or 'Aufmerksamkeit' }}</span>
-          </div>
-          <dl class="meta-list compact">
-            <div><dt>Service</dt><dd>{{ receiver_summary.serviceStatus }}</dd></div>
-            <div><dt>Health</dt><dd class="tone-{{ status_tone(receiver_summary.healthStatus) }}">{{ receiver_summary.healthStatus }}</dd></div>
-            <div><dt>Readiness</dt><dd class="tone-{{ status_tone(receiver_summary.readinessStatus) }}">{{ receiver_summary.readinessStatus }}</dd></div>
-            <div><dt>Storage</dt><dd class="tone-{{ status_tone(receiver_summary.storageStatus) }}">{{ receiver_summary.storageStatus }}</dd></div>
-            <div><dt>Auth</dt><dd>{{ receiver_summary.authStatus }}</dd></div>
-            <div><dt>Admin</dt><dd>{{ receiver_summary.adminStatus }}</dd></div>
-            <div><dt>Uptime</dt><dd>{{ receiver_summary.uptime }}</dd></div>
-            <div><dt>Host</dt><dd>{{ receiver_summary.publicHostname }}</dd></div>
-          </dl>
-          <p class="sidebar-note">{{ receiver_summary.attentionMessage }}</p>
-        </section>
+    <div class="app-shell">
 
+      {# ── Sidebar ─────────────────────────────────────────── #}
+      <aside class="sidebar">
         <nav class="sidebar-nav" aria-label="Hauptnavigation">
           {% for group in nav_groups %}
-          <section>
-            <p class="nav-group-title">{{ group["title"] }}</p>
+          <div class="sidebar-section">
+            <p class="nav-group-label">{{ group["title"] }}</p>
             <ul>
               {% for item in group["items"] %}
               <li>
@@ -49,70 +59,99 @@
               </li>
               {% endfor %}
             </ul>
-          </section>
+          </div>
           {% endfor %}
         </nav>
 
-        <section class="sidebar-panel">
-          <p class="nav-group-title">API & Schnellwege</p>
-          <div class="sidebar-links">
-            {% for item in api_links %}
-            <a href="{{ item.href }}">{{ item.label }}</a>
-            {% endfor %}
-          </div>
-        </section>
+        <hr class="sidebar-divider">
+
+        <p class="nav-group-label">API &amp; Direktzugriff</p>
+        <div class="sidebar-api-links">
+          {% for item in api_links %}
+          <a href="{{ item.href }}">{{ item.label }}</a>
+          {% endfor %}
+        </div>
       </aside>
 
+      {# ── Main content ────────────────────────────────────── #}
       <main class="page-shell">
-        <header class="topbar">
-          <div class="topbar-copy">
-            <p class="eyebrow">{{ page_kicker }}</p>
+
+        {# Page header #}
+        <div class="page-header">
+          <div class="page-header-copy">
+            <p class="page-kicker">{{ page_kicker }}</p>
             <h2>{{ page_title }}</h2>
-            <p>{{ page_description }}</p>
+            <p class="page-desc">{{ page_description }}</p>
           </div>
-          <div class="topbar-actions">
-            {% for item in quick_actions %}
+          {% if page_header_actions %}
+          <div class="page-header-actions">
+            {% for item in page_header_actions %}
             <a class="button-link secondary" href="{{ item.href }}">{{ item.label }}</a>
             {% endfor %}
           </div>
-        </header>
+          {% endif %}
+        </div>
 
-        <section class="status-strip">
-          <article class="status-card">
-            <p class="eyebrow">Letzter erfolgreicher Ingest</p>
-            {% set last_success = format_timestamp(snapshot.totals.lastSuccessAt) %}
-            <h3>{{ last_success.relative }}</h3>
-            <p>{{ last_success.utc or 'Noch kein erfolgreicher Ingest' }}</p>
-            <p>{{ last_success.local or 'Keine lokale Zeit verfuegbar' }}</p>
-          </article>
-          <article class="status-card">
-            <p class="eyebrow">Letzter fehlgeschlagener Ingest</p>
-            {% set last_failure = format_timestamp(snapshot.totals.lastFailureAt) %}
-            <h3>{{ last_failure.relative }}</h3>
-            <p>{{ last_failure.utc or 'Kein Fehler gespeichert' }}</p>
-            <p>{{ snapshot.status.lastErrorCategory or 'Keine Fehlerkategorie gespeichert' }}</p>
-          </article>
-          <article class="status-card">
-            <p class="eyebrow">Requests / Punkte / Sessions</p>
-            <h3>{{ snapshot.totals.totalRequests }} / {{ snapshot.totals.totalPoints }} / {{ snapshot.totals.totalSessions }}</h3>
-            <p>{{ format_percent(snapshot.totals.successRate) }} Erfolg · {{ format_percent(snapshot.totals.failureRate) }} Fehler</p>
-            <p>Heute {{ snapshot.periods.requestsToday }} Requests und {{ snapshot.periods.pointsToday }} Punkte</p>
-          </article>
-        </section>
-
+        {# Alert strip #}
         {% if receiver_summary.attentionState != 'ok' %}
-        <section class="notice danger">
-          <strong>Aufmerksamkeit noetig.</strong>
-          <span>{{ receiver_summary.attentionMessage }}</span>
-        </section>
+        <div class="alert-strip crit">
+          <span class="status-badge">CRIT</span>
+          <span class="alert-message">{{ receiver_summary.attentionMessage }}</span>
+          <a class="alert-action" href="/dashboard/live-status">Live-Status pruefen &rarr;</a>
+        </div>
+        {% elif snapshot.status.lastWarning %}
+        <div class="alert-strip warn">
+          <span class="status-badge">WARN</span>
+          <span class="alert-message">{{ snapshot.status.lastWarning }}</span>
+          <a class="alert-action" href="/dashboard/live-status">Details &rarr;</a>
+        </div>
         {% else %}
-        <section class="notice success">
-          <strong>Receiver stabil.</strong>
-          <span>Health, Readiness und letzter Ingest zeigen aktuell keinen akuten Handlungsbedarf.</span>
-        </section>
+        <div class="alert-strip ok">
+          <span class="status-badge">OK</span>
+          <span class="alert-message">Keine akuten Stoerungen — Receiver laeuft stabil.</span>
+        </div>
         {% endif %}
 
+        {# Page content #}
         {% block content %}{% endblock %}
+
+        {# Quick actions #}
+        <div class="quick-actions">
+          <div class="qa-group">
+            <a class="button-link secondary" href="/dashboard">Overview</a>
+            <a class="button-link secondary" href="/dashboard/live-status">Receiver Health</a>
+            <a class="button-link secondary" href="/dashboard/activity">Aktivitaet</a>
+            <a class="button-link secondary" href="/dashboard/security">Security</a>
+          </div>
+          <div class="qa-divider"></div>
+          <div class="qa-group">
+            <a class="button-link secondary" href="/dashboard/storage">Storage</a>
+            <a class="button-link secondary" href="/dashboard/requests">Requests</a>
+            <a class="button-link secondary" href="/dashboard/exports">Exporte</a>
+            <a class="button-link secondary" href="/dashboard/system">System</a>
+          </div>
+        </div>
+
+        {# Context footer #}
+        <div class="context-footer">
+          <div class="cf-item">
+            <span class="cf-label">Bind</span>
+            <span>{{ receiver_summary.bindAddress }}</span>
+          </div>
+          <div class="cf-item">
+            <span class="cf-label">Storage</span>
+            <span class="status-badge {{ 'ok' if receiver_summary.storageStatus == 'writable' else 'crit' }}">{{ receiver_summary.storageStatus }}</span>
+          </div>
+          <div class="cf-item">
+            <span class="cf-label">Admin</span>
+            <span>{{ receiver_summary.adminStatus }}</span>
+          </div>
+          <div class="cf-item">
+            <span class="cf-label">Timezone</span>
+            <span>{{ receiver_summary.localTimezone }}</span>
+          </div>
+        </div>
+
       </main>
     </div>
   </body>

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="panel">
+<article class="panel">
   <div class="panel-header">
     <div><p class="eyebrow">Dokumentation</p><h3>{{ doc_sections.title }}</h3></div>
     <span class="inline-code">{{ doc_sections.path }}</span>
@@ -20,5 +20,5 @@
     {% endif %}
   </div>
   {% endfor %}
-</section>
+</article>
 {% endblock %}

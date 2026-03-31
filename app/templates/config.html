@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="content-grid two-one">
+<div class="content-grid two-one">
+
   <article class="panel">
     <div class="panel-header">
-      <div><p class="eyebrow">Maskierte Konfiguration</p><h3>Runtime-Parameter</h3></div>
+      <div><p class="eyebrow">Maskierte Runtime-Konfiguration</p><h3>Aktive Parameter</h3></div>
     </div>
     <dl class="meta-list">
       {% for key, value in config_summary.items() %}
@@ -12,7 +13,7 @@
     </dl>
   </article>
 
-  <article class="panel stack-panel">
+  <article class="panel">
     <div class="panel-header">
       <div><p class="eyebrow">Erklaerungen</p><h3>Was diese Werte bedeuten</h3></div>
     </div>
@@ -25,5 +26,6 @@
       {% endfor %}
     </div>
   </article>
-</section>
+
+</div>
 {% endblock %}
