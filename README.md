@@ -1,76 +1,136 @@
 # lh2gpx-live-receiver
 
-Minimaler, eigenstaendiger Live-Location-Receiver fuer `LocationHistory2GPX-iOS`.
+Receiver- und Operator-Server fuer optionale Live-Location-Uploads aus `LocationHistory2GPX-iOS`.
 
-Dieser erste Serverschritt ist absichtlich klein:
-- eine FastAPI-App
-- `GET /health`
-- `POST /live-location`
-- optionaler Bearer-Token ueber ENV
-- append-only Speicherung als NDJSON
-- HTTPS-Termination ueber Caddy
-- keine Datenbank, kein Dashboard, kein Multi-User-Backend
+Diese Arbeit hat bewusst nur dieses Receiver-Repo und den Serverbetrieb geaendert. App, Wrapper und lokale Standortdaten wurden absichtlich nicht angefasst.
 
-## Repo-Truth / Input-Contract
+## Kurzstatus
 
-Der Request-Body orientiert sich an der aktuell vorhandenen iOS-Client-Implementierung in `LocationHistory2GPX-iOS`:
+- FastAPI-Receiver fuer `POST /live-location`
+- SQLite als Standard-Persistenz fuer Requests und einzelne GPS-Punkte
+- optionales NDJSON-Audit fuer Rohpayloads
+- Dashboard fuer Betrieb, Diagnose und Exporte
+- lokale oder Basic-Auth-geschuetzte Operator-Oberflaeche
+- Docker-Compose-Deployment mit Caddy als TLS-Reverse-Proxy
+
+## Root cause des bisherigen HTTP-500
+
+Der bisherige 500er war kein Client-Schemafehler, sondern ein Server-Storage-Problem:
+
+- der Dienst lief als `appuser`
+- der aktive Volume-/Dateipfad fuer `live-location.ndjson` war im Container nicht sauber vorbereitet
+- der Storage-Code schrieb blind append-only in eine Datei
+- dadurch schlugen echte Requests mit `FileNotFoundError` fehl
+- die alten Tests deckten diesen Runtime-Pfad nicht ab
+
+Der aktuelle Stand beseitigt das ueber:
+
+- vorbereitete und beschreibbare Daten- und Log-Verzeichnisse
+- SQLite als primaeren Storage
+- `readyz` fuer echte Schreibbereitschaft
+- 503 statt blindem 500 bei Storage-Problemen
+- strukturierte Request- und Fehlerlogs mit `request_id`
+
+## Input contract
+
+Der Receiver bleibt rueckwaertskompatibel zum bestehenden iOS-Live-Upload-Contract:
+
 - `source`
 - `sessionID`
 - `captureMode`
 - `sentAt`
-- `points[]` mit `latitude`, `longitude`, `timestamp`, `horizontalAccuracyM`
+- `points[]`
+- `points[].latitude`
+- `points[].longitude`
+- `points[].timestamp`
+- `points[].horizontalAccuracyM`
 
-Unbekannte Zusatzfelder werden bewusst toleriert und mitgespeichert, solange die Grundstruktur gueltig bleibt.
+Unbekannte additive Zusatzfelder werden weiter toleriert und im Rohpayload gespeichert.
 
-## API
+## Wichtige Endpunkte
 
-### `GET /health`
+- `GET /health`
+  - Prozess lebt und liefert Grundstatus
+- `GET /readyz`
+  - Storage ist schreibbereit
+- `POST /live-location`
+  - akzeptiert valide Uploads und speichert Requests plus Punkte
+- `GET /api/stats`
+  - Kennzahlen fuer Requests, Punkte, Sessions und Zeitraeume
+- `GET /api/points`
+  - Punkteliste, Filter und Export
+- `GET /api/points/{id}`
+  - Punktdetail
+- `GET /api/requests`
+  - Requestliste
+- `GET /api/requests/{request_id}`
+  - Requestdetail inkl. Rohpayload
+- `GET /api/sessions`
+  - Session-Uebersicht
+- `GET /api/sessions/{session_id}`
+  - Sessiondetail mit Bounding Box und Zeitspanne
+- `GET /dashboard`
+  - Operator-UI
 
-Antwortet mit kleinem Service-Status:
+## Operator-UI
 
-```json
-{
-  "status": "ok",
-  "time": "2026-03-20T12:00:00+00:00",
-  "service": "lh2gpx-live-receiver",
-  "authRequired": false,
-  "dataFile": "/app/data/live-location.ndjson",
-  "dataFileExists": true
-}
-```
+Das Dashboard zeigt:
 
-### `POST /live-location`
+- Gesamtanzahl Requests
+- Gesamtanzahl Punkte
+- letzte erfolgreiche Annahme
+- letzte Fehler
+- Storage-Pfade und Schreibstatus
+- Punkte pro Tag
+- Punkte pro Session
+- gefilterte Punkteliste mit:
+  - Datum
+  - lokale Uhrzeit
+  - UTC-Zeit
+  - lokaler Zeitstempel
+  - Latitude
+  - Longitude
+  - Accuracy
+  - Session-ID
+  - Source
+  - Capture-Mode
+  - Request-ID
+  - Empfangszeit
+- Request- und Session-Detailseiten
+- CSV-, JSON- und NDJSON-Export der Punkteliste
 
-- akzeptiert JSON
-- validiert Grundstruktur defensiv
-- schreibt pro Request genau eine NDJSON-Zeile nach `DATA_DIR/live-location.ndjson`
-- liefert bei Erfolg `202 Accepted`
-
-Beispielantwort:
-
-```json
-{
-  "status": "accepted",
-  "pointsAccepted": 1,
-  "dataFile": "/app/data/live-location.ndjson"
-}
-```
+Wenn `ADMIN_USERNAME` und `ADMIN_PASSWORD` leer sind, ist das Dashboard absichtlich nur lokal nutzbar. Mit gesetzten Credentials ist HTTP Basic Auth aktiv.
 
 ## Konfiguration
 
-Nur ueber ENV:
+Die versionierte `.env.example` bleibt absichtlich neutral. Dort stehen keine fest eingebauten Produkt- oder Testserverwerte.
 
-- `PORT`
-- `BIND_HOST`
+Wichtige ENV-Variablen:
+
+- `PUBLIC_HOSTNAME`
+- `PUBLIC_BASE_URL`
 - `LIVE_LOCATION_BEARER_TOKEN`
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD`
 - `DATA_DIR`
-- `LOG_LEVEL`
+- `SQLITE_PATH`
+- `RAW_PAYLOAD_NDJSON_PATH`
+- `LEGACY_REQUEST_NDJSON_PATH`
+- `ENABLE_RAW_PAYLOAD_NDJSON`
+- `LOCAL_TIMEZONE`
+- `REQUEST_BODY_MAX_BYTES`
+- `RATE_LIMIT_REQUESTS_PER_MINUTE`
 
-Siehe [.env.example](.env.example).
+Hinweis:
 
-## Lokaler Start ohne Docker
+- Screenshot-Testdaten sind nur lokal und nicht versioniert zu verwenden.
+- Der Bearer-Token darf nie in Git, README, Logs oder API-Responses landen.
+- Dieses Repo liefert keine verpflichtende Online-Vorgabe fuer spaetere Nutzer aus.
+
+## Lokaler Start
 
 ```bash
+cd /home/sebastian/repos/lh2gpx-live-receiver
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
@@ -78,82 +138,39 @@ cp .env.example .env
 ./scripts/run-local.sh
 ```
 
-## Deploy-Entscheidung fuer diesen Host
+## Docker Compose
 
-Fuer diesen Server ist genau **Docker Compose mit Caddy als kleinem TLS-Reverse-Proxy** umgesetzt.
+```bash
+cd /home/sebastian/repos/lh2gpx-live-receiver
+docker compose build
+docker compose up -d
+docker compose ps
+docker compose logs --tail=200
+```
 
-Begruendung anhand des Preflight-Ist-Zustands:
-- `docker` und `docker compose` sind vorhanden und der Docker-Daemon laeuft
-- globales `uvicorn` ist nicht vorhanden
-- kein Host-`nginx` und kein Host-`caddy` sind installiert
-- es existiert aktuell kein vorhandener Compose-Stack fuer diesen Dienst
-- keine verifizierte eigene Domain ist vorhanden, aber `sslip.io` liefert fuer die Server-IP einen verifizierbaren Hostnamen
-
-Der Receiver wird deshalb im bestehenden Compose-Stack betrieben:
-- FastAPI nur noch lokal auf `127.0.0.1:8080`
-- Caddy oeffentlich auf `80/443`
-- TLS-Endpunkt fuer die App: `https://178-104-51-78.sslip.io/live-location`
-
-## Netzwerkstatus dieses Setups
-
-Dieses Setup ist jetzt **klein-produktionsnah fuer App-Tests mit gueltigem HTTPS-Endpunkt**:
-- oeffentliche Endpunkte: `80/tcp` und `443/tcp`
-- App-Ziel: `https://178-104-51-78.sslip.io/live-location`
-- lokaler Backend-Port: `127.0.0.1:8080`
-- `8080` ist kein oeffentlicher App-Endpunkt mehr
+Der Backend-Port bleibt lokal auf `127.0.0.1:8080`. Oeffentlich wird nur Caddy auf `80/443` exponiert.
 
 ## Smoke-Test
 
-Ein kleines Skript liegt unter [scripts/smoke-test.sh](scripts/smoke-test.sh).
-Wenn im Repo eine `.env` liegt, nutzt das Skript diese automatisch.
-
-Direkte Beispiele lokal:
-
 ```bash
-curl http://127.0.0.1:8080/health
+cd /home/sebastian/repos/lh2gpx-live-receiver
+./scripts/smoke-test.sh
 ```
 
-```bash
-curl -X POST http://127.0.0.1:8080/live-location \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "source": "LocationHistory2GPX-iOS",
-    "sessionID": "123e4567-e89b-12d3-a456-426614174000",
-    "captureMode": "foregroundWhileInUse",
-    "sentAt": "2026-03-20T12:00:00Z",
-    "points": [
-      {
-        "latitude": 52.52,
-        "longitude": 13.405,
-        "timestamp": "2026-03-20T11:59:59Z",
-        "horizontalAccuracyM": 6.5
-      }
-    ]
-  }'
-```
+Der Smoke-Test prueft:
 
-Wenn `LIVE_LOCATION_BEARER_TOKEN` gesetzt ist:
+- `GET /health`
+- `GET /readyz`
+- `POST /live-location`
+- lokal optional Dashboard- und Punktlisten-Zugriff
 
-```bash
-curl -X POST http://127.0.0.1:8080/live-location \
-  -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer ${LIVE_LOCATION_BEARER_TOKEN}" \
-  -d @sample-payload.json
-```
+## Weiterfuehrende Doku
 
-Oeffentlicher HTTPS-Check:
-
-```bash
-curl https://178-104-51-78.sslip.io/health
-```
-
-## Tests
-
-```bash
-source .venv/bin/activate
-pytest
-```
-
-## Deploy-Runbook
-
-Das konkrete Deploy-Runbook liegt in [docs/DEPLOY_RUNBOOK.md](docs/DEPLOY_RUNBOOK.md).
+- [docs/API.md](docs/API.md)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- [docs/DATA_MODEL.md](docs/DATA_MODEL.md)
+- [docs/OPERATIONS.md](docs/OPERATIONS.md)
+- [docs/SECURITY.md](docs/SECURITY.md)
+- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+- [docs/APPSTORE_PRIVACY_NOTES.md](docs/APPSTORE_PRIVACY_NOTES.md)
+- [docs/DEPLOY_RUNBOOK.md](docs/DEPLOY_RUNBOOK.md)

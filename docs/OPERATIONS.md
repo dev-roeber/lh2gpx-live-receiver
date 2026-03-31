@@ -1,0 +1,39 @@
+# Operations
+
+## Regelbetrieb
+
+- `docker compose ps`
+- `docker compose logs --tail=200`
+- `curl http://127.0.0.1:8080/readyz`
+- `./scripts/smoke-test.sh`
+
+## Backups
+
+Mindestens sichern:
+
+- `DATA_DIR/receiver.sqlite3`
+- optional `RAW_PAYLOAD_NDJSON_PATH`
+- `compose.yaml`
+- lokale `.env` ausserhalb von Git
+
+Hostseitig reicht fuer kleine Setups bereits ein reguläres Dateisystem-Backup des Repo-Verzeichnisses ohne `.venv`.
+
+## Restore
+
+1. Receiver stoppen
+2. `receiver.sqlite3` und optionale NDJSON-Dateien wiederherstellen
+3. `docker compose up -d`
+4. `readyz`, Dashboard und Punktliste pruefen
+
+## Wartung
+
+- SQLite nutzt WAL-Mode
+- bei groesseren Datenmengen gelegentlich `VACUUM` im Wartungsfenster erwägen
+- bei Speicherknappheit alte Exporte sichern und Daten-Retention bewusst planen
+
+## Monitoring-Minimum
+
+- `readyz`
+- letzte Fehler im Dashboard
+- JSON-Logs von Caddy und App
+- Punkt- und Request-Anzahl ueber `/api/stats`

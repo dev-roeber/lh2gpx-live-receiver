@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <div class="kicker">Request detail</div>
+  <h1>{{ request_item.request_id }}</h1>
+  <p>Accepted points, raw payload and grouped metadata for a single ingest request.</p>
+  <div style="display:flex; gap:10px; flex-wrap:wrap;">
+    <a class="button-link secondary" href="/dashboard">Back to dashboard</a>
+    <a class="button-link secondary" href="/api/requests/{{ request_item.request_id }}">JSON API</a>
+  </div>
+</section>
+
+<section class="metric-grid">
+  <article><h2>Status</h2><p>{{ request_item.ingest_status }}</p></article>
+  <article><h2>HTTP status</h2><p>{{ request_item.http_status }}</p></article>
+  <article><h2>Points</h2><p>{{ request_item.points_count }}</p></article>
+  <article><h2>Duration</h2><p>{{ request_item.durationSeconds if request_item.durationSeconds is not none else 'n/a' }}</p></article>
+</section>
+
+<section class="split-grid">
+  <article class="table-card">
+    <h2>Request metadata</h2>
+    <table>
+      <tbody>
+        <tr><th>Received at UTC</th><td>{{ request_item.received_at_utc }}</td></tr>
+        <tr><th>Sent at UTC</th><td>{{ request_item.sent_at_utc or '' }}</td></tr>
+        <tr><th>Session ID</th><td>{{ request_item.session_id or '' }}</td></tr>
+        <tr><th>Source</th><td>{{ request_item.source or '' }}</td></tr>
+        <tr><th>Capture mode</th><td>{{ request_item.capture_mode or '' }}</td></tr>
+        <tr><th>User agent</th><td>{{ request_item.user_agent or '' }}</td></tr>
+        <tr><th>Remote IP</th><td>{{ request_item.remote_addr or '' }}</td></tr>
+        <tr><th>Forwarded IP</th><td>{{ request_item.proxied_ip or '' }}</td></tr>
+        <tr><th>Error category</th><td>{{ request_item.error_category or '' }}</td></tr>
+        <tr><th>Error detail</th><td>{{ request_item.error_detail or '' }}</td></tr>
+        <tr><th>Bounding box</th><td>{{ request_item.boundingBox or 'n/a' }}</td></tr>
+      </tbody>
+    </table>
+  </article>
+  <article class="code-card">
+    <h2>Raw payload</h2>
+    <pre>{{ request_item.raw_payload_json }}</pre>
+  </article>
+</section>
+
+<section class="table-card" style="margin-top:20px;">
+  <h2>Accepted points in this request</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>UTC timestamp</th>
+        <th>Local timestamp</th>
+        <th>Latitude</th>
+        <th>Longitude</th>
+        <th>Accuracy</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for point in request_item.points %}
+      <tr>
+        <td>{{ point.point_timestamp_utc }}</td>
+        <td>{{ point.point_timestamp_local }}</td>
+        <td>{{ "%.6f"|format(point.latitude) }}</td>
+        <td>{{ "%.6f"|format(point.longitude) }}</td>
+        <td>{{ point.horizontal_accuracy_m }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted">No accepted points stored for this request.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
