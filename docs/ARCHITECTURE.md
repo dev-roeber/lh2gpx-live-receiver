@@ -48,3 +48,14 @@ Der Receiver nimmt optionale Live-Location-Uploads an und macht sie fuer den Ser
 - Operator-UI lokal-only, bis Admin-Credentials gesetzt sind
 - keine Secret-Anzeige in API oder HTML
 - JSON-Access-Logs ueber Caddy
+
+## Bewusst nicht umgesetzt
+
+- kein eigenes Session-/Login-System fuer Operatoren
+- kein kartenbasiertes Session-/Track-Preview
+- kein externes Migrationsframework
+
+Begruendung:
+
+- der Lauf sollte den Receiver-Kern stabilisieren, nicht die zweite Ausbauphase vorwegnehmen
+- offene Ausbaupunkte sind in [OPEN_ITEMS.md](OPEN_ITEMS.md) gesammelt

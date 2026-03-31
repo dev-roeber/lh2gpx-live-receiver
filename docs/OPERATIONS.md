@@ -37,3 +37,20 @@ Hostseitig reicht fuer kleine Setups bereits ein reguläres Dateisystem-Backup d
 - letzte Fehler im Dashboard
 - JSON-Logs von Caddy und App
 - Punkt- und Request-Anzahl ueber `/api/stats`
+
+## Bewusst verschoben
+
+Noch **nicht** Teil dieses Receiver-Laufs:
+
+- geplante Export-Jobs
+- automatische Retention
+- automatisierte Backup-/Restore-Pipeline
+- persistentes Rate-Limit-Backend
+- Karten-/Track-Preview im Dashboard
+
+Begruendung:
+
+- erst wurde der stabile Receiver-Kern mit Ingest, Speicherung, Listen, Exporten und Diagnose fertiggezogen
+- weitergehende Betriebsautomatisierung folgt separat
+
+Siehe auch: [OPEN_ITEMS.md](OPEN_ITEMS.md)

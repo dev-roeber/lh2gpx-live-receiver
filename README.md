@@ -174,3 +174,4 @@ Der Smoke-Test prueft:
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 - [docs/APPSTORE_PRIVACY_NOTES.md](docs/APPSTORE_PRIVACY_NOTES.md)
 - [docs/DEPLOY_RUNBOOK.md](docs/DEPLOY_RUNBOOK.md)
+- [docs/OPEN_ITEMS.md](docs/OPEN_ITEMS.md)

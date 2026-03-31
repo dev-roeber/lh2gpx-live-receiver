@@ -102,3 +102,13 @@ Masked operator summary of runtime config. Secrets bleiben maskiert.
 ## `GET /dashboard`
 
 HTML-Ansicht fuer Operatoren.
+
+## Scope-Hinweis
+
+Diese API-Doku beschreibt nur den aktuell umgesetzten Receiver-Stand. Bewusst nicht Teil dieses Laufs:
+
+- separate Admin-Session-Auth
+- weitergehende Operator-Rollen
+- geplante Export-/Retention-Jobs
+
+Offene Folgepunkte stehen in [OPEN_ITEMS.md](OPEN_ITEMS.md).

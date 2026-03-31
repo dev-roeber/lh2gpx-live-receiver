@@ -36,3 +36,13 @@ Spaeter separat pruefen:
 - Review-Wording fuer App Store Connect
 - appseitige Privacy-Texte
 - Entfernen appseitiger Test-Defaults, falls dort noch vorhanden
+
+## Bewusst nicht Teil dieses Laufs
+
+- keine Aenderungen an App- oder Wrapper-Dateien
+- keine Aenderungen an App-Store-Artefakten
+- keine Produktvorgabe fuer Hostname oder Bearer-Token
+
+Dieser Receiver-Lauf bereitet die spaetere Review-/Privacy-Arbeit nur dokumentarisch vor. Die eigentlichen App-/Wrapper-Anpassungen muessen spaeter separat erfolgen.
+
+Siehe auch: [OPEN_ITEMS.md](OPEN_ITEMS.md)

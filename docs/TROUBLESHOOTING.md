@@ -80,3 +80,13 @@ Pruefen:
 
 - aktive Filter im Dashboard oder Query-String
 - ob Punkte ueberhaupt in SQLite gespeichert wurden
+
+## Was diese Fehlerhilfe bewusst nicht abdeckt
+
+Dieses Troubleshooting beschreibt den aktuellen Receiver-Kern. Noch nicht Teil dieses Laufs:
+
+- Session-Login-/Admin-Auth-Fehlerbilder einer spaeteren eigenstaendigen Admin-Schicht
+- Cron-/Retention-/Backup-Job-Fehlerbilder
+- App- oder Wrapper-seitige Fehlersuche ausserhalb dieses Repos
+
+Die offen verschobenen Punkte stehen gesammelt in [OPEN_ITEMS.md](OPEN_ITEMS.md).

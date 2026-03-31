@@ -32,6 +32,7 @@
 - Docker Compose now renders without requiring a committed `.env`
 - Caddy now emits JSON access logs and adds baseline security headers
 - smoke checks now include `readyz` and optional operator-UI verification
+- documentation now separates merge-ready receiver functionality from intentionally deferred hardening, auth, retention and app-side follow-up work
 
 ## 2026-03-20
 

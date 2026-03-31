@@ -41,3 +41,19 @@
 ## Testdaten
 
 Screenshot-Testwerte sind nur lokal und testweise zu verwenden. Sie gehoeren nicht in die versionierte Receiver-Konfiguration.
+
+## Bewusst verschobene Security-Folgearbeiten
+
+Aktuell **nicht** Teil dieses Laufs:
+
+- separate vollwertige Admin-Authentifizierung mit Session-Login
+- weitergehende Dashboard-Zugriffshaertung fuer nicht-lokale Operator-Nutzung
+- persistentes serverseitiges Rate-Limit-Backend
+- formale Token-Rotation ausserhalb der lokalen Runtime-Konfiguration
+
+Begruendung:
+
+- der Scope wurde bewusst klein gehalten, um zuerst den stabilen Ingest-, Storage- und Diagnosepfad fertigzustellen
+- diese Punkte bleiben offen und sollten vor breiterem produktivem Einsatz separat umgesetzt werden
+
+Siehe auch: [OPEN_ITEMS.md](OPEN_ITEMS.md)

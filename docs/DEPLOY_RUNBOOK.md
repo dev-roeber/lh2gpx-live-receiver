@@ -59,6 +59,7 @@ Das Datenverzeichnis ist bind-gemountet und damit hostseitig direkt sicherbar.
 - keine versionierte produktive Hostvorgabe
 - kein versionierter Bearer-Token
 - keine Klartext-Anzeige von Secrets in API oder UI
+- weitergehende Produktionshaertung wie separate Admin-Auth, Retention-Automatisierung oder Job-Scheduling ist bewusst nicht Teil dieses Laufs
 
 ## Rollback
 
@@ -71,3 +72,14 @@ docker compose up -d
 ```
 
 Wenn die Datenbasis erhalten bleiben soll, `./data` nicht loeschen.
+
+## Bewusst verschobene Folgearbeit
+
+Vor einem breiteren produktiven Betrieb weiterhin offen:
+
+- separate Admin-Authentifizierung statt nur Local-only-/Basic-Auth-Modell
+- formalisierte Backup-/Restore-Automatisierung
+- automatische Retention-/Export-Jobs
+- finaler App-/Wrapper-Abgleich ausserhalb dieses Repos
+
+Siehe auch: [OPEN_ITEMS.md](OPEN_ITEMS.md)
