@@ -4,6 +4,13 @@ Receiver- und Operator-Server fuer optionale Live-Location-Uploads aus `Location
 
 Diese Arbeit hat bewusst nur dieses Receiver-Repo und den Serverbetrieb geaendert. App, Wrapper und lokale Standortdaten wurden absichtlich nicht angefasst.
 
+## Rolle im 4-Repo-System
+
+- optionaler Self-Hosted-Receiver fuer Live-Punkte aus der iOS-App
+- nicht erforderlich fuer lokalen Import, lokale Analyse oder lokale Exporte; diese Produktpfade bleiben ohne Pflicht-Online-Infrastruktur moeglich
+- gedacht fuer nutzerseitig selbst konfigurierte Server statt fuer eine zentrale Pflicht-Cloud
+- Testserver/Testwerte aus anderen Repos duerfen nicht als Produktstandard fuer diesen Receiver-Pfad gelesen werden
+
 ## Kurzstatus
 
 - FastAPI-Receiver fuer `POST /live-location`
@@ -19,6 +26,7 @@ Diese Arbeit hat bewusst nur dieses Receiver-Repo und den Serverbetrieb geaender
 - der Receiver-Stand wurde nach `main` gemergt und anschliessend direkt auf `main` im laufenden Server-Setup erneut geprueft
 - aus dieser Post-Merge-Verifikation waren keine weiteren Receiver-Aenderungen noetig
 - App, Wrapper, App-Daten und Importdateien blieben in diesem Lauf bewusst unberuehrt
+- im aktuellen 4-Repo-Abgleich bleibt der Receiver der am tiefsten betrieblich dokumentierte Baustein; in diesem 08-48-Lauf wurden repo-seitig Tests und Compose-Konfiguration frisch bestaetigt, aber kein neuer Live-Smoke gegen den laufenden Dienst gezogen
 
 ## Root cause des bisherigen HTTP-500
 

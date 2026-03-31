@@ -2,6 +2,11 @@
 
 ## 2026-03-31
 
+### Changed
+- 4-Repo-Statusdokumentation ergaenzt: README beschreibt die Receiver-Rolle jetzt explizit als optionalen Self-Hosted-Baustein ohne Pflicht-Cloud und trennt frische Linux-Repo-Verifikation von der frueheren Live-Betriebspruefung.
+- `docs/OPEN_ITEMS.md` fuehrt Token-Rotation und appseitige Testserver-/Testtoken-Defaults jetzt expliziter als offene Security-/Produktpunkte.
+- neues timestamped Status-Audit `docs/AUDIT_RECEIVER_STATE_2026-03-31_08-48.md` dokumentiert den Receiver-Ist-Stand repo-wahr fuer diesen Lauf.
+
 ### Fixed
 - confirmed and removed the runtime `HTTP 500` ingest failure caused by the old append-only storage path failing with `FileNotFoundError`
 - hardened receiver startup so writable data and log directories are prepared before the app runs as `appuser`
