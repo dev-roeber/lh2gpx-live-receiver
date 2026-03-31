@@ -14,12 +14,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY scripts ./scripts
 
-RUN chmod +x /app/scripts/run-local.sh /app/scripts/smoke-test.sh \
+RUN chmod +x /app/scripts/run-local.sh /app/scripts/smoke-test.sh /app/scripts/container-entrypoint.sh \
     && mkdir -p /app/data \
+    && mkdir -p /app/logs \
     && chown -R appuser:appuser /app
-
-USER appuser
 
 EXPOSE 8080
 
-CMD ["./scripts/run-local.sh"]
+CMD ["./scripts/container-entrypoint.sh"]

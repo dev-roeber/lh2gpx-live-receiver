@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -32,3 +34,46 @@ class LiveLocationRequest(BaseModel):
             raise ValueError("Value must not be blank.")
         return trimmed
 
+
+@dataclass(slots=True)
+class RequestMetadata:
+    request_id: str
+    received_at_utc: datetime
+    remote_addr: str
+    proxied_ip: str
+    user_agent: str
+    request_path: str
+    request_method: str
+
+
+@dataclass(slots=True)
+class PointFilters:
+    date_from: str | None = None
+    date_to: str | None = None
+    time_from: str | None = None
+    time_to: str | None = None
+    session_id: str | None = None
+    capture_mode: str | None = None
+    source: str | None = None
+    search: str | None = None
+    page: int = 1
+    page_size: int = 50
+
+
+@dataclass(slots=True)
+class RequestFilters:
+    date_from: str | None = None
+    date_to: str | None = None
+    time_from: str | None = None
+    time_to: str | None = None
+    session_id: str | None = None
+    capture_mode: str | None = None
+    source: str | None = None
+    ingest_status: str | None = None
+    search: str | None = None
+    page: int = 1
+    page_size: int = 50
+
+
+def payload_to_json(payload: LiveLocationRequest) -> dict[str, Any]:
+    return payload.model_dump(mode="json")

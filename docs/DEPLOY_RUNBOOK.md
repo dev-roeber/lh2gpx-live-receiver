@@ -1,50 +1,31 @@
 # Deploy Runbook
 
-Dieses Repo ist fuer den aktuell verifizierten Hostzustand auf **Docker Compose mit Caddy-TLS-Proxy** ausgelegt.
+Dieses Runbook beschreibt nur den Receiver-/Serverbetrieb. App, Wrapper und lokale Standortdateien sind bewusst nicht Teil dieses Schritts.
 
-## Preflight-Basis fuer diese Entscheidung
+## Voraussetzungen
 
-Verifiziert auf diesem Server:
-- `docker`: vorhanden
-- `docker compose`: vorhanden
-- `python3`: vorhanden
-- `systemd`: vorhanden
-- `uvicorn`: nicht global installiert
-- Host-`nginx`: nicht installiert
-- Host-`caddy`: nicht installiert
-- verifizierte laufende Compose-Projekte: keine
-- verifizierte Reverse-Proxy-Konfiguration fuer diesen Dienst vor diesem Schritt: keine
-- verifizierte externe Adresse: Server-IP `178.104.51.78`
-- verifizierbarer DNS-Hostname fuer diese IP: `178-104-51-78.sslip.io`
+- Docker und `docker compose`
+- Port `80/tcp` und `443/tcp` oeffenbar fuer den Reverse-Proxy
+- eine lokale `.env` mit nicht versionierten Werten
 
-Konsequenz:
-- nur eine Deploy-Variante in diesem Repo
-- FastAPI bleibt intern auf `127.0.0.1:8080`
-- Caddy exponiert `80/tcp` und `443/tcp`
-- App-Endpunkt ist HTTPS auf `https://178-104-51-78.sslip.io`
-- der Container laeuft hier bewusst als UID/GID `1000`, damit der bind-mountete Ordner `./data` auf diesem Host direkt beschreibbar bleibt
-
-## Erstes Deploy
+## Erstes Setup
 
 ```bash
 cd /home/sebastian/repos/lh2gpx-live-receiver
 cp .env.example .env
+mkdir -p data logs
 docker compose build
 docker compose up -d
-sudo -n ufw allow 80/tcp
-sudo -n ufw allow 443/tcp
-sudo -n ufw delete allow 8080/tcp
 ```
 
-## Laufende Verwaltung
+## Pflichtchecks nach dem Start
 
 ```bash
-cd /home/sebastian/repos/lh2gpx-live-receiver
 docker compose ps
-docker compose logs --tail=100
-docker compose logs --tail=100 caddy
-docker compose restart
-docker compose down
+docker compose logs --tail=200
+curl http://127.0.0.1:8080/health
+curl http://127.0.0.1:8080/readyz
+./scripts/smoke-test.sh
 ```
 
 ## Update-Deploy
@@ -54,50 +35,51 @@ cd /home/sebastian/repos/lh2gpx-live-receiver
 git pull --ff-only
 docker compose build
 docker compose up -d
+docker compose ps
+docker compose logs --tail=200
 ```
 
-## Lokale Smoke-Checks auf dem Server
+## Datenverzeichnis
 
-Ohne Bearer-Token:
+- SQLite: `DATA_DIR/receiver.sqlite3`
+- optionales Rohpayload-NDJSON: `RAW_PAYLOAD_NDJSON_PATH`
+- Legacy-Importquelle bei leerer DB: `LEGACY_REQUEST_NDJSON_PATH`
+
+Das Datenverzeichnis ist bind-gemountet und damit hostseitig direkt sicherbar.
+
+## Dashboard-Zugriff
+
+- ohne `ADMIN_USERNAME` und `ADMIN_PASSWORD`:
+  - Dashboard ist nur lokal erreichbar
+- mit gesetzten Credentials:
+  - Dashboard und API sind zusaetzlich ueber HTTP Basic Auth geschuetzt
+
+## Sichere Defaults
+
+- keine versionierte produktive Hostvorgabe
+- kein versionierter Bearer-Token
+- keine Klartext-Anzeige von Secrets in API oder UI
+- weitergehende Produktionshaertung wie separate Admin-Auth, Retention-Automatisierung oder Job-Scheduling ist bewusst nicht Teil dieses Laufs
+
+## Rollback
 
 ```bash
 cd /home/sebastian/repos/lh2gpx-live-receiver
-./scripts/smoke-test.sh
+docker compose down
+git checkout <bekannter-commit>
+docker compose build
+docker compose up -d
 ```
 
-Mit Bearer-Token:
+Wenn die Datenbasis erhalten bleiben soll, `./data` nicht loeschen.
 
-```bash
-cd /home/sebastian/repos/lh2gpx-live-receiver
-export LIVE_LOCATION_BEARER_TOKEN='replace-me'
-./scripts/smoke-test.sh
-```
+## Bewusst verschobene Folgearbeit
 
-Hinweis:
-- wenn im Repo eine `.env` liegt, laedt `./scripts/smoke-test.sh` diese automatisch
+Vor einem breiteren produktiven Betrieb weiterhin offen:
 
-## Oeffentliche HTTPS-Smoke-Checks
+- separate Admin-Authentifizierung statt nur Local-only-/Basic-Auth-Modell
+- formalisierte Backup-/Restore-Automatisierung
+- automatische Retention-/Export-Jobs
+- finaler App-/Wrapper-Abgleich ausserhalb dieses Repos
 
-```bash
-cd /home/sebastian/repos/lh2gpx-live-receiver
-BASE_URL="https://178-104-51-78.sslip.io" ./scripts/smoke-test.sh
-```
-
-## Datenspeicher
-
-- Standard-Datei: `./data/live-location.ndjson`
-- pro Request genau eine neue Zeile
-- append-only
-
-## Naechster kleine Ausbau-Schritt
-
-Wenn dieser Minimalreceiver stabil laeuft, ist der naechste sinnvolle Schritt:
-- echte eigene Domain statt `sslip.io`
-- danach optional App-Default-Endpunkt von `http://...` auf den HTTPS-Endpunkt umstellen
-
-Nicht Teil dieses Schritts:
-- Datenbank
-- UI/Dashboard
-- Multi-User
-- Kartenansicht
-- Historienbrowser
+Siehe auch: [OPEN_ITEMS.md](OPEN_ITEMS.md)
