@@ -4,6 +4,13 @@ Receiver- und Operator-Server fuer optionale Live-Location-Uploads aus `Location
 
 Diese Arbeit hat bewusst nur dieses Receiver-Repo und den Serverbetrieb geaendert. App, Wrapper und lokale Standortdaten wurden absichtlich nicht angefasst.
 
+## Rolle im 4-Repo-System
+
+- optionaler Self-Hosted-Receiver fuer Live-Punkte aus der iOS-App
+- nicht erforderlich fuer lokalen Import, lokale Analyse oder lokale Exporte; diese Produktpfade bleiben ohne Pflicht-Online-Infrastruktur moeglich
+- gedacht fuer nutzerseitig selbst konfigurierte Server statt fuer eine zentrale Pflicht-Cloud
+- Testserver/Testwerte aus anderen Repos duerfen nicht als Produktstandard fuer diesen Receiver-Pfad gelesen werden
+
 ## Kurzstatus
 
 - FastAPI-Receiver fuer `POST /live-location`
@@ -19,6 +26,7 @@ Diese Arbeit hat bewusst nur dieses Receiver-Repo und den Serverbetrieb geaender
 - der Receiver-Stand wurde nach `main` gemergt und anschliessend direkt auf `main` im laufenden Server-Setup erneut geprueft
 - aus dieser Post-Merge-Verifikation waren keine weiteren Receiver-Aenderungen noetig
 - App, Wrapper, App-Daten und Importdateien blieben in diesem Lauf bewusst unberuehrt
+- im aktuellen 4-Repo-Abgleich bleibt der Receiver der am tiefsten betrieblich dokumentierte Baustein; in diesem 08-48-Lauf wurden repo-seitig Tests und Compose-Konfiguration frisch bestaetigt, aber kein neuer Live-Smoke gegen den laufenden Dienst gezogen
 
 ## Root cause des bisherigen HTTP-500
 
@@ -81,15 +89,44 @@ Unbekannte additive Zusatzfelder werden weiter toleriert und im Rohpayload gespe
 
 ## Operator-UI
 
-Das Dashboard zeigt:
+Die Admin-Oberflaeche (v0.5) ist als receiver-first Operator-Workspace mit moderner Informationsarchitektur aufgebaut.
 
-- Gesamtanzahl Requests
-- Gesamtanzahl Punkte
-- letzte erfolgreiche Annahme
-- letzte Fehler
-- Storage-Pfade und Schreibstatus
-- Punkte pro Tag
-- Punkte pro Session
+### Informationsarchitektur
+
+Jede Seite hat:
+- **Global Header**: Hostname | Receiver-Status | Auth | Uptime | letzter Ingest | Version
+- **Alert Strip**: akuter Receiver-Zustand in Farbe (gruen OK / gelb WARN / rot CRIT)
+- **Seiteninhalt**
+- **Quick Actions**: kompakte Schnellwege zu den wichtigsten Operator-Seiten
+- **Context Footer**: Bind, Storage-Status, Admin-Modus, Timezone
+
+### Startseite (Overview / Dashboard)
+
+6 kompakte Status-Kacheln mit STATUS-Badge (OK / WARN / CRIT / INFO):
+- **Receiver**: Health, Readiness, letzter Ingest, Erfolgsquote
+- **Security**: Ingest-Auth, Admin-Zugriff, letzte Fehlerkategorie
+- **Storage**: SQLite-Groesse, Raw-Audit-Groesse, Schreibbarkeit
+- **System**: Uptime, Startzeit
+- **Ingest-Volumen**: Requests/Punkte/Sessions gesamt, Fehler gesamt
+- **Aktivitaet**: Requests/Punkte heute und 24h
+
+Darunter: priorisierte Next-Actions, juengste Requests-Tabelle, Top-Sessions, neueste GPS-Punkte.
+
+### Navigation (task-orientiert)
+
+- **Overview**: Overview · Receiver Health · Aktivitaet
+- **Daten**: Requests · Sessions · Punkte · Exporte
+- **Betrieb &amp; Sicherheit**: Security · Storage · Konfiguration · System
+- **Hilfe**: Troubleshooting · Open Items
+
+### Compact / Full Mode
+
+- schmale Terminals und Portrait-Geraete (unter 600px): Kacheln einspaltg, Tabellen vereinfacht
+- Standard-Desktopbreiten: volle 3-spaltige Kacheln, 2-spaltige Content-Grids
+- unter 900px: Sidebar wird zur Top-Navigation, kein sticky Scrollbereich
+
+Weitere Operator-Seiten zeigen unter anderem:
+
 - gefilterte Punkteliste mit:
   - Datum
   - lokale Uhrzeit
@@ -103,7 +140,13 @@ Das Dashboard zeigt:
   - Capture-Mode
   - Request-ID
   - Empfangszeit
-- Request- und Session-Detailseiten
+- separate Request-, Session- und Punkt-Detailseiten
+- Request-Historie mit Fehlerkategorien
+- Session-Uebersicht mit Requestanzahl und Accuracy-Mittelwert
+- Storage-Dateigroessen und letzte Schreibzeiten
+- maskierte Konfigurations- und Auth-Uebersicht
+- Troubleshooting- und Open-Items-Doku direkt in der UI
+- Systemseite mit Version, Laufzeit und Changelog-Ausschnitten
 - CSV-, JSON- und NDJSON-Export der Punkteliste
 
 Wenn `ADMIN_USERNAME` und `ADMIN_PASSWORD` leer sind, ist das Dashboard absichtlich nur lokal nutzbar. Mit gesetzten Credentials ist HTTP Basic Auth aktiv.

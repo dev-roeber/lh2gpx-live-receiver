@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="content-grid two-one">
+
+  <article class="panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Maskierte Runtime-Konfiguration</p><h3>Aktive Parameter</h3></div>
+    </div>
+    <dl class="meta-list">
+      {% for key, value in config_summary.items() %}
+      <div><dt>{{ key }}</dt><dd>{{ value }}</dd></div>
+      {% endfor %}
+    </dl>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Erklaerungen</p><h3>Was diese Werte bedeuten</h3></div>
+    </div>
+    <div class="stack-list">
+      {% for item in config_explanations %}
+      <div class="list-card static">
+        <strong>{{ item.label }}</strong>
+        <span>{{ item.text }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </article>
+
+</div>
+{% endblock %}

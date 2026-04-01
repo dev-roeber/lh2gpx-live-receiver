@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block content %}
+
+{# ── Metric row ───────────────────────────────────────────── #}
+<div class="metric-row">
+  <div class="metric-card">
+    <span class="mc-label">Requests heute</span>
+    <span class="mc-value">{{ snapshot.periods.requestsToday }}</span>
+    <span class="mc-sub">lokales Datum</span>
+  </div>
+  <div class="metric-card">
+    <span class="mc-label">Requests 24h</span>
+    <span class="mc-value">{{ snapshot.periods.requests24h }}</span>
+    <span class="mc-sub">letzte 24 Stunden</span>
+  </div>
+  <div class="metric-card">
+    <span class="mc-label">Punkte heute</span>
+    <span class="mc-value">{{ snapshot.periods.pointsToday }}</span>
+    <span class="mc-sub">lokales Datum</span>
+  </div>
+  <div class="metric-card">
+    <span class="mc-label">Punkte 7d</span>
+    <span class="mc-value">{{ snapshot.periods.points7d }}</span>
+    <span class="mc-sub">letzte 7 Tage</span>
+  </div>
+</div>
+
+{# ── Bar charts ────────────────────────────────────────────── #}
+<div class="content-grid two-one">
+
+  <article class="panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Trend</p><h3>Punkte pro Tag</h3></div>
+    </div>
+    <div class="bar-list">
+      {% for item in snapshot.lists.pointsPerDay %}
+      <div class="bar-row">
+        <span>{{ item.period_label }}</span>
+        <div class="bar"><div style="width: {{ (item.value * 100 / (snapshot.lists.pointsPerDay[0].value or 1)) if snapshot.lists.pointsPerDay else 0 }}%"></div></div>
+        <strong>{{ item.value }}</strong>
+      </div>
+      {% else %}
+      <div class="empty-state"><strong>Keine Tagesdaten vorhanden.</strong></div>
+      {% endfor %}
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Trend</p><h3>Requests pro Tag</h3></div>
+    </div>
+    <div class="bar-list">
+      {% for item in snapshot.lists.requestsPerDay %}
+      <div class="bar-row">
+        <span>{{ item.period_label }}</span>
+        <div class="bar"><div style="width: {{ (item.value * 100 / (snapshot.lists.requestsPerDay[0].value or 1)) if snapshot.lists.requestsPerDay else 0 }}%"></div></div>
+        <strong>{{ item.value }}</strong>
+      </div>
+      {% else %}
+      <div class="empty-state"><strong>Keine Requestdaten vorhanden.</strong></div>
+      {% endfor %}
+    </div>
+  </article>
+
+</div>
+
+{# ── Recent points + sessions ─────────────────────────────── #}
+<div class="content-grid two-one">
+
+  <article class="panel table-panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Neueste Punkte</p><h3>Letzte 10 GPS-Punkte</h3></div>
+      <a class="button-link secondary" href="/dashboard/points">Alle Punkte</a>
+    </div>
+    <table>
+      <thead><tr><th>Zeit</th><th>Lokal</th><th>Accuracy</th><th>Session</th><th></th></tr></thead>
+      <tbody>
+        {% for point in snapshot.lists.recentPoints %}
+        {% set point_time = format_timestamp(point.point_timestamp_utc) %}
+        <tr>
+          <td><strong>{{ point_time.relative }}</strong><span>{{ point_time.utc }}</span></td>
+          <td>{{ point.point_timestamp_local }}</td>
+          <td>{{ point.horizontal_accuracy_m }} m</td>
+          <td>{{ point.session_id }}</td>
+          <td><a href="/dashboard/points/{{ point.id }}">Detail</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty-cell">Noch keine Punkte vorhanden.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+
+  <article class="panel table-panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Sessions</p><h3>Session-Aktivitaet</h3></div>
+      <a class="button-link secondary" href="/dashboard/sessions">Alle Sessions</a>
+    </div>
+    <table>
+      <thead><tr><th>Session</th><th>Punkte</th><th>Requests</th><th>Letzter Punkt</th></tr></thead>
+      <tbody>
+        {% for item in snapshot.lists.recentSessions %}
+        {% set session_time = format_timestamp(item.last_point_ts_utc) %}
+        <tr>
+          <td><a href="/dashboard/sessions/{{ item.session_id }}">{{ item.session_id }}</a></td>
+          <td>{{ item.points_count }}</td>
+          <td>{{ item.requests_count }}</td>
+          <td>{{ session_time.relative }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty-cell">Keine Sessions gespeichert.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+
+</div>
+
+{# ── Distribution tables ───────────────────────────────────── #}
+<div class="content-grid two-one">
+
+  <article class="panel table-panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Sources</p><h3>Source-Verteilung</h3></div>
+    </div>
+    <table>
+      <thead><tr><th>Source</th><th>Punkte</th></tr></thead>
+      <tbody>
+        {% for item in snapshot.lists.sourceDistribution %}
+        <tr><td>{{ item.label }}</td><td>{{ item.value }}</td></tr>
+        {% else %}
+        <tr><td colspan="2" class="empty-cell">Keine Source-Daten vorhanden.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+
+  <article class="panel table-panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Capture Modes</p><h3>Capture-Mode-Verteilung</h3></div>
+    </div>
+    <table>
+      <thead><tr><th>Capture-Mode</th><th>Punkte</th></tr></thead>
+      <tbody>
+        {% for item in snapshot.lists.captureModeDistribution %}
+        <tr><td>{{ item.label }}</td><td>{{ item.value }}</td></tr>
+        {% else %}
+        <tr><td colspan="2" class="empty-cell">Keine Capture-Mode-Daten vorhanden.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+
+</div>
+{% endblock %}

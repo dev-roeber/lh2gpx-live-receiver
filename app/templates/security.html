@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block content %}
+
+{# ── Status tiles ─────────────────────────────────────────── #}
+<div class="tile-grid">
+
+  <div class="tile">
+    <div class="tile-header">
+      <span class="tile-title">Ingest-Auth</span>
+      <span class="status-badge {{ 'ok' if config_summary.authRequired else 'warn' }}">{{ 'OK' if config_summary.authRequired else 'WARN' }}</span>
+    </div>
+    <div class="tile-metrics">
+      <div class="tile-metric">
+        <span class="tile-metric-label">Bearer-Token</span>
+        <span class="tile-metric-value {{ 'ok' if config_summary.authRequired else 'warn' }}">{{ 'aktiv' if config_summary.authRequired else 'inaktiv' }}</span>
+      </div>
+      <div class="tile-metric">
+        <span class="tile-metric-label">Token (maskiert)</span>
+        <span class="tile-metric-value">{{ config_summary.bearerToken or 'nicht gesetzt' }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="tile">
+    <div class="tile-header">
+      <span class="tile-title">Admin-Zugriff</span>
+      <span class="status-badge info">INFO</span>
+    </div>
+    <div class="tile-metrics">
+      <div class="tile-metric">
+        <span class="tile-metric-label">Modus</span>
+        <span class="tile-metric-value">{{ 'Basic Auth' if config_summary.adminAuthEnabled else 'local-only' }}</span>
+      </div>
+      <div class="tile-metric">
+        <span class="tile-metric-label">Admin-User</span>
+        <span class="tile-metric-value">{{ config_summary.adminUsername or 'nicht gesetzt' }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="tile">
+    <div class="tile-header">
+      <span class="tile-title">Proxy Headers</span>
+      <span class="status-badge {{ 'ok' if config_summary.trustProxyHeaders else 'neutral' }}">{{ 'AKTIV' if config_summary.trustProxyHeaders else 'INAKTIV' }}</span>
+    </div>
+    <div class="tile-metrics">
+      <div class="tile-metric">
+        <span class="tile-metric-label">X-Forwarded-For</span>
+        <span class="tile-metric-value">{{ 'ausgewertet' if config_summary.trustProxyHeaders else 'ignoriert' }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="tile">
+    <div class="tile-header">
+      <span class="tile-title">Letzte Fehlerkategorie</span>
+      <span class="status-badge {{ 'crit' if snapshot.status.lastErrorCategory else 'ok' }}">{{ 'FEHLER' if snapshot.status.lastErrorCategory else 'OK' }}</span>
+    </div>
+    <div class="tile-metrics">
+      <div class="tile-metric">
+        <span class="tile-metric-label">Kategorie</span>
+        <span class="tile-metric-value">{{ snapshot.status.lastErrorCategory or '—' }}</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{# ── Security-Doku + Open Items ───────────────────────────── #}
+<div class="content-grid two-one">
+
+  <article class="panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Sicherheitsdokumentation</p><h3>Receiver Security-Hinweise</h3></div>
+    </div>
+    {% for section in doc_sections.sections %}
+    <div class="doc-section">
+      <h4>{{ section.heading }}</h4>
+      {% for paragraph in section.paragraphs %}
+      <p>{{ paragraph }}</p>
+      {% endfor %}
+      {% if section["items"] %}
+      <ul class="doc-list">
+        {% for item in section["items"] %}
+        <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Open Items — Security</p><h3>Noch offene Punkte</h3></div>
+      <a class="button-link secondary" href="/dashboard/open-items">Alle Open Items</a>
+    </div>
+    {% for section in open_items.sections[:3] %}
+    <div class="doc-section">
+      <h4>{{ section.heading }}</h4>
+      {% if section["items"] %}
+      <ul class="doc-list">
+        {% for item in section["items"] %}
+        <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </article>
+
+</div>
+{% endblock %}

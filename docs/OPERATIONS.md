@@ -45,6 +45,17 @@ Hostseitig reicht fuer kleine Setups bereits ein reguläres Dateisystem-Backup d
 - JSON-Logs von Caddy und App
 - Punkt- und Request-Anzahl ueber `/api/stats`
 
+## Operator-UI im Regelbetrieb
+
+Die HTML-Views sind jetzt als Arbeitsbereiche gedacht:
+
+- Dashboard fuer den schnellen Receiver-Befund
+- Live-Status fuer Health, Readiness, Storage und Fehlerlage
+- Letzte Aktivitaet fuer Trends, juengste Requests, Sessions und Punkte
+- Punkte / Requests / Sessions fuer die operative Detailarbeit
+- Storage / Konfiguration / Sicherheit fuer Betriebs- und Haertungsfragen
+- Troubleshooting / Open Items fuer bekannte Probleme und bewusst offene Folgearbeit
+
 ## Bewusst verschoben
 
 Noch **nicht** Teil dieses Receiver-Laufs:

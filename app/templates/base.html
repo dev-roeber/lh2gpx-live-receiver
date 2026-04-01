@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="de">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,8 +7,152 @@
     <link rel="stylesheet" href="/static/style.css">
   </head>
   <body>
-    <main class="shell">
-      {% block content %}{% endblock %}
-    </main>
+
+    {# ── Global header bar ─────────────────────────────────── #}
+    <header class="global-header">
+      <div class="gh-brand">
+        <div class="gh-brand-mark">LH</div>
+        <span class="gh-brand-name">LH2GPX Receiver</span>
+      </div>
+      <div class="gh-strip">
+        <div class="gh-item">
+          <span class="gh-label">Host</span>
+          <span class="gh-value">{{ receiver_summary.publicHostname }}</span>
+        </div>
+        <div class="gh-item">
+          <span class="gh-label">Receiver</span>
+          {% set rs = receiver_summary.attentionState %}
+          {% set pill_cls = 'ok' if rs == 'ok' else 'crit' %}
+          <span class="gh-pill {{ pill_cls }}">{{ receiver_summary.serviceStatus }}</span>
+        </div>
+        <div class="gh-item">
+          <span class="gh-label">Auth</span>
+          <span class="gh-value">{{ receiver_summary.authStatus }}</span>
+        </div>
+        <div class="gh-item">
+          <span class="gh-label">Uptime</span>
+          <span class="gh-value">{{ receiver_summary.uptime }}</span>
+        </div>
+        <div class="gh-item">
+          <span class="gh-label">Letzter Ingest</span>
+          {% set ls = format_timestamp(snapshot.totals.lastSuccessAt) %}
+          <span class="gh-value">{{ ls.relative }}</span>
+        </div>
+        <div class="gh-item">
+          <span class="gh-label">v{{ app_version }}</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="app-shell">
+
+      {# ── Sidebar ─────────────────────────────────────────── #}
+      <aside class="sidebar">
+        <nav class="sidebar-nav" aria-label="Hauptnavigation">
+          {% for group in nav_groups %}
+          <div class="sidebar-section">
+            <p class="nav-group-label">{{ group["title"] }}</p>
+            <ul>
+              {% for item in group["items"] %}
+              <li>
+                <a href="{{ item["href"] }}" class="{{ 'active' if active_nav == item["key"] else '' }}">{{ item["label"] }}</a>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endfor %}
+        </nav>
+
+        <hr class="sidebar-divider">
+
+        <p class="nav-group-label">API &amp; Direktzugriff</p>
+        <div class="sidebar-api-links">
+          {% for item in api_links %}
+          <a href="{{ item.href }}">{{ item.label }}</a>
+          {% endfor %}
+        </div>
+      </aside>
+
+      {# ── Main content ────────────────────────────────────── #}
+      <main class="page-shell">
+
+        {# Page header #}
+        <div class="page-header">
+          <div class="page-header-copy">
+            <p class="page-kicker">{{ page_kicker }}</p>
+            <h2>{{ page_title }}</h2>
+            <p class="page-desc">{{ page_description }}</p>
+          </div>
+          {% if page_header_actions %}
+          <div class="page-header-actions">
+            {% for item in page_header_actions %}
+            <a class="button-link secondary" href="{{ item.href }}">{{ item.label }}</a>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </div>
+
+        {# Alert strip #}
+        {% if receiver_summary.attentionState != 'ok' %}
+        <div class="alert-strip crit">
+          <span class="status-badge">CRIT</span>
+          <span class="alert-message">{{ receiver_summary.attentionMessage }}</span>
+          <a class="alert-action" href="/dashboard/live-status">Live-Status pruefen &rarr;</a>
+        </div>
+        {% elif snapshot.status.lastWarning %}
+        <div class="alert-strip warn">
+          <span class="status-badge">WARN</span>
+          <span class="alert-message">{{ snapshot.status.lastWarning }}</span>
+          <a class="alert-action" href="/dashboard/live-status">Details &rarr;</a>
+        </div>
+        {% else %}
+        <div class="alert-strip ok">
+          <span class="status-badge">OK</span>
+          <span class="alert-message">Keine akuten Stoerungen — Receiver laeuft stabil.</span>
+        </div>
+        {% endif %}
+
+        {# Page content #}
+        {% block content %}{% endblock %}
+
+        {# Quick actions #}
+        <div class="quick-actions">
+          <div class="qa-group">
+            <a class="button-link secondary" href="/dashboard">Overview</a>
+            <a class="button-link secondary" href="/dashboard/live-status">Receiver Health</a>
+            <a class="button-link secondary" href="/dashboard/activity">Aktivitaet</a>
+            <a class="button-link secondary" href="/dashboard/security">Security</a>
+          </div>
+          <div class="qa-divider"></div>
+          <div class="qa-group">
+            <a class="button-link secondary" href="/dashboard/storage">Storage</a>
+            <a class="button-link secondary" href="/dashboard/requests">Requests</a>
+            <a class="button-link secondary" href="/dashboard/exports">Exporte</a>
+            <a class="button-link secondary" href="/dashboard/system">System</a>
+          </div>
+        </div>
+
+        {# Context footer #}
+        <div class="context-footer">
+          <div class="cf-item">
+            <span class="cf-label">Bind</span>
+            <span>{{ receiver_summary.bindAddress }}</span>
+          </div>
+          <div class="cf-item">
+            <span class="cf-label">Storage</span>
+            <span class="status-badge {{ 'ok' if receiver_summary.storageStatus == 'writable' else 'crit' }}">{{ receiver_summary.storageStatus }}</span>
+          </div>
+          <div class="cf-item">
+            <span class="cf-label">Admin</span>
+            <span>{{ receiver_summary.adminStatus }}</span>
+          </div>
+          <div class="cf-item">
+            <span class="cf-label">Timezone</span>
+            <span>{{ receiver_summary.localTimezone }}</span>
+          </div>
+        </div>
+
+      </main>
+    </div>
   </body>
 </html>

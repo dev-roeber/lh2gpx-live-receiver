@@ -101,7 +101,29 @@ Masked operator summary of runtime config. Secrets bleiben maskiert.
 
 ## `GET /dashboard`
 
-HTML-Ansicht fuer Operatoren.
+HTML-Receiver-Dashboard fuer Operatoren.
+
+## Weitere HTML-Views unter `/dashboard/*`
+
+Die Operator-UI ist jetzt in mehrere serverseitig gerenderte Arbeitsbereiche aufgeteilt:
+
+- `/dashboard/live-status`
+- `/dashboard/activity`
+- `/dashboard/points`
+- `/dashboard/points/{id}`
+- `/dashboard/requests`
+- `/dashboard/requests/{request_id}`
+- `/dashboard/sessions`
+- `/dashboard/sessions/{session_id}`
+- `/dashboard/exports`
+- `/dashboard/config`
+- `/dashboard/storage`
+- `/dashboard/security`
+- `/dashboard/system`
+- `/dashboard/troubleshooting`
+- `/dashboard/open-items`
+
+Alle Seiten bleiben durch dieselbe Admin-Zugriffskontrolle geschuetzt wie das Haupt-Dashboard.
 
 ## Scope-Hinweis
 

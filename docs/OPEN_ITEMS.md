@@ -44,7 +44,7 @@ Begruendung:
 ## Empfohlene naechste Receiver-Schritte
 
 - Admin-Zugriff mit eigenstaendiger Auth-Schicht und sauberer Rollen-/Zugriffsgrenze nachziehen
-- Rotation und Austausch des derzeit lokal verwendeten Test-Tokens vor weiterem externen Testbetrieb
+- Rotation und Austausch des derzeit lokal verwendeten Bearer-Test-Tokens vor weiterem externen Testbetrieb
 - Retention-/Backup-Konzept fuer laenger laufende Serverinstanzen festlegen
 - kleines Wartungs-Runbook fuer SQLite-Vacuum, Exportzyklen und Restore-Proben konkretisieren
 - optionales persistentes Rate-Limit oder Upstream-Schutz pruefen, falls der Dienst extern breiter erreichbar wird
@@ -55,7 +55,7 @@ Diese Punkte wurden in diesem Lauf bewusst **nicht** umgesetzt:
 
 - App-/Wrapper-Abgleich gegen den neuen Receiver-Stand
 - appseitige Privacy-/Review-Anpassungen
-- Bereinigung moeglicher Testserver-/Testtoken-Defaults ausserhalb dieses Repos
+- Bereinigung moeglicher Testserver-/Testtoken-Defaults ausserhalb dieses Repos; Testserver/Testwerte duerfen nicht Produktstandard bleiben
 - finaler echter End-to-End-iPhone-Gegenlauf gegen den neuen Receiver
 
 Begruendung:
@@ -66,7 +66,7 @@ Begruendung:
 ## Security-/Operations-Folgearbeiten
 
 - Admin-Zugriff haerter absichern, wenn Dashboard nicht nur lokal genutzt werden soll
-- Token-Rotation nach extern sichtbar gewordenem Test-Token verbindlich einplanen
+- Token-Rotation nach extern sichtbar gewordenem Test-Token verbindlich einplanen und den alten Wert danach nirgends weiterverwenden
 - Backup-/Restore-Probe mit dokumentierter Rueckspielzeit durchfuehren
 - Alarmierung auf wiederholte `401`, `429`, `503` und unerwartete `500` ergaenzen
 

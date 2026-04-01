@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import platform
 import time
 from base64 import b64decode
 from collections import defaultdict, deque
@@ -11,6 +12,7 @@ from ipaddress import ip_address
 from pathlib import Path
 from secrets import compare_digest
 from typing import Any
+from urllib.parse import urlencode
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
@@ -25,8 +27,46 @@ from .storage import ReceiverStorage, StorageError
 
 
 LOGGER = logging.getLogger("lh2gpx_live_receiver")
+APP_VERSION = "0.4.0"
+ROOT_DIR = Path(__file__).resolve().parents[1]
+DOCS_DIR = ROOT_DIR / "docs"
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+NAV_GROUPS = [
+    {
+        "title": "Overview",
+        "items": [
+            {"key": "dashboard", "label": "Overview", "href": "/dashboard"},
+            {"key": "live_status", "label": "Receiver Health", "href": "/dashboard/live-status"},
+            {"key": "activity", "label": "Aktivitaet", "href": "/dashboard/activity"},
+        ],
+    },
+    {
+        "title": "Daten",
+        "items": [
+            {"key": "requests", "label": "Requests", "href": "/dashboard/requests"},
+            {"key": "sessions", "label": "Sessions", "href": "/dashboard/sessions"},
+            {"key": "points", "label": "Punkte", "href": "/dashboard/points"},
+            {"key": "exports", "label": "Exporte", "href": "/dashboard/exports"},
+        ],
+    },
+    {
+        "title": "Betrieb & Sicherheit",
+        "items": [
+            {"key": "security", "label": "Security", "href": "/dashboard/security"},
+            {"key": "storage", "label": "Storage", "href": "/dashboard/storage"},
+            {"key": "config", "label": "Konfiguration", "href": "/dashboard/config"},
+            {"key": "system", "label": "System", "href": "/dashboard/system"},
+        ],
+    },
+    {
+        "title": "Hilfe",
+        "items": [
+            {"key": "troubleshooting", "label": "Troubleshooting", "href": "/dashboard/troubleshooting"},
+            {"key": "open_items", "label": "Open Items", "href": "/dashboard/open-items"},
+        ],
+    },
+]
 
 
 class SimpleRateLimiter:
@@ -54,12 +94,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
     STATIC_DIR.mkdir(parents=True, exist_ok=True)
     templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+    templates.env.globals.update(
+        format_timestamp=lambda value: _timestamp_summary(value, resolved_settings.local_timezone),
+        relative_time=_relative_time,
+        format_duration=_format_duration,
+        format_bytes=_format_bytes,
+        format_percent=_format_percent,
+        status_tone=_status_tone,
+    )
 
-    app = FastAPI(title="LH2GPX Live Location Receiver", version="0.3.0")
+    app = FastAPI(title="LH2GPX Live Location Receiver", version=APP_VERSION)
     app.state.settings = resolved_settings
     app.state.storage = ReceiverStorage(resolved_settings)
     app.state.storage.startup()
     app.state.rate_limiter = SimpleRateLimiter(resolved_settings.rate_limit_requests_per_minute)
+    app.state.started_at_utc = datetime.now(timezone.utc)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     @app.middleware("http")
@@ -383,47 +432,321 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             page=page,
             page_size=effective_page_size,
         )
-        points = _storage(request).list_points(point_filters)
-        recent_requests = _storage(request).list_requests(RequestFilters(page=1, page_size=10))
-        sessions = _storage(request).list_sessions()[:10]
-        return templates.TemplateResponse(
-            request=request,
-            name="dashboard.html",
-            context={
-                "page_title": "Receiver dashboard",
-                "stats": _storage(request).get_stats(),
-                "points": points,
-                "points_items": points["items"],
-                "recent_requests": recent_requests["items"],
-                "sessions": sessions,
+        snapshot = _storage(request).get_dashboard_snapshot()
+        recent_points = _storage(request).list_points(PointFilters(page=1, page_size=8))
+        context = _base_template_context(
+            request,
+            active_nav="dashboard",
+            page_title="Receiver-Dashboard",
+            page_kicker="Receiver-first operator view",
+            page_description="Der aktuelle Betriebszustand, die letzten Ingests und die wichtigsten Arbeitsbereiche fuer den Serverbetrieb auf einen Blick.",
+            snapshot=snapshot,
+        )
+        context.update(
+            {
                 "filters": point_filters,
+                "recent_points": recent_points["items"],
+                "recent_requests": snapshot["lists"]["recentRequests"][:6],
+                "recent_sessions": snapshot["lists"]["recentSessions"][:6],
+                "top_sessions": snapshot["lists"]["topSessions"],
+                "point_filter_exports": _point_export_links(point_filters),
                 "config_summary": _settings(request).masked_config_summary(),
                 "config_explanations": _config_explanations(),
-                "readiness": asdict(_storage(request).readiness()),
-            },
+            }
         )
+        return templates.TemplateResponse(request=request, name="dashboard.html", context=context)
+
+    @app.get("/dashboard/live-status", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    async def dashboard_live_status(request: Request) -> HTMLResponse:
+        snapshot = _storage(request).get_dashboard_snapshot()
+        context = _base_template_context(
+            request,
+            active_nav="live_status",
+            page_title="Live-Status",
+            page_kicker="Health, readiness und Ingest-Zustand",
+            page_description="Hier ist konzentriert sichtbar, ob der Receiver sauber laeuft, ob Storage schreibbereit ist und welche Fehler zuletzt aufgetreten sind.",
+            snapshot=snapshot,
+        )
+        return templates.TemplateResponse(request=request, name="live_status.html", context=context)
+
+    @app.get("/dashboard/activity", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    async def dashboard_activity(request: Request) -> HTMLResponse:
+        snapshot = _storage(request).get_dashboard_snapshot()
+        context = _base_template_context(
+            request,
+            active_nav="activity",
+            page_title="Letzte Aktivitaet",
+            page_kicker="Requests, Sessions und Punkte",
+            page_description="Zeitfenster, Trends und die juengsten Datenbewegungen des Receivers fuer die Operator-Sicht.",
+            snapshot=snapshot,
+        )
+        return templates.TemplateResponse(request=request, name="activity.html", context=context)
+
+    @app.get("/dashboard/points", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    async def dashboard_points(
+        request: Request,
+        date_from: str | None = Query(default=None),
+        date_to: str | None = Query(default=None),
+        time_from: str | None = Query(default=None),
+        time_to: str | None = Query(default=None),
+        session_id: str | None = Query(default=None),
+        capture_mode: str | None = Query(default=None),
+        source: str | None = Query(default=None),
+        search: str | None = Query(default=None),
+        page: int = Query(default=1, ge=1),
+        page_size: int | None = Query(default=None, ge=1),
+    ) -> HTMLResponse:
+        effective_page_size = min(page_size or _settings(request).points_page_size_default, _settings(request).points_page_size_max)
+        point_filters = PointFilters(
+            date_from=date_from,
+            date_to=date_to,
+            time_from=time_from,
+            time_to=time_to,
+            session_id=session_id,
+            capture_mode=capture_mode,
+            source=source,
+            search=search,
+            page=page,
+            page_size=effective_page_size,
+        )
+        points = _storage(request).list_points(point_filters)
+        snapshot = _storage(request).get_dashboard_snapshot()
+        context = _base_template_context(
+            request,
+            active_nav="points",
+            page_title="Punkte",
+            page_kicker="Detailansicht der gespeicherten GPS-Punkte",
+            page_description="Filterbare Punkteliste mit UTC- und Lokalzeit, Exporten und Direktsprung zu Session und Request.",
+            snapshot=snapshot,
+        )
+        context.update({"filters": point_filters, "points": points, "point_filter_exports": _point_export_links(point_filters)})
+        return templates.TemplateResponse(request=request, name="points.html", context=context)
+
+    @app.get("/dashboard/points/{point_id}", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    async def dashboard_point_detail(request: Request, point_id: int) -> HTMLResponse:
+        item = _storage(request).get_point(point_id)
+        if not item:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Point not found.")
+        snapshot = _storage(request).get_dashboard_snapshot()
+        context = _base_template_context(
+            request,
+            active_nav="points",
+            page_title=f"Punkt #{point_id}",
+            page_kicker="Punktdetail",
+            page_description="Zeit, Genauigkeit und Referenzen dieses gespeicherten GPS-Punkts.",
+            snapshot=snapshot,
+        )
+        context.update({"point_item": item})
+        return templates.TemplateResponse(request=request, name="point_detail.html", context=context)
+
+    @app.get("/dashboard/requests", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    async def dashboard_requests(
+        request: Request,
+        date_from: str | None = Query(default=None),
+        date_to: str | None = Query(default=None),
+        time_from: str | None = Query(default=None),
+        time_to: str | None = Query(default=None),
+        session_id: str | None = Query(default=None),
+        capture_mode: str | None = Query(default=None),
+        source: str | None = Query(default=None),
+        ingest_status: str | None = Query(default=None),
+        search: str | None = Query(default=None),
+        page: int = Query(default=1, ge=1),
+        page_size: int | None = Query(default=None, ge=1),
+    ) -> HTMLResponse:
+        effective_page_size = min(page_size or _settings(request).points_page_size_default, _settings(request).points_page_size_max)
+        request_filters = RequestFilters(
+            date_from=date_from,
+            date_to=date_to,
+            time_from=time_from,
+            time_to=time_to,
+            session_id=session_id,
+            capture_mode=capture_mode,
+            source=source,
+            ingest_status=ingest_status,
+            search=search,
+            page=page,
+            page_size=effective_page_size,
+        )
+        requests_payload = _storage(request).list_requests(request_filters)
+        snapshot = _storage(request).get_dashboard_snapshot()
+        context = _base_template_context(
+            request,
+            active_nav="requests",
+            page_title="Requests",
+            page_kicker="Ingest-Historie",
+            page_description="Alle empfangenen Requests mit Status, Antwortcode, Fehlerkategorie und Sprung in die Detailansicht.",
+            snapshot=snapshot,
+        )
+        context.update({"filters": request_filters, "requests_payload": requests_payload})
+        return templates.TemplateResponse(request=request, name="requests.html", context=context)
 
     @app.get("/dashboard/requests/{request_id}", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
     async def dashboard_request_detail(request: Request, request_id: str) -> HTMLResponse:
         item = _storage(request).get_request(request_id)
         if not item:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found.")
-        return templates.TemplateResponse(
-            request=request,
-            name="request_detail.html",
-            context={"page_title": f"Request {request_id}", "request_item": item},
+        snapshot = _storage(request).get_dashboard_snapshot()
+        context = _base_template_context(
+            request,
+            active_nav="requests",
+            page_title=f"Request {request_id}",
+            page_kicker="Requestdetail",
+            page_description="Detailansicht eines einzelnen Ingest-Requests mit Rohpayload, Punkten und Fehlerkontext.",
+            snapshot=snapshot,
         )
+        context.update({"request_item": item})
+        return templates.TemplateResponse(request=request, name="request_detail.html", context=context)
+
+    @app.get("/dashboard/sessions", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    async def dashboard_sessions(request: Request) -> HTMLResponse:
+        snapshot = _storage(request).get_dashboard_snapshot()
+        sessions = _storage(request).list_sessions()
+        context = _base_template_context(
+            request,
+            active_nav="sessions",
+            page_title="Sessions",
+            page_kicker="Session-Uebersicht",
+            page_description="Aktive und historische Sessions mit Punktanzahl, Requestvolumen, Zeitspanne und Sprung in die Sessiondetails.",
+            snapshot=snapshot,
+        )
+        context.update({"sessions": sessions})
+        return templates.TemplateResponse(request=request, name="sessions.html", context=context)
 
     @app.get("/dashboard/sessions/{session_id}", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
     async def dashboard_session_detail(request: Request, session_id: str) -> HTMLResponse:
         item = _storage(request).get_session(session_id)
         if not item:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found.")
-        return templates.TemplateResponse(
-            request=request,
-            name="session_detail.html",
-            context={"page_title": f"Session {session_id}", "session_item": item},
+        snapshot = _storage(request).get_dashboard_snapshot()
+        context = _base_template_context(
+            request,
+            active_nav="sessions",
+            page_title=f"Session {session_id}",
+            page_kicker="Sessiondetail",
+            page_description="Alle Punkte und Requests einer Session inklusive Bounding Box, Zeitspanne und Genauigkeitsbild.",
+            snapshot=snapshot,
         )
+        context.update({"session_item": item})
+        return templates.TemplateResponse(request=request, name="session_detail.html", context=context)
+
+    @app.get("/dashboard/exports", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    async def dashboard_exports(request: Request) -> HTMLResponse:
+        snapshot = _storage(request).get_dashboard_snapshot()
+        context = _base_template_context(
+            request,
+            active_nav="exports",
+            page_title="Exporte",
+            page_kicker="Datenabzug und API-Schnittstellen",
+            page_description="Verfuegbare Exportformate fuer Punkte sowie die passenden Arbeitswege fuer Operatoren im Tagesbetrieb.",
+            snapshot=snapshot,
+        )
+        return templates.TemplateResponse(request=request, name="exports.html", context=context)
+
+    @app.get("/dashboard/config", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    async def dashboard_config(request: Request) -> HTMLResponse:
+        snapshot = _storage(request).get_dashboard_snapshot()
+        context = _base_template_context(
+            request,
+            active_nav="config",
+            page_title="Konfiguration",
+            page_kicker="Maskierte Runtime-Konfiguration",
+            page_description="Host, Ports, Limits, Auth-Schalter und Speicherpfade werden operator-sicher und ohne Klartext-Secrets dargestellt.",
+            snapshot=snapshot,
+        )
+        context.update(
+            {
+                "config_summary": _settings(request).masked_config_summary(),
+                "config_explanations": _config_explanations(),
+            }
+        )
+        return templates.TemplateResponse(request=request, name="config.html", context=context)
+
+    @app.get("/dashboard/storage", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    async def dashboard_storage(request: Request) -> HTMLResponse:
+        snapshot = _storage(request).get_dashboard_snapshot()
+        context = _base_template_context(
+            request,
+            active_nav="storage",
+            page_title="Storage",
+            page_kicker="SQLite, Audit-Datei und Schreibbereitschaft",
+            page_description="Speicherort, Dateigroessen, letzte Schreibzeiten und Storage-Befund fuer den laufenden Receiver.",
+            snapshot=snapshot,
+        )
+        return templates.TemplateResponse(request=request, name="storage.html", context=context)
+
+    @app.get("/dashboard/security", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    async def dashboard_security(request: Request) -> HTMLResponse:
+        snapshot = _storage(request).get_dashboard_snapshot()
+        context = _base_template_context(
+            request,
+            active_nav="security",
+            page_title="Sicherheit",
+            page_kicker="Auth-Status und Security-Hinweise",
+            page_description="Welche Schutzmechanismen aktiv sind, welche Werte maskiert bleiben und welche Folgearbeiten laut Doku noch offen sind.",
+            snapshot=snapshot,
+        )
+        context.update(
+            {
+                "doc_sections": _load_markdown_outline(DOCS_DIR / "SECURITY.md"),
+                "open_items": _load_markdown_outline(DOCS_DIR / "OPEN_ITEMS.md"),
+                "config_summary": _settings(request).masked_config_summary(),
+            }
+        )
+        return templates.TemplateResponse(request=request, name="security.html", context=context)
+
+    @app.get("/dashboard/system", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    async def dashboard_system(request: Request) -> HTMLResponse:
+        snapshot = _storage(request).get_dashboard_snapshot()
+        context = _base_template_context(
+            request,
+            active_nav="system",
+            page_title="System",
+            page_kicker="Version, Laufzeit und Changelog",
+            page_description="App-Version, Python-Laufzeit, Startzeit und die wichtigsten zuletzt dokumentierten Receiver-Aenderungen.",
+            snapshot=snapshot,
+        )
+        context.update(
+            {
+                "changelog_sections": _load_markdown_outline(ROOT_DIR / "CHANGELOG.md"),
+                "runtime_info": {
+                    "appVersion": request.app.version,
+                    "pythonVersion": platform.python_version(),
+                    "currentUtc": datetime.now(timezone.utc).isoformat(),
+                    "startedAtUtc": request.app.state.started_at_utc.isoformat(),
+                    "uptime": _format_duration(int((datetime.now(timezone.utc) - request.app.state.started_at_utc).total_seconds())),
+                },
+            }
+        )
+        return templates.TemplateResponse(request=request, name="system.html", context=context)
+
+    @app.get("/dashboard/troubleshooting", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    async def dashboard_troubleshooting(request: Request) -> HTMLResponse:
+        snapshot = _storage(request).get_dashboard_snapshot()
+        context = _base_template_context(
+            request,
+            active_nav="troubleshooting",
+            page_title="Troubleshooting",
+            page_kicker="Bekannte Fehlerbilder und direkte Hilfen",
+            page_description="Die zentralen Diagnosepfade aus der Receiver-Dokumentation direkt in der Admin-Oberflaeche.",
+            snapshot=snapshot,
+        )
+        context.update({"doc_sections": _load_markdown_outline(DOCS_DIR / "TROUBLESHOOTING.md")})
+        return templates.TemplateResponse(request=request, name="doc_page.html", context=context)
+
+    @app.get("/dashboard/open-items", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    async def dashboard_open_items(request: Request) -> HTMLResponse:
+        snapshot = _storage(request).get_dashboard_snapshot()
+        context = _base_template_context(
+            request,
+            active_nav="open_items",
+            page_title="Open Items",
+            page_kicker="Bewusst offene Receiver-Punkte",
+            page_description="Was fuer den aktuellen Scope fertig ist und welche Folgearbeiten bewusst getrennt bleiben.",
+            snapshot=snapshot,
+        )
+        context.update({"doc_sections": _load_markdown_outline(DOCS_DIR / "OPEN_ITEMS.md")})
+        return templates.TemplateResponse(request=request, name="doc_page.html", context=context)
 
     return app
 
@@ -635,6 +958,214 @@ def _config_explanations() -> list[dict[str, str]]:
             "text": "GET /api/points can export CSV, JSON or NDJSON by setting the format query parameter.",
         },
     ]
+
+
+def _base_template_context(
+    request: Request,
+    *,
+    active_nav: str,
+    page_title: str,
+    page_kicker: str,
+    page_description: str,
+    snapshot: dict[str, Any],
+    page_header_actions: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    settings = _settings(request)
+    started_at_utc = request.app.state.started_at_utc
+    return {
+        "page_title": page_title,
+        "page_kicker": page_kicker,
+        "page_description": page_description,
+        "page_header_actions": page_header_actions or [],
+        "active_nav": active_nav,
+        "nav_groups": NAV_GROUPS,
+        "snapshot": snapshot,
+        "app_version": request.app.version,
+        "receiver_summary": _receiver_summary(snapshot, settings, started_at_utc),
+        "api_links": [
+            {"label": "Health JSON", "href": "/health"},
+            {"label": "Readiness JSON", "href": "/readyz"},
+            {"label": "Stats API", "href": "/api/stats"},
+            {"label": "Config summary", "href": "/api/config-summary"},
+        ],
+    }
+
+
+def _receiver_summary(snapshot: dict[str, Any], settings: Settings, started_at_utc: datetime) -> dict[str, Any]:
+    readiness = snapshot["storage"]["readiness"]
+    last_request = snapshot["latest"]["request"]
+    return {
+        "serviceStatus": "online",
+        "healthStatus": "ok",
+        "readinessStatus": "ready" if readiness["is_ready"] else "not ready",
+        "storageStatus": "writable" if readiness["writable"] else "blocked",
+        "authStatus": "aktiv" if settings.auth_required else "inaktiv",
+        "adminStatus": "aktiv" if settings.admin_auth_enabled else "local-only",
+        "publicHostname": settings.public_hostname,
+        "bindAddress": f"{settings.bind_host}:{settings.port}",
+        "startedAtUtc": started_at_utc.isoformat(),
+        "uptime": _format_duration(int((datetime.now(timezone.utc) - started_at_utc).total_seconds())),
+        "attentionState": "attention" if snapshot["status"]["hasIssues"] else "ok",
+        "attentionMessage": _receiver_attention_message(snapshot, readiness),
+        "lastRequestStatus": last_request["ingest_status"] if last_request else "none",
+        "lastRequestCode": last_request["http_status"] if last_request else None,
+        "localTimezone": settings.local_timezone,
+    }
+
+
+def _receiver_attention_message(snapshot: dict[str, Any], readiness: dict[str, Any]) -> str:
+    last_failure = snapshot["latest"]["failure"]
+    if not readiness["is_ready"]:
+        return readiness["message"]
+    if last_failure:
+        category = last_failure.get("error_category") or "unbekannter Fehler"
+        return f"Letzter Fehler: {category}"
+    return "Keine aktuellen Receiver-Probleme erkannt."
+
+
+def _point_export_links(filters: PointFilters) -> list[dict[str, str]]:
+    return [
+        {"label": "CSV exportieren", "href": _points_api_href(filters, "csv")},
+        {"label": "JSON exportieren", "href": _points_api_href(filters, "json")},
+        {"label": "NDJSON exportieren", "href": _points_api_href(filters, "ndjson")},
+    ]
+
+
+def _points_api_href(filters: PointFilters, export_format: str) -> str:
+    params = {
+        "date_from": filters.date_from,
+        "date_to": filters.date_to,
+        "time_from": filters.time_from,
+        "time_to": filters.time_to,
+        "session_id": filters.session_id,
+        "capture_mode": filters.capture_mode,
+        "source": filters.source,
+        "search": filters.search,
+        "format": export_format,
+    }
+    query = urlencode({key: value for key, value in params.items() if value not in {None, ""}})
+    return f"/api/points?{query}" if query else "/api/points"
+
+
+def _timestamp_summary(value: str | None, local_timezone: str) -> dict[str, str | None]:
+    if not value:
+        return {"utc": None, "local": None, "relative": "keine Daten"}
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return {"utc": value, "local": value, "relative": "unbekannt"}
+    local_dt = dt.astimezone(timezone.utc if local_timezone.upper() == "UTC" else datetime.now().astimezone().tzinfo)
+    if local_timezone.upper() != "UTC":
+        try:
+            from zoneinfo import ZoneInfo
+
+            local_dt = dt.astimezone(ZoneInfo(local_timezone))
+        except Exception:
+            pass
+    return {
+        "utc": dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "local": local_dt.strftime("%Y-%m-%d %H:%M:%S %Z"),
+        "relative": _relative_time(value),
+    }
+
+
+def _relative_time(value: str | None) -> str:
+    if not value:
+        return "keine Daten"
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return "unbekannt"
+    delta = datetime.now(timezone.utc) - dt.astimezone(timezone.utc)
+    seconds = int(abs(delta.total_seconds()))
+    if seconds < 60:
+        label = f"{seconds}s"
+    elif seconds < 3600:
+        label = f"{seconds // 60}m"
+    elif seconds < 86400:
+        label = f"{seconds // 3600}h"
+    else:
+        label = f"{seconds // 86400}d"
+    return f"vor {label}" if delta.total_seconds() >= 0 else f"in {label}"
+
+
+def _format_duration(seconds: int | None) -> str:
+    if seconds is None:
+        return "n/a"
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        minutes, remainder = divmod(seconds, 60)
+        return f"{minutes}m {remainder}s"
+    if seconds < 86400:
+        hours, remainder = divmod(seconds, 3600)
+        minutes = remainder // 60
+        return f"{hours}h {minutes}m"
+    days, remainder = divmod(seconds, 86400)
+    hours = remainder // 3600
+    return f"{days}d {hours}h"
+
+
+def _format_bytes(value: int | None) -> str:
+    if value in {None, 0}:
+        return "0 B"
+    size = float(value)
+    units = ["B", "KB", "MB", "GB"]
+    unit = units[0]
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            break
+        size /= 1024
+    return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} B"
+
+
+def _format_percent(value: float | None) -> str:
+    if value is None:
+        return "0.0%"
+    return f"{value:.1f}%"
+
+
+def _status_tone(value: str | None) -> str:
+    if not value:
+        return "neutral"
+    lowered = value.lower()
+    if lowered in {"ready", "ok", "accepted", "online", "writable", "aktiv"}:
+        return "success"
+    if lowered in {"not ready", "failed", "error", "blocked", "attention"}:
+        return "danger"
+    if lowered in {"local-only", "warning"}:
+        return "warn"
+    return "neutral"
+
+
+def _load_markdown_outline(path: Path) -> dict[str, Any]:
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    title = path.name
+    sections: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("# "):
+            title = line[2:].strip()
+            continue
+        if line.startswith("## "):
+            current = {"heading": line[3:].strip(), "items": [], "paragraphs": []}
+            sections.append(current)
+            continue
+        if current is None:
+            current = {"heading": "Uebersicht", "items": [], "paragraphs": []}
+            sections.append(current)
+        if line.startswith("- "):
+            current["items"].append(line[2:].strip())
+        elif line[0].isdigit() and ". " in line:
+            current["items"].append(line.split(". ", 1)[1].strip())
+        else:
+            current["paragraphs"].append(line)
+    return {"title": title, "sections": sections, "path": str(path.relative_to(ROOT_DIR))}
 
 
 def _is_local_operator_request(remote_addr: str, proxied_ip: str) -> bool:

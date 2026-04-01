@@ -1,170 +1,276 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="hero">
-  <div class="kicker">Server-only receiver scope</div>
-  <h1>Live receiver dashboard</h1>
-  <p>Shows accepted and failed live-location ingests, point storage state, session activity and operator-safe configuration details. Secrets are masked by design.</p>
-  <div class="badge-row">
-    <div class="badge"><strong>Health</strong><span class="{{ 'status-ok' if readiness.is_ready else 'status-error' }}">{{ 'ready' if readiness.is_ready else 'not ready' }}</span></div>
-    <div class="badge"><strong>SQLite</strong><span>{{ stats.storage.sqlitePath }}</span></div>
-    <div class="badge"><strong>Raw NDJSON</strong><span>{{ stats.storage.rawPayloadNdjsonPath }}</span></div>
-    <div class="badge"><strong>Public base URL</strong><span>{{ config_summary.publicBaseUrl }}</span></div>
+
+{# ── Status tile grid ─────────────────────────────────────── #}
+<div class="tile-grid six-up">
+
+  {# Receiver tile #}
+  <div class="tile">
+    <div class="tile-header">
+      <span class="tile-title">Receiver</span>
+      <span class="status-badge {{ 'ok' if receiver_summary.attentionState == 'ok' else 'crit' }}">{{ 'OK' if receiver_summary.attentionState == 'ok' else 'PRUEFEN' }}</span>
+    </div>
+    <div class="tile-metrics">
+      <div class="tile-metric">
+        <span class="tile-metric-label">Health</span>
+        <span class="tile-metric-value {{ status_tone(receiver_summary.healthStatus) }}">{{ receiver_summary.healthStatus }}</span>
+      </div>
+      <div class="tile-metric">
+        <span class="tile-metric-label">Readiness</span>
+        <span class="tile-metric-value {{ status_tone(receiver_summary.readinessStatus) }}">{{ receiver_summary.readinessStatus }}</span>
+      </div>
+      <div class="tile-metric">
+        <span class="tile-metric-label">Letzter Ingest</span>
+        <span class="tile-metric-value">{{ format_timestamp(snapshot.totals.lastSuccessAt).relative }}</span>
+      </div>
+      <div class="tile-metric">
+        <span class="tile-metric-label">Erfolgsquote</span>
+        <span class="tile-metric-value">{{ format_percent(snapshot.totals.successRate) }}</span>
+      </div>
+    </div>
   </div>
-</section>
 
-<section class="metric-grid">
-  <article><h2>Total requests</h2><p>{{ stats.totals.total_requests or 0 }}</p></article>
-  <article><h2>Accepted requests</h2><p>{{ stats.totals.accepted_requests or 0 }}</p></article>
-  <article><h2>Failed requests</h2><p>{{ stats.totals.failed_requests or 0 }}</p></article>
-  <article><h2>Total points</h2><p>{{ stats.totals.total_points or 0 }}</p></article>
-  <article><h2>Last success</h2><p>{{ stats.totals.last_success_at or 'none' }}</p></article>
-  <article><h2>Last failure</h2><p>{{ stats.totals.last_failure_at or 'none' }}</p></article>
-  <article><h2>Points / 24h</h2><p>{{ stats.periods.points_24h or 0 }}</p></article>
-  <article><h2>Points / 7d</h2><p>{{ stats.periods.points_7d or 0 }}</p></article>
-</section>
-
-<section class="split-grid">
-  <article class="panel">
-    <h2>Point filters</h2>
-    <form class="filters" method="get">
-      <label>Date from<input type="date" name="date_from" value="{{ filters.date_from or '' }}"></label>
-      <label>Date to<input type="date" name="date_to" value="{{ filters.date_to or '' }}"></label>
-      <label>Time from<input type="time" step="1" name="time_from" value="{{ filters.time_from or '' }}"></label>
-      <label>Time to<input type="time" step="1" name="time_to" value="{{ filters.time_to or '' }}"></label>
-      <label>Session ID<input type="text" name="session_id" value="{{ filters.session_id or '' }}"></label>
-      <label>Capture mode<input type="text" name="capture_mode" value="{{ filters.capture_mode or '' }}"></label>
-      <label>Source<input type="text" name="source" value="{{ filters.source or '' }}"></label>
-      <label>Search<input type="text" name="search" value="{{ filters.search or '' }}"></label>
-      <label>Page size<input type="number" min="1" name="page_size" value="{{ filters.page_size }}"></label>
-    </form>
-    <div style="display:flex; gap:10px; flex-wrap:wrap;">
-      <button type="submit" formmethod="get">Apply filters</button>
-      <a class="button-link secondary" href="/dashboard">Reset</a>
-      <a class="button-link secondary" href="/api/points?format=csv{% if filters.date_from %}&date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&date_to={{ filters.date_to }}{% endif %}{% if filters.time_from %}&time_from={{ filters.time_from }}{% endif %}{% if filters.time_to %}&time_to={{ filters.time_to }}{% endif %}{% if filters.session_id %}&session_id={{ filters.session_id }}{% endif %}{% if filters.capture_mode %}&capture_mode={{ filters.capture_mode }}{% endif %}{% if filters.source %}&source={{ filters.source }}{% endif %}{% if filters.search %}&search={{ filters.search }}{% endif %}">Export CSV</a>
-      <a class="button-link secondary" href="/api/points?format=json{% if filters.date_from %}&date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&date_to={{ filters.date_to }}{% endif %}{% if filters.time_from %}&time_from={{ filters.time_from }}{% endif %}{% if filters.time_to %}&time_to={{ filters.time_to }}{% endif %}{% if filters.session_id %}&session_id={{ filters.session_id }}{% endif %}{% if filters.capture_mode %}&capture_mode={{ filters.capture_mode }}{% endif %}{% if filters.source %}&source={{ filters.source }}{% endif %}{% if filters.search %}&search={{ filters.search }}{% endif %}">Export JSON</a>
-      <a class="button-link secondary" href="/api/points?format=ndjson{% if filters.date_from %}&date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&date_to={{ filters.date_to }}{% endif %}{% if filters.time_from %}&time_from={{ filters.time_from }}{% endif %}{% if filters.time_to %}&time_to={{ filters.time_to }}{% endif %}{% if filters.session_id %}&session_id={{ filters.session_id }}{% endif %}{% if filters.capture_mode %}&capture_mode={{ filters.capture_mode }}{% endif %}{% if filters.source %}&source={{ filters.source }}{% endif %}{% if filters.search %}&search={{ filters.search }}{% endif %}">Export NDJSON</a>
+  {# Security tile #}
+  <div class="tile">
+    <div class="tile-header">
+      <span class="tile-title">Security</span>
+      <span class="status-badge {{ 'ok' if receiver_summary.authStatus == 'aktiv' else 'warn' }}">{{ 'OK' if receiver_summary.authStatus == 'aktiv' else 'INFO' }}</span>
     </div>
-    <p class="footer-note">The dashboard is local-only unless ADMIN_USERNAME and ADMIN_PASSWORD are configured. Bearer tokens are never rendered here.</p>
-  </article>
-  <article class="panel">
-    <h2>Operator summary</h2>
-    <div class="config-grid">
-      {% for item in config_explanations %}
-        <div class="badge">
-          <strong>{{ item.label }}</strong>
-          <span>{{ item.text }}</span>
-        </div>
-      {% endfor %}
+    <div class="tile-metrics">
+      <div class="tile-metric">
+        <span class="tile-metric-label">Ingest-Auth</span>
+        <span class="tile-metric-value {{ 'ok' if receiver_summary.authStatus == 'aktiv' else 'warn' }}">{{ receiver_summary.authStatus }}</span>
+      </div>
+      <div class="tile-metric">
+        <span class="tile-metric-label">Admin-Zugriff</span>
+        <span class="tile-metric-value">{{ receiver_summary.adminStatus }}</span>
+      </div>
+      <div class="tile-metric">
+        <span class="tile-metric-label">Letzte Fehlerkategorie</span>
+        <span class="tile-metric-value">{{ snapshot.status.lastErrorCategory or '—' }}</span>
+      </div>
     </div>
-  </article>
-</section>
+  </div>
 
-<section class="table-card">
-  <h2>Newest stored points</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Date</th>
-        <th>Time</th>
-        <th>UTC</th>
-        <th>Local timestamp</th>
-        <th>Latitude</th>
-        <th>Longitude</th>
-        <th>Accuracy</th>
-        <th>Session</th>
-        <th>Source</th>
-        <th>Mode</th>
-        <th>Request</th>
-        <th>Received</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for point in points_items %}
-      <tr>
-        <td>{{ point.point_date_local }}</td>
-        <td>{{ point.point_time_local }}</td>
-        <td>{{ point.point_timestamp_utc }}</td>
-        <td>{{ point.point_timestamp_local }}</td>
-        <td>{{ "%.6f"|format(point.latitude) }}</td>
-        <td>{{ "%.6f"|format(point.longitude) }}</td>
-        <td>{{ point.horizontal_accuracy_m }}</td>
-        <td><a href="/dashboard/sessions/{{ point.session_id }}">{{ point.session_id }}</a></td>
-        <td>{{ point.source }}</td>
-        <td>{{ point.capture_mode }}</td>
-        <td><a href="/dashboard/requests/{{ point.request_id }}">{{ point.request_id }}</a></td>
-        <td>{{ point.received_at_utc }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="12" class="muted">No points stored for the current filter set.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <p class="footer-note">Page {{ points.page }} · page size {{ points.pageSize }} · total rows {{ points.total }}</p>
-</section>
+  {# Storage tile #}
+  <div class="tile">
+    <div class="tile-header">
+      <span class="tile-title">Storage</span>
+      <span class="status-badge {{ 'ok' if receiver_summary.storageStatus == 'writable' else 'crit' }}">{{ 'OK' if receiver_summary.storageStatus == 'writable' else 'CRIT' }}</span>
+    </div>
+    <div class="tile-metrics">
+      <div class="tile-metric">
+        <span class="tile-metric-label">SQLite</span>
+        <span class="tile-metric-value">{{ format_bytes(snapshot.storage.sqliteFile.sizeBytes) }}</span>
+      </div>
+      <div class="tile-metric">
+        <span class="tile-metric-label">Raw Audit</span>
+        <span class="tile-metric-value">{{ format_bytes(snapshot.storage.rawPayloadFile.sizeBytes) }}</span>
+      </div>
+      <div class="tile-metric">
+        <span class="tile-metric-label">Schreibbar</span>
+        <span class="tile-metric-value {{ 'ok' if receiver_summary.storageStatus == 'writable' else 'crit' }}">{{ receiver_summary.storageStatus }}</span>
+      </div>
+    </div>
+  </div>
 
-<section class="split-grid" style="margin-top:20px;">
-  <article class="table-card">
-    <h2>Recent requests</h2>
+  {# System tile #}
+  <div class="tile">
+    <div class="tile-header">
+      <span class="tile-title">System</span>
+      <span class="status-badge ok">OK</span>
+    </div>
+    <div class="tile-metrics">
+      <div class="tile-metric">
+        <span class="tile-metric-label">Uptime</span>
+        <span class="tile-metric-value">{{ receiver_summary.uptime }}</span>
+      </div>
+      <div class="tile-metric">
+        <span class="tile-metric-label">Gestartet</span>
+        <span class="tile-metric-value">{{ format_timestamp(receiver_summary.startedAtUtc).relative }}</span>
+      </div>
+    </div>
+  </div>
+
+  {# Ingest-Volumen tile #}
+  <div class="tile">
+    <div class="tile-header">
+      <span class="tile-title">Ingest-Volumen</span>
+      <span class="status-badge info">INFO</span>
+    </div>
+    <div class="tile-metrics">
+      <div class="tile-metric">
+        <span class="tile-metric-label">Requests gesamt</span>
+        <span class="tile-metric-value">{{ snapshot.totals.totalRequests }}</span>
+      </div>
+      <div class="tile-metric">
+        <span class="tile-metric-label">Punkte gesamt</span>
+        <span class="tile-metric-value">{{ snapshot.totals.totalPoints }}</span>
+      </div>
+      <div class="tile-metric">
+        <span class="tile-metric-label">Sessions</span>
+        <span class="tile-metric-value">{{ snapshot.totals.totalSessions }}</span>
+      </div>
+      <div class="tile-metric">
+        <span class="tile-metric-label">Fehler gesamt</span>
+        <span class="tile-metric-value {{ 'crit' if snapshot.totals.failedRequests > 0 else '' }}">{{ snapshot.totals.failedRequests }}</span>
+      </div>
+    </div>
+  </div>
+
+  {# Aktivitaet heute tile #}
+  <div class="tile">
+    <div class="tile-header">
+      <span class="tile-title">Aktivitaet</span>
+      <span class="status-badge info">INFO</span>
+    </div>
+    <div class="tile-metrics">
+      <div class="tile-metric">
+        <span class="tile-metric-label">Requests heute</span>
+        <span class="tile-metric-value">{{ snapshot.periods.requestsToday }}</span>
+      </div>
+      <div class="tile-metric">
+        <span class="tile-metric-label">Punkte heute</span>
+        <span class="tile-metric-value">{{ snapshot.periods.pointsToday }}</span>
+      </div>
+      <div class="tile-metric">
+        <span class="tile-metric-label">Requests 24h</span>
+        <span class="tile-metric-value">{{ snapshot.periods.requests24h }}</span>
+      </div>
+      <div class="tile-metric">
+        <span class="tile-metric-label">Punkte 24h</span>
+        <span class="tile-metric-value">{{ snapshot.periods.points24h }}</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{# ── Next actions ─────────────────────────────────────────── #}
+<div class="next-actions">
+  <p class="next-actions-title">Naechste Operator-Schritte</p>
+  <ol class="next-actions-list">
+    {% if receiver_summary.attentionState != 'ok' %}
+    <li>Receiver-Problem erkannt: <a href="/dashboard/live-status">Live-Status pruefen</a> — {{ receiver_summary.attentionMessage }}</li>
+    {% else %}
+    <li>Letzten Ingest bestaetigen: <a href="/dashboard/activity">Letzte Aktivitaet</a> — {{ format_timestamp(snapshot.totals.lastSuccessAt).relative }}</li>
+    {% endif %}
+    {% if receiver_summary.authStatus != 'aktiv' %}
+    <li>Ingest-Auth ist inaktiv — Bearer-Token in <code>.env</code> setzen: <a href="/dashboard/security">Security-Seite</a></li>
+    {% else %}
+    <li>Exportdaten pruefen oder abrufen: <a href="/dashboard/exports">Exporte</a> — CSV / JSON / NDJSON verfuegbar</li>
+    {% endif %}
+    <li>Konfiguration und Storage im Blick: <a href="/dashboard/config">Konfiguration</a> · <a href="/dashboard/storage">Storage</a></li>
+  </ol>
+</div>
+
+{# ── Recent requests + top sessions ──────────────────────── #}
+<div class="content-grid two-one">
+  <article class="panel table-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Letzte Ingests</p>
+        <h3>Juengste Requests</h3>
+      </div>
+      <a class="button-link secondary" href="/dashboard/requests">Alle Requests</a>
+    </div>
     <table>
       <thead>
         <tr>
-          <th>Received</th>
+          <th>Zeit</th>
           <th>Status</th>
           <th>HTTP</th>
-          <th>Points</th>
+          <th>Punkte</th>
           <th>Session</th>
-          <th>Source</th>
-          <th>Mode</th>
-          <th>Detail</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
         {% for item in recent_requests %}
+        {% set received = format_timestamp(item.received_at_utc) %}
         <tr>
-          <td>{{ item.received_at_utc }}</td>
-          <td class="{{ 'status-ok' if item.ingest_status == 'accepted' else 'status-error' }}">{{ item.ingest_status }}</td>
+          <td>
+            <strong>{{ received.relative }}</strong>
+            <span>{{ received.utc }}</span>
+          </td>
+          <td><span class="status-badge {{ status_tone(item.ingest_status) }}">{{ item.ingest_status }}</span></td>
           <td>{{ item.http_status }}</td>
           <td>{{ item.points_count }}</td>
-          <td>{{ item.session_id or '' }}</td>
-          <td>{{ item.source or '' }}</td>
-          <td>{{ item.capture_mode or '' }}</td>
-          <td><a href="/dashboard/requests/{{ item.request_id }}">open</a></td>
+          <td>{{ item.session_id or '—' }}</td>
+          <td><a href="/dashboard/requests/{{ item.request_id }}">Detail</a></td>
         </tr>
         {% else %}
-        <tr><td colspan="8" class="muted">No requests stored yet.</td></tr>
+        <tr><td colspan="6" class="empty-cell">Noch keine Requests gespeichert.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </article>
-  <article class="table-card">
-    <h2>Sessions</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Session</th>
-          <th>Points</th>
-          <th>First point</th>
-          <th>Last point</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for item in sessions %}
-        <tr>
-          <td><a href="/dashboard/sessions/{{ item.session_id }}">{{ item.session_id }}</a></td>
-          <td>{{ item.points_count }}</td>
-          <td>{{ item.first_point_ts_utc }}</td>
-          <td>{{ item.last_point_ts_utc }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="4" class="muted">No sessions stored yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </article>
-</section>
 
-<section class="code-card">
-  <h2>Config summary</h2>
-  <pre>{{ config_summary | tojson(indent=2) }}</pre>
-</section>
+  <article class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Top Sessions</p>
+        <h3>Aktivste Sessions</h3>
+      </div>
+      <a class="button-link secondary" href="/dashboard/sessions">Alle Sessions</a>
+    </div>
+    <div class="stack-list">
+      {% for item in top_sessions %}
+      {% set session_last = format_timestamp(item.last_point_ts_utc) %}
+      <a class="list-card" href="/dashboard/sessions/{{ item.session_id }}">
+        <strong>{{ item.session_id }}</strong>
+        <span>{{ item.points_count }} Punkte · {{ item.requests_count }} Requests</span>
+        <span>{{ session_last.relative }}</span>
+      </a>
+      {% else %}
+      <div class="empty-state">
+        <strong>Keine Sessions vorhanden.</strong>
+        <span>Nach dem ersten Ingest erscheinen hier die aktivsten Sessions.</span>
+      </div>
+      {% endfor %}
+    </div>
+  </article>
+</div>
+
+{# ── Neueste Punkte ────────────────────────────────────────── #}
+<article class="panel table-panel">
+  <div class="panel-header">
+    <div>
+      <p class="eyebrow">Neueste GPS-Punkte</p>
+      <h3>Zuletzt eingegangene Punkte</h3>
+    </div>
+    <div class="action-row" style="margin-top:0">
+      <a class="button-link secondary" href="/dashboard/points">Punktliste</a>
+      {% for item in point_filter_exports %}
+      <a class="button-link tertiary" href="{{ item.href }}">{{ item.label }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Zeit (relativ)</th>
+        <th>UTC</th>
+        <th>Koordinate</th>
+        <th>Accuracy</th>
+        <th>Session</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for point in recent_points %}
+      {% set point_time = format_timestamp(point.point_timestamp_utc) %}
+      <tr>
+        <td><strong>{{ point_time.relative }}</strong></td>
+        <td><span>{{ point_time.utc }}</span></td>
+        <td>{{ "%.5f"|format(point.latitude) }}, {{ "%.5f"|format(point.longitude) }}</td>
+        <td>{{ point.horizontal_accuracy_m }} m</td>
+        <td><a href="/dashboard/sessions/{{ point.session_id }}">{{ point.session_id }}</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="empty-cell">Noch keine Punkte vorhanden.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</article>
+
 {% endblock %}

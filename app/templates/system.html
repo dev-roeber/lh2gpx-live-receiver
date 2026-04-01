@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block content %}
+
+{# ── Metric row ───────────────────────────────────────────── #}
+<div class="metric-row">
+  <div class="metric-card">
+    <span class="mc-label">App-Version</span>
+    <span class="mc-value">{{ runtime_info.appVersion }}</span>
+    <span class="mc-sub">FastAPI-Anwendung</span>
+  </div>
+  <div class="metric-card">
+    <span class="mc-label">Python</span>
+    <span class="mc-value">{{ runtime_info.pythonVersion }}</span>
+    <span class="mc-sub">Laufzeit im Prozess</span>
+  </div>
+  <div class="metric-card">
+    <span class="mc-label">Gestartet</span>
+    <span class="mc-value">{{ format_timestamp(runtime_info.startedAtUtc).relative }}</span>
+    <span class="mc-sub">{{ format_timestamp(runtime_info.startedAtUtc).utc }}</span>
+  </div>
+  <div class="metric-card">
+    <span class="mc-label">Uptime</span>
+    <span class="mc-value">{{ runtime_info.uptime }}</span>
+    <span class="mc-sub">seit letztem Start</span>
+  </div>
+</div>
+
+{# ── Laufzeit + Storage-Stand ─────────────────────────────── #}
+<div class="content-grid two-one">
+
+  <article class="panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Laufzeit</p><h3>Systeminfos</h3></div>
+    </div>
+    <dl class="meta-list">
+      <div><dt>Aktuelle UTC-Zeit</dt><dd>{{ format_timestamp(runtime_info.currentUtc).utc }}</dd></div>
+      <div><dt>Aktuelle lokale Zeit</dt><dd>{{ format_timestamp(runtime_info.currentUtc).local }}</dd></div>
+      <div><dt>Public Hostname</dt><dd>{{ receiver_summary.publicHostname }}</dd></div>
+      <div><dt>Bind / Port</dt><dd>{{ receiver_summary.bindAddress }}</dd></div>
+      <div><dt>Local Timezone</dt><dd>{{ receiver_summary.localTimezone }}</dd></div>
+    </dl>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <div><p class="eyebrow">Storage-Stand</p><h3>Dateigroessen</h3></div>
+    </div>
+    <dl class="meta-list">
+      <div><dt>SQLite</dt><dd>{{ format_bytes(snapshot.storage.sqliteFile.sizeBytes) }}</dd></div>
+      <div><dt>SQLite zuletzt geaendert</dt><dd>{{ format_timestamp(snapshot.storage.sqliteFile.lastModifiedUtc).utc or 'n/a' }}</dd></div>
+      <div><dt>Raw-Audit</dt><dd>{{ format_bytes(snapshot.storage.rawPayloadFile.sizeBytes) }}</dd></div>
+      <div><dt>Raw-Audit zuletzt geaendert</dt><dd>{{ format_timestamp(snapshot.storage.rawPayloadFile.lastModifiedUtc).utc or 'n/a' }}</dd></div>
+    </dl>
+  </article>
+
+</div>
+
+{# ── Changelog ────────────────────────────────────────────── #}
+<article class="panel">
+  <div class="panel-header">
+    <div><p class="eyebrow">Changelog</p><h3>Zuletzt dokumentierte Aenderungen</h3></div>
+  </div>
+  {% for section in changelog_sections.sections[:4] %}
+  <div class="doc-section">
+    <h4>{{ section.heading }}</h4>
+    {% if section["items"] %}
+    <ul class="doc-list">
+      {% for item in section["items"] %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endfor %}
+</article>
+{% endblock %}
