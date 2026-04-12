@@ -1,6 +1,6 @@
 # lh2gpx-live-receiver
 
-Receiver- und Operator-Server fuer optionale Live-Location-Uploads aus der `LocationHistory2GPX`-App (Monorepo-Hauptlinie: `LocationHistory2GPX-Monorepo`).
+Receiver- und Operator-Server fuer optionale Live-Location-Uploads aus der `LocationHistory2GPX`-App (Haupt-App-Repo: `dev-roeber/iOS-App`).
 
 Diese Arbeit hat bewusst nur dieses Receiver-Repo und den Serverbetrieb geaendert. App, Wrapper und lokale Standortdaten wurden absichtlich nicht angefasst.
 
