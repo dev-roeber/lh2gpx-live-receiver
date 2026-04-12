@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os as _os
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -1299,7 +1300,8 @@ class ReceiverStorage:
         try:
             with self._lock:
                 self.raw_ndjson_path.parent.mkdir(parents=True, exist_ok=True)
-                with self.raw_ndjson_path.open("a", encoding="utf-8") as handle:
+                fd = _os.open(str(self.raw_ndjson_path), _os.O_CREAT | _os.O_WRONLY | _os.O_APPEND, 0o600)
+                with _os.fdopen(fd, "a", encoding="utf-8") as handle:
                     handle.write(line)
                     handle.write("\n")
             return str(self.raw_ndjson_path)

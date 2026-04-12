@@ -50,8 +50,14 @@ Historisch gefundene Hauptursache:
 
 Aktueller Stand:
 
-- dieser Fehlerpfad ist durch SQLite plus vorbereitete Schreibpfade abgesichert
-- ein echter `500` sollte jetzt nur noch bei unerwarteten Fehlern auftreten
+- dieser konkrete Fehlerpfad ist im Repo behoben; neue `raw-payloads.ndjson`-Dateien werden jetzt mit `0600` angelegt
+- bereits vorhandene Raw-Payload- oder Legacy-`live-location.ndjson`-Dateien werden dadurch nicht automatisch umgestellt
+- ein echter `500` sollte jetzt nur noch bei unerwarteten Fehlern oder operativen Altbestaenden auftreten
+
+Pruefen bei Altbestand:
+
+- existiert `RAW_PAYLOAD_NDJSON_PATH` bereits vor dem Fix, ggf. Dateirechte und Besitzer auf dem Host kontrollieren
+- bei Legacy-Dateien die Migrations-/Importspur separat bewerten, statt einen Repo-Fix anzunehmen
 
 ## Dashboard nicht erreichbar
 

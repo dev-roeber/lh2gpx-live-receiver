@@ -13,6 +13,7 @@
 - `main` wurde nach dem Merge noch einmal direkt im laufenden Setup geprueft
 - aus dieser Post-Merge-Verifikation ergaben sich keine weiteren Sofortmassnahmen im Receiver-Repo
 - ein parallel beobachteter erfolgreicher Upload-Betrieb passt zum aktuellen Receiver-Zustand, fuehrt hier aber nicht zu App-/Wrapper-Aenderungen
+- der 0600-Fix greift beim Anlegen neuer `raw-payloads.ndjson`-Dateien; vorhandene Altbestaende werden dadurch nicht automatisch umgestellt und muessen bei Bedarf operativ nachgeprueft werden
 
 ## Backups
 
@@ -44,6 +45,7 @@ Hostseitig reicht fuer kleine Setups bereits ein reguläres Dateisystem-Backup d
 - letzte Fehler im Dashboard
 - JSON-Logs von Caddy und App
 - Punkt- und Request-Anzahl ueber `/api/stats`
+- `RAW_PAYLOAD_NDJSON_PATH` nur als optionales Betriebsartefakt behandeln; Rechteprobleme oder Altbestaende dort sind ein separater operativer Check, kein implizit reparierter Laufzeitzustand
 
 ## Operator-UI im Regelbetrieb
 
@@ -70,5 +72,6 @@ Begruendung:
 
 - erst wurde der stabile Receiver-Kern mit Ingest, Speicherung, Listen, Exporten und Diagnose fertiggezogen
 - weitergehende Betriebsautomatisierung folgt separat
+- die Haertung bestehender Raw-Payload-Dateien ist kein automatischer Repo-Fix, sondern bei Altbestaenden ein Betriebs- bzw. Migrationsschritt
 
 Siehe auch: [OPEN_ITEMS.md](OPEN_ITEMS.md)

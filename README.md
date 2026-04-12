@@ -27,6 +27,7 @@ Diese Arbeit hat bewusst nur dieses Receiver-Repo und den Serverbetrieb geaender
 - aus dieser Post-Merge-Verifikation waren keine weiteren Receiver-Aenderungen noetig
 - App, Wrapper, App-Daten und Importdateien blieben in diesem Lauf bewusst unberuehrt
 - im aktuellen 5-Repo-Abgleich bleibt der Receiver der am tiefsten betrieblich dokumentierte Baustein; in diesem 08-48-Lauf wurden repo-seitig Tests und Compose-Konfiguration frisch bestaetigt, aber kein neuer Live-Smoke gegen den laufenden Dienst gezogen
+- der optionale Raw-Payload-NDJSON-Pfad wird beim Anlegen neuer Dateien jetzt mit Modus `0600` erstellt; bestehende Dateien werden dadurch nicht automatisch nachtraeglich umgehaertet
 
 ## Root cause des bisherigen HTTP-500
 
@@ -36,6 +37,8 @@ Der bisherige 500er war kein Client-Schemafehler, sondern ein Server-Storage-Pro
 - der aktive Volume-/Dateipfad fuer `live-location.ndjson` war im Container nicht sauber vorbereitet
 - der Storage-Code schrieb blind append-only in eine Datei
 - dadurch schlugen echte Requests mit `FileNotFoundError` fehl
+- dieser konkrete Runtime-Pfad ist im aktuellen Stand behoben; neue `raw-payloads.ndjson`-Dateien werden mit `0600` angelegt
+- vorhandene `raw-payloads.ndjson`- oder Legacy-`live-location.ndjson`-Dateien in bestehenden Deployments werden dadurch nicht automatisch umgestellt und muessen operativ geprueft werden
 - die alten Tests deckten diesen Runtime-Pfad nicht ab
 
 Der aktuelle Stand beseitigt das ueber:
@@ -176,6 +179,8 @@ Hinweis:
 - Screenshot-Testdaten sind nur lokal und nicht versioniert zu verwenden.
 - Der Bearer-Token darf nie in Git, README, Logs oder API-Responses landen.
 - Dieses Repo liefert keine verpflichtende Online-Vorgabe fuer spaetere Nutzer aus.
+- `ENABLE_RAW_PAYLOAD_NDJSON=true` aktiviert den optionalen Rohpayload-Export; bei `false` bleibt er aus.
+- Neue Rohpayload-Dateien werden mit `0600` angelegt, bestehende Dateien werden nicht automatisch nachtraeglich angepasst.
 
 ## Lokaler Start
 

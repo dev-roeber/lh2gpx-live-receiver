@@ -18,6 +18,11 @@ docker compose build
 docker compose up -d
 ```
 
+Hinweis zum NDJSON-Fix:
+
+- neue `raw-payloads.ndjson`-Dateien werden im aktuellen Stand mit `0600` angelegt
+- bereits vorhandene Dateien erben diese Rechte nicht nachtraeglich; Altbestaende muessen bei Bedarf separat geprueft oder operativ gehaertet werden
+
 ## Pflichtchecks nach dem Start
 
 ```bash
@@ -63,6 +68,7 @@ docker compose logs --tail=200
 - Legacy-Importquelle bei leerer DB: `LEGACY_REQUEST_NDJSON_PATH`
 
 Das Datenverzeichnis ist bind-gemountet und damit hostseitig direkt sicherbar.
+Der `0600`-Fix greift nur beim Anlegen neuer Raw-Payload-Dateien; bestehende Dateien werden nicht automatisch umgestellt.
 
 ## Dashboard-Zugriff
 
@@ -98,5 +104,6 @@ Vor einem breiteren produktiven Betrieb weiterhin offen:
 - formalisierte Backup-/Restore-Automatisierung
 - automatische Retention-/Export-Jobs
 - finaler App-/Wrapper-Abgleich ausserhalb dieses Repos
+- Haertung bereits existierender Raw-Payload- oder Legacy-NDJSON-Dateien auf dem Host, falls solche Altbestaende vor dem Fix bereits vorhanden waren
 
 Siehe auch: [OPEN_ITEMS.md](OPEN_ITEMS.md)

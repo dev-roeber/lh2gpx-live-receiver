@@ -1,5 +1,10 @@
 # Changelog
 
+## [2026-04-12]
+### Security
+- `storage.py`: Raw-Payload-NDJSON-Datei wird jetzt mit Modus 0o600 erstellt (vorher: umask-abhaengig)
+- `.env.example`: Erlaeuternder Kommentar zu ENABLE_RAW_PAYLOAD_NDJSON hinzugefuegt
+
 ## 2026-03-31 (v0.5 — UI-Redesign)
 
 ### Changed

@@ -42,6 +42,15 @@
 
 Screenshot-Testwerte sind nur lokal und testweise zu verwenden. Sie gehoeren nicht in die versionierte Receiver-Konfiguration.
 
+## Raw Payload NDJSON
+
+Die Datei `raw-payloads.ndjson` (Standard: `/app/data/raw-payloads.ndjson`) speichert vollstaendige GPS-Payloads pro Ingest-Request im NDJSON-Format — inkl. Koordinaten, Zeitstempel und Request-ID.
+
+- die Datei wird bei Ersterstellung mit Modus `0600` angelegt (nur Owner kann lesen/schreiben)
+- bestehende Dateien werden nicht automatisch in ihrer Berechtigung geaendert
+- der Log kann ueber `ENABLE_RAW_PAYLOAD_NDJSON=false` deaktiviert werden
+- Empfehlung: Datei regelmaessig rotieren oder loeschen, wenn kein aktives Debugging erforderlich ist; fuer laenger laufende Server-Instanzen ein Retention-Konzept festlegen
+
 ## Bewusst verschobene Security-Folgearbeiten
 
 Aktuell **nicht** Teil dieses Laufs:
