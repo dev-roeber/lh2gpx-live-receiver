@@ -43,11 +43,11 @@ TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 NAV_GROUPS = [
     {
-        "title": "Overview",
+        "title": "Übersicht",
         "items": [
-            {"key": "dashboard", "label": "Overview", "href": "/dashboard"},
-            {"key": "live_status", "label": "Receiver Health", "href": "/dashboard/live-status"},
-            {"key": "activity", "label": "Aktivitaet", "href": "/dashboard/activity"},
+            {"key": "dashboard", "label": "Übersicht", "href": "/dashboard"},
+            {"key": "live_status", "label": "Receiver-Status", "href": "/dashboard/live-status"},
+            {"key": "activity", "label": "Aktivität", "href": "/dashboard/activity"},
         ],
     },
     {
@@ -62,8 +62,8 @@ NAV_GROUPS = [
     {
         "title": "Betrieb & Sicherheit",
         "items": [
-            {"key": "security", "label": "Security", "href": "/dashboard/security"},
-            {"key": "storage", "label": "Storage", "href": "/dashboard/storage"},
+            {"key": "security", "label": "Sicherheit", "href": "/dashboard/security"},
+            {"key": "storage", "label": "Speicher", "href": "/dashboard/storage"},
             {"key": "config", "label": "Konfiguration", "href": "/dashboard/config"},
             {"key": "system", "label": "System", "href": "/dashboard/system"},
         ],
@@ -71,11 +71,16 @@ NAV_GROUPS = [
     {
         "title": "Hilfe",
         "items": [
-            {"key": "troubleshooting", "label": "Troubleshooting", "href": "/dashboard/troubleshooting"},
-            {"key": "open_items", "label": "Open Items", "href": "/dashboard/open-items"},
+            {"key": "troubleshooting", "label": "Fehlerbehebung", "href": "/dashboard/troubleshooting"},
+            {"key": "open_items", "label": "Offene Punkte", "href": "/dashboard/open-items"},
         ],
     },
 ]
+
+
+def short_id(value: str, length: int = 8) -> str:
+    """Kürze lange IDs mit Ellipsis am Ende."""
+    return value[:length] + "…" if value and len(value) > length else value
 
 
 class SimpleRateLimiter:
@@ -110,6 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         format_bytes=_format_bytes,
         format_percent=_format_percent,
         status_tone=_status_tone,
+        short_id=short_id,
     )
 
     app = FastAPI(title="LH2GPX Live Location Receiver", version=APP_VERSION)
@@ -212,7 +218,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.exception_handler(HTTPException)
-    async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    async def http_exception_handler(request: Request, exc: HTTPException) -> RawResponse:
         if request.url.path == "/live-location" and exc.status_code in {401, 429}:
             await _record_failure(
                 request=request,
@@ -220,6 +226,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 error_category="authentication_failed" if exc.status_code == 401 else "rate_limited",
                 error_detail=str(exc.detail),
             )
+        # für Dashboard-Routen: HTML-Fehlerseite
+        accept = request.headers.get("accept", "")
+        if "/dashboard" in str(request.url.path) or "text/html" in accept:
+            return templates.TemplateResponse(
+                "error.html",
+                {"request": request, "status_code": exc.status_code, "detail": exc.detail},
+                status_code=exc.status_code,
+            )
+        # für API-Aufrufe: JSON-Fehler
         payload: dict[str, Any] = {
             "status": "error",
             "requestId": request.state.request_id,
@@ -231,13 +246,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return response
 
     @app.exception_handler(Exception)
-    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> RawResponse:
         await _record_failure(
             request=request,
             http_status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             error_category="unexpected_internal_error",
             error_detail=repr(exc),
         )
+        # für Dashboard-Routen: HTML-Fehlerseite
+        accept = request.headers.get("accept", "")
+        if "/dashboard" in str(request.url.path) or "text/html" in accept:
+            return templates.TemplateResponse(
+                "error.html",
+                {"request": request, "status_code": 500, "detail": "Unexpected internal server error."},
+                status_code=500,
+            )
+        # für API-Aufrufe: JSON-Fehler
         return _json_error(
             request=request,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1144,6 +1168,8 @@ def _base_template_context(
             {"label": "Stats API", "href": "/api/stats"},
             {"label": "Config summary", "href": "/api/config-summary"},
         ],
+        "config_summary": settings.masked_config_summary(),
+        "config_explanations": _config_explanations(),
     }
 
 

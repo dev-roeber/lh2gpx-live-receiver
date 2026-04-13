@@ -8,15 +8,15 @@
   <div class="tile">
     <div class="tile-header">
       <span class="tile-title">Receiver</span>
-      <span class="status-badge {{ 'ok' if receiver_summary.attentionState == 'ok' else 'crit' }}">{{ 'OK' if receiver_summary.attentionState == 'ok' else 'PRUEFEN' }}</span>
+      <span class="status-badge {{ 'ok' if receiver_summary.attentionState == 'ok' else 'crit' }}">{{ 'OK' if receiver_summary.attentionState == 'ok' else 'PRÜFEN' }}</span>
     </div>
     <div class="tile-metrics">
       <div class="tile-metric">
-        <span class="tile-metric-label">Health</span>
+        <span class="tile-metric-label">Zustand</span>
         <span class="tile-metric-value {{ status_tone(receiver_summary.healthStatus) }}">{{ receiver_summary.healthStatus }}</span>
       </div>
       <div class="tile-metric">
-        <span class="tile-metric-label">Readiness</span>
+        <span class="tile-metric-label">Bereitschaft</span>
         <span class="tile-metric-value {{ status_tone(receiver_summary.readinessStatus) }}">{{ receiver_summary.readinessStatus }}</span>
       </div>
       <div class="tile-metric">
@@ -33,7 +33,7 @@
   {# Security tile #}
   <div class="tile">
     <div class="tile-header">
-      <span class="tile-title">Security</span>
+      <span class="tile-title">Sicherheit</span>
       <span class="status-badge {{ 'ok' if receiver_summary.authStatus == 'aktiv' else 'warn' }}">{{ 'OK' if receiver_summary.authStatus == 'aktiv' else 'INFO' }}</span>
     </div>
     <div class="tile-metrics">

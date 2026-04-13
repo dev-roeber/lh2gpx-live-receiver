@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fehler – LH2GPX Receiver</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .error-page {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      text-align: center;
+      padding: 2rem;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    .error-page h1 {
+      font-size: 2.5rem;
+      margin-bottom: 1rem;
+    }
+    .error-page p {
+      font-size: 1.1rem;
+      margin: 0.5rem 0;
+    }
+    .error-page a {
+      display: inline-block;
+      margin-top: 2rem;
+      padding: 0.75rem 1.5rem;
+      background-color: white;
+      color: #667eea;
+      text-decoration: none;
+      border-radius: 0.5rem;
+      font-weight: bold;
+    }
+    .error-page a:hover {
+      background-color: #f0f0f0;
+    }
+  </style>
+</head>
+<body>
+  <div class="error-page">
+    <h1>Hoppla, hier stimmt etwas nicht</h1>
+    <p>Beim Laden der Seite ist ein Fehler aufgetreten.</p>
+    <p>Statuscode: {{ status_code }}</p>
+    <p>{{ detail }}</p>
+    <p><a href="/dashboard">Zurück zum Dashboard</a></p>
+  </div>
+</body>
+</html>

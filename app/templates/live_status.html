@@ -15,7 +15,7 @@
         <span class="tile-metric-value ok">{{ receiver_summary.serviceStatus }}</span>
       </div>
       <div class="tile-metric">
-        <span class="tile-metric-label">Uptime</span>
+        <span class="tile-metric-label">Verfügbarkeit</span>
         <span class="tile-metric-value">{{ receiver_summary.uptime }}</span>
       </div>
     </div>
@@ -23,12 +23,12 @@
 
   <div class="tile">
     <div class="tile-header">
-      <span class="tile-title">Health</span>
+      <span class="tile-title">Zustand</span>
       <span class="status-badge {{ status_tone(receiver_summary.healthStatus) }}">{{ receiver_summary.healthStatus | upper }}</span>
     </div>
     <div class="tile-metrics">
       <div class="tile-metric">
-        <span class="tile-metric-label">Liveness</span>
+        <span class="tile-metric-label">Lebendigkeit</span>
         <span class="tile-metric-value {{ status_tone(receiver_summary.healthStatus) }}">{{ receiver_summary.healthStatus }}</span>
       </div>
     </div>
@@ -36,12 +36,12 @@
 
   <div class="tile">
     <div class="tile-header">
-      <span class="tile-title">Readiness</span>
+      <span class="tile-title">Bereitschaft</span>
       <span class="status-badge {{ status_tone(receiver_summary.readinessStatus) }}">{{ receiver_summary.readinessStatus | upper }}</span>
     </div>
     <div class="tile-metrics">
       <div class="tile-metric">
-        <span class="tile-metric-label">Storage ready</span>
+        <span class="tile-metric-label">Speicher bereit</span>
         <span class="tile-metric-value {{ status_tone(receiver_summary.readinessStatus) }}">{{ receiver_summary.readinessStatus }}</span>
       </div>
       <div class="tile-metric">

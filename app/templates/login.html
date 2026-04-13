@@ -71,7 +71,7 @@
     <div class="login-brand">
       <div class="login-brand-mark">LL</div>
       <div>
-        <div class="login-brand-name">Live Receiver</div>
+        <div class="login-brand-name">LH2GPX Receiver</div>
         <div class="login-brand-sub">LH2GPX Dashboard</div>
       </div>
     </div>
@@ -100,25 +100,37 @@
         </div>
 
         <div class="field">
-          <label for="bearer_token">Bearer Token</label>
-          <input
-            type="password"
-            id="bearer_token"
-            name="bearer_token"
-            placeholder="Token eingeben"
-            required
-            spellcheck="false"
-            autocomplete="current-password"
-          >
+          <label for="bearer_token">Authentifizierungs-Token</label>
+          <div style="display: flex; gap: 0.5rem;">
+            <input
+              type="password"
+              id="bearer_token"
+              name="bearer_token"
+              placeholder="Token eingeben"
+              required
+              spellcheck="false"
+              autocomplete="current-password"
+              style="flex: 1;"
+            >
+            <button type="button" onclick="toggleBearerVisibility()" aria-label="Token ein-/ausblenden" style="padding: 0.65rem 0.75rem; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 5px; cursor: pointer;">👁️</button>
+          </div>
+          <small style="color: var(--text-muted); font-size: 0.75rem;">Dieser Token schützt die Live-Uploads – du findest ihn in deiner App-Konfiguration.</small>
         </div>
 
         <button type="submit" class="login-btn">Anmelden</button>
       </form>
 
       <div class="readyz-hint">
-        <a href="/readyz" target="_blank">Readyz-Check</a>
+        <a href="/readyz" target="_blank">Systemprüfung (Readyz-Check)</a>
       </div>
     </div>
   </div>
+
+  <script>
+    function toggleBearerVisibility() {
+      const input = document.getElementById('bearer_token');
+      input.type = input.type === 'password' ? 'text' : 'password';
+    }
+  </script>
 </body>
 </html>
