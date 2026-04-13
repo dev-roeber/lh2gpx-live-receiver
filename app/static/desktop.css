@@ -1,0 +1,350 @@
+/* ═══════════════════════════════════════════════════════════════
+   DESKTOP OPTIMIZATION - Für Bildschirme >= 1024px
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Sidebar optimiert für Desktop */
+.sidebar {
+  width: 280px !important;
+  position: fixed !important;
+  height: 100vh;
+  overflow-y: auto;
+  padding: 2rem 1.5rem;
+}
+
+.app-shell {
+  margin-left: 280px !important;
+}
+
+.sidebar-nav {
+  display: flex !important;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sidebar-section {
+  margin-bottom: 2rem;
+}
+
+.nav-group-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.75rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.sidebar-nav a {
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  text-decoration: none;
+  font-size: 0.95rem;
+  transition: all 0.2s ease;
+  display: block;
+}
+
+.sidebar-nav a:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  transform: translateX(4px);
+}
+
+.sidebar-nav a.active {
+  background-color: rgba(255, 255, 255, 0.2);
+  font-weight: 600;
+}
+
+/* Main Content für Desktop */
+.main {
+  padding: 2rem;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+/* Content Grid für Desktop */
+.content-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.content-grid.two-one {
+  grid-template-columns: 2fr 1fr;
+}
+
+.content-grid.one-one {
+  grid-template-columns: 1fr 1fr;
+}
+
+/* Panels für Desktop */
+.panel {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+}
+
+.panel:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-color: #d1d5db;
+}
+
+/* Table für Desktop */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+thead {
+  background-color: #f9fafb;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+th {
+  padding: 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: #374151;
+}
+
+td {
+  padding: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+tbody tr:hover {
+  background-color: #f9fafb;
+}
+
+/* Global Header für Desktop */
+.global-header {
+  height: 80px;
+  padding: 0 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: white;
+  border-bottom: 1px solid #e5e7eb;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.gh-brand {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-weight: 700;
+  font-size: 1.2rem;
+}
+
+.gh-brand-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 0.5rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+
+.gh-strip {
+  display: flex;
+  gap: 2rem;
+  align-items: center;
+}
+
+.gh-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.gh-label {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.gh-value {
+  color: #111827;
+  font-weight: 600;
+}
+
+/* Forms für Desktop */
+form {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 0.75rem;
+  border: 1px solid #e5e7eb;
+}
+
+.form-group {
+  margin-bottom: 1.5rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.form-group label {
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 0.5rem;
+}
+
+.form-group input,
+.form-group select {
+  padding: 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+/* Tile Grid für Desktop */
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.tile {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  transition: all 0.3s ease;
+}
+
+.tile:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-color: #d1d5db;
+  transform: translateY(-2px);
+}
+
+.tile-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.tile-title {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.status-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-badge.ok {
+  background: #d1fae5;
+  color: #047857;
+}
+
+.status-badge.warn {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.status-badge.error {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+/* Footer für Desktop */
+.context-footer {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  padding: 2rem;
+  margin-top: 3rem;
+  border-top: 1px solid #e5e7eb;
+  background: #f9fafb;
+  font-size: 0.9rem;
+}
+
+.cf-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cf-label {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+/* Multi-column layouts */
+.content-grid.three-column {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.content-grid.four-column {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+/* Desktop-spezifische Features */
+@media (min-width: 1024px) {
+  .full-only {
+    display: block !important;
+  }
+
+  .mobile-only {
+    display: none !important;
+  }
+
+  .sidebar {
+    display: block !important;
+  }
+
+  .menu-toggle {
+    display: none !important;
+  }
+
+  .panel {
+    min-height: 200px;
+  }
+
+  .home-info {
+    max-width: 900px;
+  }
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
