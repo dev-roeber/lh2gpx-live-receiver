@@ -17,17 +17,15 @@ Diese Arbeit hat bewusst nur dieses Receiver-Repo und den Serverbetrieb geaender
 - SQLite als Standard-Persistenz fuer Requests und einzelne GPS-Punkte
 - optionales NDJSON-Audit fuer Rohpayloads
 - Dashboard fuer Betrieb, Diagnose und Exporte
-- lokale oder Basic-Auth-geschuetzte Operator-Oberflaeche
+- verbesserte Loopback-Erkennung fuer Docker-Bridge-Umgebungen
 - Docker-Compose-Deployment mit Caddy als TLS-Reverse-Proxy
 
 ## Current state
 
-- der Receiver-Hardening-Lauf ist fuer jetzt abgeschlossen
-- der Receiver-Stand wurde nach `main` gemergt und anschliessend direkt auf `main` im laufenden Server-Setup erneut geprueft
-- aus dieser Post-Merge-Verifikation waren keine weiteren Receiver-Aenderungen noetig
-- App, Wrapper, App-Daten und Importdateien blieben in diesem Lauf bewusst unberuehrt
-- im aktuellen 5-Repo-Abgleich bleibt der Receiver der am tiefsten betrieblich dokumentierte Baustein; in diesem 08-48-Lauf wurden repo-seitig Tests und Compose-Konfiguration frisch bestaetigt, aber kein neuer Live-Smoke gegen den laufenden Dienst gezogen
-- der optionale Raw-Payload-NDJSON-Pfad wird beim Anlegen neuer Dateien jetzt mit Modus `0600` erstellt; bestehende Dateien werden dadurch nicht automatisch nachtraeglich umgehaertet
+- **Integration abgeschlossen (April 2026):** Die lokal entwickelten Verbesserungen (Features, Stabilität, Refactoring) wurden vollständig in den `main`-Branch integriert.
+- **Vereinfachte Sicherheit:** Die integrierte HTTP Basic Auth via `ADMIN_USERNAME`/`PASSWORD` wurde aus der Standard-`compose.yaml` entfernt, um das Deployment zu vereinfachen. Das Dashboard ist nun standardmäßig im lokalen Netz/über den Proxy zugänglich.
+- **Feature-Zuwachs:** Neuer High-Performance API-Endpunkt `/api/live-summary` für Echtzeit-Dashboards integriert.
+- **Robustheit:** Der Server stürzt nicht mehr ab, wenn die Datenbank fehlt oder nicht schreibbar ist; er liefert stattdessen einen Fallback-Status (Readiness-Check).
 
 ## Root cause des bisherigen HTTP-500
 
@@ -67,12 +65,12 @@ Unbekannte additive Zusatzfelder werden weiter toleriert und im Rohpayload gespe
 
 ## Wichtige Endpunkte
 
-- `GET /health`
-  - Prozess lebt und liefert Grundstatus
-- `GET /readyz`
-  - Storage ist schreibbereit
+- `GET /health` / `GET /readyz`
+  - Prozess-Check und Schreibbereitschaft (Storage-Check).
 - `POST /live-location`
-  - akzeptiert valide Uploads und speichert Requests plus Punkte
+  - Akzeptiert Uploads (iOS-kompatibel) und speichert Requests + Punkte.
+- `GET /api/live-summary` (NEU)
+  - Kompakter Echtzeit-Status inkl. neuester Punkte für Monitoring-Tools.
 - `GET /api/stats`
   - Kennzahlen fuer Requests, Punkte, Sessions und Zeitraeume
 - `GET /api/points`
@@ -152,7 +150,7 @@ Weitere Operator-Seiten zeigen unter anderem:
 - Systemseite mit Version, Laufzeit und Changelog-Ausschnitten
 - CSV-, JSON- und NDJSON-Export der Punkteliste
 
-Wenn `ADMIN_USERNAME` und `ADMIN_PASSWORD` leer sind, ist das Dashboard absichtlich nur lokal nutzbar. Mit gesetzten Credentials ist HTTP Basic Auth aktiv.
+**Hinweis zur Sicherheit:** Der Zugriffsschutz für das Dashboard erfolgt aktuell primär über die Netzwerk-Ebene (Localhost-Binding) oder den vorgeschalteten Reverse-Proxy (Caddy). Eine app-interne Authentifizierung ist im aktuellen Stand für maximale Portabilität deaktiviert.
 
 ## Konfiguration
 
@@ -160,19 +158,12 @@ Die versionierte `.env.example` bleibt absichtlich neutral. Dort stehen keine fe
 
 Wichtige ENV-Variablen:
 
-- `PUBLIC_HOSTNAME`
-- `PUBLIC_BASE_URL`
-- `LIVE_LOCATION_BEARER_TOKEN`
-- `ADMIN_USERNAME`
-- `ADMIN_PASSWORD`
-- `DATA_DIR`
-- `SQLITE_PATH`
-- `RAW_PAYLOAD_NDJSON_PATH`
-- `LEGACY_REQUEST_NDJSON_PATH`
+- `PUBLIC_HOSTNAME` / `PUBLIC_BASE_URL`
+- `LIVE_LOCATION_BEARER_TOKEN` (Pflicht für Ingest-Sicherheit)
+- `LOCAL_TIMEZONE` (Jetzt mit IANA-Validierung beim Start)
+- `DATA_DIR` / `SQLITE_PATH`
 - `ENABLE_RAW_PAYLOAD_NDJSON`
-- `LOCAL_TIMEZONE`
-- `REQUEST_BODY_MAX_BYTES`
-- `RATE_LIMIT_REQUESTS_PER_MINUTE`
+- `LOG_LEVEL` (Standard: INFO)
 
 Hinweis:
 
