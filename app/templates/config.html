@@ -4,28 +4,176 @@
 
   <article class="panel">
     <div class="panel-header">
-      <div><p class="eyebrow">Maskierte Runtime-Konfiguration</p><h3>Aktive Parameter</h3></div>
+      <div><p class="eyebrow">Dynamische Konfiguration</p><h3>Einstellungen verwalten</h3></div>
+      <div id="save-status" class="status-badge info" style="display: none;">Speichere...</div>
     </div>
-    <dl class="meta-list">
-      {% for key, value in config_summary.items() %}
-      <div><dt>{{ key }}</dt><dd>{{ value }}</dd></div>
-      {% endfor %}
-    </dl>
+    
+    <form id="settings-form" class="settings-form">
+      <section class="form-section">
+        <h4>📡 Netzwerk & Adresse</h4>
+        <div class="input-group">
+          <label for="public_hostname">Öffentlicher Hostname</label>
+          <input type="text" id="public_hostname" name="public_hostname" value="{{ config_summary.publicHostname }}" placeholder="z.B. 178-104-51-78.sslip.io">
+          <small>Wird für die URL-Generierung in Exporten genutzt.</small>
+        </div>
+        <div class="input-group">
+          <label for="public_base_url">Öffentliche Basis-URL</label>
+          <input type="url" id="public_base_url" name="public_base_url" value="{{ config_summary.publicBaseUrl }}" placeholder="https://...">
+        </div>
+      </section>
+
+      <section class="form-section">
+        <h4>🔒 Sicherheit</h4>
+        <div class="input-group">
+          <label for="bearer_token">Live-Location Bearer Token</label>
+          <div class="password-toggle">
+            <input type="password" id="bearer_token" name="bearer_token" value="" placeholder="Token für App-Uploads (leer lassen für keine Änderung)">
+            <button type="button" class="btn small" onclick="togglePassword('bearer_token')">👁️</button>
+          </div>
+          <small>Dieser Token wird von der iOS-App zur Authentifizierung beim Upload benötigt.</small>
+        </div>
+      </section>
+
+      <section class="form-section">
+        <h4>🌍 Region & Logging</h4>
+        <div class="input-group">
+          <label for="local_timezone">Zeitzone (IANA)</label>
+          <input type="text" id="local_timezone" name="local_timezone" value="{{ config_summary.localTimezone }}" placeholder="Europe/Berlin">
+          <small>Bestimmt die lokale Uhrzeit in Tabellen und Exporten.</small>
+        </div>
+        <div class="input-group">
+          <label for="log_level">Log-Level</label>
+          <select id="log_level" name="log_level">
+            <option value="DEBUG" {% if config_summary.logLevel == 'DEBUG' %}selected{% endif %}>DEBUG (Sehr ausführlich)</option>
+            <option value="INFO" {% if config_summary.logLevel == 'INFO' %}selected{% endif %}>INFO (Standard)</option>
+            <option value="WARNING" {% if config_summary.logLevel == 'WARNING' %}selected{% endif %}>WARNING (Nur Fehler/Warnungen)</option>
+            <option value="ERROR" {% if config_summary.logLevel == 'ERROR' %}selected{% endif %}>ERROR (Nur kritische Fehler)</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="form-section">
+        <h4>📊 Paginierung & Speicher</h4>
+        <div class="input-grid">
+          <div class="input-group">
+            <label for="points_page_size_default">Standard-Seitengröße</label>
+            <input type="number" id="points_page_size_default" name="points_page_size_default" value="{{ config_summary.pointsPageSizeDefault }}" min="1" max="500">
+          </div>
+          <div class="input-group">
+            <label for="points_page_size_max">Max. Seitengröße</label>
+            <input type="number" id="points_page_size_max" name="points_page_size_max" value="{{ config_summary.pointsPageSizeMax }}" min="1" max="5000">
+          </div>
+        </div>
+        <div class="input-group checkbox">
+          <label>
+            <input type="checkbox" id="raw_payload_ndjson_enabled" name="raw_payload_ndjson_enabled" {% if config_summary.rawPayloadNdjsonEnabled %}checked{% endif %}>
+            Rohpayload-Audit (NDJSON) aktivieren
+          </label>
+        </div>
+      </section>
+
+      <div class="panel-footer">
+        <button type="submit" class="btn primary">Einstellungen speichern & anwenden</button>
+      </div>
+    </form>
   </article>
 
   <article class="panel">
     <div class="panel-header">
-      <div><p class="eyebrow">Erklaerungen</p><h3>Was diese Werte bedeuten</h3></div>
+      <div><p class="eyebrow">System-Info</p><h3>Aktive Pfade</h3></div>
+    </div>
+    <dl class="meta-list">
+      <div><dt>Daten-Verzeichnis</dt><dd><code>{{ config_summary.dataDir }}</code></dd></div>
+      <div><dt>SQLite Datenbank</dt><dd><code>{{ config_summary.sqlitePath }}</code></dd></div>
+      <div><dt>NDJSON Audit</dt><dd><code>{{ config_summary.rawPayloadNdjsonPath }}</code></dd></div>
+    </dl>
+    
+    <div class="panel-header" style="margin-top: 2rem;">
+      <div><p class="eyebrow">Hilfe</p><h3>Parameter-Details</h3></div>
     </div>
     <div class="stack-list">
       {% for item in config_explanations %}
       <div class="list-card static">
         <strong>{{ item.label }}</strong>
-        <span>{{ item.text }}</span>
+        <span class="small">{{ item.text }}</span>
       </div>
       {% endfor %}
     </div>
   </article>
 
 </div>
+
+<style>
+.settings-form { padding: 1rem; display: flex; flex-direction: column; gap: 2rem; }
+.form-section { display: flex; flex-direction: column; gap: 1rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); }
+.form-section h4 { color: var(--accent-color); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+.input-group { display: flex; flex-direction: column; gap: 0.5rem; }
+.input-group label { font-weight: 600; font-size: 0.85rem; }
+.input-group input[type="text"], .input-group input[type="url"], .input-group input[type="number"], .input-group input[type="password"], .input-group select {
+  padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-secondary); color: var(--text-color); font-family: inherit;
+}
+.input-group small { color: var(--text-muted); font-size: 0.75rem; }
+.input-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.password-toggle { display: flex; gap: 0.5rem; }
+.password-toggle input { flex: 1; }
+.panel-footer { padding-top: 1rem; display: flex; justify-content: flex-end; }
+.checkbox label { display: flex; align-items: center; gap: 0.5rem; font-weight: normal; cursor: pointer; }
+.checkbox input { width: 1.2rem; height: 1.2rem; }
+</style>
+
+<script>
+function togglePassword(id) {
+  const input = document.getElementById(id);
+  input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+document.getElementById('settings-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const statusEl = document.getElementById('save-status');
+  statusEl.style.display = 'inline-block';
+  statusEl.textContent = 'Speichere...';
+  statusEl.className = 'status-badge info';
+
+  const formData = new FormData(e.target);
+  const data = {};
+  
+  formData.forEach((value, key) => {
+    // Spezialfall für Checkbox
+    if (key === 'raw_payload_ndjson_enabled') {
+      data[key] = true;
+    } else if (key === 'bearer_token' && value === '') {
+      // Token nicht senden, wenn leer (keine Änderung)
+    } else if (key.includes('page_size')) {
+      data[key] = parseInt(value);
+    } else {
+      data[key] = value;
+    }
+  });
+  
+  // Wenn Checkbox nicht im FormData ist, ist sie false
+  if (!data['raw_payload_ndjson_enabled']) {
+    data['raw_payload_ndjson_enabled'] = false;
+  }
+
+  try {
+    const response = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    
+    if (response.ok) {
+      statusEl.textContent = 'Gespeichert!';
+      statusEl.className = 'status-badge success';
+      setTimeout(() => { statusEl.style.display = 'none'; }, 3000);
+    } else {
+      throw new Error('Speichern fehlgeschlagen');
+    }
+  } catch (error) {
+    statusEl.textContent = 'Fehler!';
+    statusEl.className = 'status-badge danger';
+    alert('Fehler beim Speichern der Einstellungen: ' + error.message);
+  }
+});
+</script>
 {% endblock %}

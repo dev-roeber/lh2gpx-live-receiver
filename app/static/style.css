@@ -5,48 +5,67 @@
    ============================================================ */
 
 :root {
-  /* Surface */
-  --bg:              #f2f5f8;
+  /* High-End Palette */
+  --bg:              #f8fafc;
   --surface:         #ffffff;
-  --surface-muted:   #f7f9fb;
-  --surface-raised:  rgba(255, 255, 255, 0.96);
-  --sidebar-bg:      #0e1b28;
+  --surface-muted:   #f1f5f9;
+  --sidebar-bg:      #0f172a; /* Slate 900 */
+  
+  --accent:          #3b82f6; /* Blue 500 */
+  --accent-soft:     rgba(59, 130, 246, 0.1);
+  --accent-hover:    #2563eb;
+  
+  --text:            #1e293b;
+  --text-muted:      #64748b;
+  
+  --c-ok:            #10b981;
+  --c-warn:          #f59e0b;
+  --c-crit:          #ef4444;
+  
+  --radius:          12px;
+  --shadow:          0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
 
-  /* Text */
-  --text:            #0f1e2d;
-  --muted:           #5a6e82;
-  --on-dark:         #dce8f4;
-  --on-dark-muted:   rgba(220, 232, 244, 0.6);
+/* Professional Input Styling */
+input[type="text"], input[type="url"], input[type="password"], input[type="number"], select {
+  border: 1px solid #e2e8f0;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+}
 
-  /* Semantic status colors */
-  --c-ok:            #12855a;
-  --c-ok-bg:         rgba(18, 133, 90, 0.08);
-  --c-ok-border:     rgba(18, 133, 90, 0.18);
-  --c-warn:          #a66200;
-  --c-warn-bg:       rgba(166, 98, 0, 0.08);
-  --c-warn-border:   rgba(166, 98, 0, 0.18);
-  --c-crit:          #c0202e;
-  --c-crit-bg:       rgba(192, 32, 46, 0.08);
-  --c-crit-border:   rgba(192, 32, 46, 0.20);
-  --c-info:          #0b5fa8;
-  --c-info-bg:       rgba(11, 95, 168, 0.07);
-  --c-info-border:   rgba(11, 95, 168, 0.14);
-  --c-meta:          var(--muted);
+input:focus, select:focus {
+  border-color: var(--accent);
+  ring: 3px var(--accent-soft);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
 
-  /* Accent */
-  --accent:          #006d6b;
-  --accent-hover:    #005457;
+/* Section Header in Forms */
+.form-section {
+  background: var(--surface);
+  padding: 1.5rem;
+  border-radius: var(--radius);
+  border: 1px solid #e2e8f0;
+  margin-bottom: 1.5rem;
+}
 
-  /* Layout */
-  --radius-sm:       10px;
-  --radius:          16px;
-  --radius-lg:       22px;
-  --border:          rgba(15, 30, 45, 0.10);
-  --shadow-sm:       0 2px 8px rgba(15, 30, 45, 0.06);
-  --shadow:          0 4px 20px rgba(15, 30, 45, 0.09);
+.form-section h4 {
+  margin-top: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+  color: var(--sidebar-bg);
+}
 
-  /* Sidebar */
-  --sidebar-width:   280px;
+/* Dashboard Tiles refinement */
+.tile {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
 }
 
 /* ── Reset ────────────────────────────────────────────────── */

@@ -313,6 +313,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "explanations": _config_explanations(),
         }
 
+    @app.post("/api/settings", dependencies=[Depends(_require_admin_access)])
+    async def api_save_settings(request: Request) -> dict[str, Any]:
+        try:
+            updates = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+        try:
+            # Persistenz speichern mit Validierung
+            _settings(request).save_persistent(updates)
+            
+            # Hot-Reload: Neue Settings laden
+            new_settings = Settings.from_env()
+            request.app.state.settings = new_settings
+            
+            # Logging-Level live anpassen
+            _configure_logging(new_settings.log_level)
+            
+            # Storage neu initialisieren (Hot-Swap)
+            new_storage = ReceiverStorage(new_settings)
+            new_storage.startup()
+            request.app.state.storage = new_storage
+            
+            # Templates-Globals aktualisieren
+            templates.env.globals.update(
+                format_timestamp=lambda value: _timestamp_summary(value, new_settings.local_timezone),
+            )
+            
+            LOGGER.info(f"Settings updated live: {list(updates.keys())}")
+            
+            return {
+                "status": "success",
+                "message": "Settings saved and applied live.",
+                "requestId": request.state.request_id,
+                "config": new_settings.masked_config_summary()
+            }
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except Exception as exc:
+            LOGGER.error(f"Failed to apply settings: {exc}")
+            raise HTTPException(status_code=500, detail="Internal server error during hot-reload")
+
     @app.get("/api/points", dependencies=[Depends(_require_admin_access)])
     async def api_points(
         request: Request,

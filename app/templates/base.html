@@ -1,158 +1,85 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="de">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ page_title }} · LH2GPX Receiver</title>
-    <link rel="stylesheet" href="/static/style.css">
-  </head>
-  <body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ page_title | default('LH2GPX Live Receiver') }}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛰️</text></svg>">
+</head>
+<body>
 
-    {# ── Global header bar ─────────────────────────────────── #}
-    <header class="global-header">
-      <div class="gh-brand">
-        <div class="gh-brand-mark">LH</div>
-        <span class="gh-brand-name">LH2GPX Receiver</span>
-      </div>
-      <div class="gh-strip">
-        <div class="gh-item">
-          <span class="gh-label">Host</span>
-          <span class="gh-value">{{ receiver_summary.publicHostname }}</span>
-        </div>
-        <div class="gh-item">
-          <span class="gh-label">Receiver</span>
-          {% set rs = receiver_summary.attentionState %}
-          {% set pill_cls = 'ok' if rs == 'ok' else 'crit' %}
-          <span class="gh-pill {{ pill_cls }}">{{ receiver_summary.serviceStatus }}</span>
-        </div>
-        <div class="gh-item">
-          <span class="gh-label">Auth</span>
-          <span class="gh-value">{{ receiver_summary.authStatus }}</span>
-        </div>
-        <div class="gh-item">
-          <span class="gh-label">Uptime</span>
-          <span class="gh-value">{{ receiver_summary.uptime }}</span>
-        </div>
-        <div class="gh-item">
-          <span class="gh-label">Letzter Ingest</span>
-          {% set ls = format_timestamp(snapshot.totals.lastSuccessAt) %}
-          <span class="gh-value">{{ ls.relative }}</span>
-        </div>
-        <div class="gh-item">
-          <span class="gh-label">v{{ app_version }}</span>
-        </div>
-      </div>
-    </header>
-
-    <div class="app-shell">
-
-      {# ── Sidebar ─────────────────────────────────────────── #}
-      <aside class="sidebar">
-        <nav class="sidebar-nav" aria-label="Hauptnavigation">
-          {% for group in nav_groups %}
-          <div class="sidebar-section">
-            <p class="nav-group-label">{{ group["title"] }}</p>
-            <ul>
-              {% for item in group["items"] %}
-              <li>
-                <a href="{{ item["href"] }}" class="{{ 'active' if active_nav == item["key"] else '' }}">{{ item["label"] }}</a>
-              </li>
-              {% endfor %}
-            </ul>
-          </div>
-          {% endfor %}
-        </nav>
-
-        <hr class="sidebar-divider">
-
-        <p class="nav-group-label">API &amp; Direktzugriff</p>
-        <div class="sidebar-api-links">
-          {% for item in api_links %}
-          <a href="{{ item.href }}">{{ item.label }}</a>
-          {% endfor %}
-        </div>
-      </aside>
-
-      {# ── Main content ────────────────────────────────────── #}
-      <main class="page-shell">
-
-        {# Page header #}
-        <div class="page-header">
-          <div class="page-header-copy">
-            <p class="page-kicker">{{ page_kicker }}</p>
-            <h2>{{ page_title }}</h2>
-            <p class="page-desc">{{ page_description }}</p>
-          </div>
-          {% if page_header_actions %}
-          <div class="page-header-actions">
-            {% for item in page_header_actions %}
-            <a class="button-link secondary" href="{{ item.href }}">{{ item.label }}</a>
-            {% endfor %}
-          </div>
-          {% endif %}
-        </div>
-
-        {# Alert strip #}
-        {% if receiver_summary.attentionState != 'ok' %}
-        <div class="alert-strip crit">
-          <span class="status-badge">CRIT</span>
-          <span class="alert-message">{{ receiver_summary.attentionMessage }}</span>
-          <a class="alert-action" href="/dashboard/live-status">Live-Status pruefen &rarr;</a>
-        </div>
-        {% elif snapshot.status.lastWarning %}
-        <div class="alert-strip warn">
-          <span class="status-badge">WARN</span>
-          <span class="alert-message">{{ snapshot.status.lastWarning }}</span>
-          <a class="alert-action" href="/dashboard/live-status">Details &rarr;</a>
-        </div>
-        {% else %}
-        <div class="alert-strip ok">
-          <span class="status-badge">OK</span>
-          <span class="alert-message">Keine akuten Stoerungen — Receiver laeuft stabil.</span>
-        </div>
-        {% endif %}
-
-        {# Page content #}
-        {% block content %}{% endblock %}
-
-        {# Quick actions #}
-        <div class="quick-actions">
-          <div class="qa-group">
-            <a class="button-link secondary" href="/dashboard">Overview</a>
-            <a class="button-link secondary" href="/dashboard/live-status">Receiver Health</a>
-            <a class="button-link secondary" href="/dashboard/activity">Aktivitaet</a>
-            <a class="button-link secondary" href="/dashboard/security">Security</a>
-          </div>
-          <div class="qa-divider"></div>
-          <div class="qa-group">
-            <a class="button-link secondary" href="/dashboard/storage">Storage</a>
-            <a class="button-link secondary" href="/dashboard/requests">Requests</a>
-            <a class="button-link secondary" href="/dashboard/exports">Exporte</a>
-            <a class="button-link secondary" href="/dashboard/system">System</a>
-          </div>
-        </div>
-
-        {# Context footer #}
-        <div class="context-footer">
-          <div class="cf-item">
-            <span class="cf-label">Bind</span>
-            <span>{{ receiver_summary.bindAddress }}</span>
-          </div>
-          <div class="cf-item">
-            <span class="cf-label">Storage</span>
-            <span class="status-badge {{ 'ok' if receiver_summary.storageStatus == 'writable' else 'crit' }}">{{ receiver_summary.storageStatus }}</span>
-          </div>
-          <div class="cf-item">
-            <span class="cf-label">Admin</span>
-            <span>{{ receiver_summary.adminStatus }}</span>
-          </div>
-          <div class="cf-item">
-            <span class="cf-label">Timezone</span>
-            <span>{{ receiver_summary.localTimezone }}</span>
-          </div>
-        </div>
-
-      </main>
+  <header class="global-header">
+    <div class="gh-brand">
+      <div class="gh-brand-mark">LL</div>
+      <div class="gh-brand-name">Live Receiver</div>
     </div>
-  </body>
+    <div class="gh-strip">
+      <div class="gh-item">
+        <span class="gh-label">Host:</span>
+        <span class="gh-value">{{ config_summary.publicHostname }}</span>
+      </div>
+      <div class="gh-item">
+        <span class="gh-label">Status:</span>
+        <span class="gh-pill {{ 'ok' if snapshot.status.lastHttpStatus == 200 or snapshot.status.lastHttpStatus == 202 else 'warn' }}">
+          {{ 'ONLINE' if snapshot.status.lastHttpStatus else 'WAITING' }}
+        </span>
+      </div>
+      <div class="gh-item full-only">
+        <span class="gh-label">Uptime:</span>
+        <span class="gh-value">{{ format_duration(snapshot.system.uptimeSeconds) if snapshot.system else 'N/A' }}</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    <aside class="sidebar">
+      <nav class="sidebar-nav">
+        {% for group in nav_groups %}
+        <div class="sidebar-section">
+          <h4 class="nav-group-label">{{ group.title }}</h4>
+          <ul>
+            {% for item in group.items %}
+            <li>
+              <a href="{{ item.href }}" class="{{ 'active' if active_nav == item.key }}">
+                {{ item.label }}
+              </a>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endfor %}
+      </nav>
+      
+      <hr class="sidebar-divider">
+      
+      <div class="sidebar-api-links">
+        <h4 class="nav-group-label">System APIs</h4>
+        <a href="/readyz" target="_blank">Readyz Check</a>
+        <a href="/api/live-summary" target="_blank">Live Summary API</a>
+        <a href="/api/stats" target="_blank">Stats API</a>
+      </div>
+    </aside>
+
+    <main class="page-shell">
+      {% block content %}{% endblock %}
+      
+      <footer class="context-footer">
+        <div class="cf-item"><span class="cf-label">Region:</span> {{ config_summary.localTimezone }}</div>
+        <div class="cf-item"><span class="cf-label">Version:</span> {{ app_version }}</div>
+        <div class="cf-item"><span class="cf-label">Storage:</span> {{ 'Writable' if snapshot.storage.readiness.writable else 'ReadOnly' }}</div>
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    // Automatisches Highlight der Navigation basierend auf URL falls nicht explizit gesetzt
+    if (!document.querySelector('.sidebar-nav a.active')) {
+      const currentPath = window.location.pathname;
+      document.querySelectorAll('.sidebar-nav a').forEach(a => {
+        if (a.getAttribute('href') === currentPath) a.classList.add('active');
+      });
+    }
+  </script>
+</body>
 </html>

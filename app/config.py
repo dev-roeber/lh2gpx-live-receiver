@@ -1,7 +1,6 @@
-from __future__ import annotations
-
+import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -81,6 +80,11 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         data_dir = Path(_read_non_empty_env("DATA_DIR", default="/app/data"))
+        base = cls._from_env_base(data_dir)
+        return base.with_persistent_overrides()
+
+    @classmethod
+    def _from_env_base(cls, data_dir: Path) -> "Settings":
         sqlite_path = Path(
             _read_non_empty_env(
                 "SQLITE_PATH",
@@ -125,6 +129,64 @@ class Settings:
             rate_limit_requests_per_minute=_read_int_env("RATE_LIMIT_REQUESTS_PER_MINUTE", default=0, minimum=0),
             trust_proxy_headers=_read_bool_env("TRUST_PROXY_HEADERS", default=True),
         )
+
+    def with_persistent_overrides(self) -> "Settings":
+        path = self.persistent_settings_path
+        if not path.exists():
+            return self
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            valid_keys = {
+                "public_hostname", "public_base_url", "bearer_token", 
+                "raw_payload_ndjson_enabled", "local_timezone", "log_level",
+                "points_page_size_default", "points_page_size_max"
+            }
+            overrides = {k: v for k, v in data.items() if k in valid_keys and v is not None}
+            if not overrides:
+                return self
+            return replace(self, **overrides)
+        except Exception:
+            return self
+
+    @property
+    def persistent_settings_path(self) -> Path:
+        return self.data_dir / "persistent-settings.json"
+
+    def save_persistent(self, updates: dict[str, object]) -> None:
+        # Validierung vor dem Speichern
+        if "local_timezone" in updates:
+            try:
+                ZoneInfo(str(updates["local_timezone"]))
+            except Exception:
+                raise ValueError(f"Ungültige Zeitzone: {updates['local_timezone']}")
+        
+        if "public_base_url" in updates:
+            url = str(updates["public_base_url"])
+            if not url.startswith(("http://", "https://")):
+                raise ValueError("Basis-URL muss mit http:// oder https:// beginnen")
+
+        path = self.persistent_settings_path
+        current_data = {}
+        if path.exists():
+            try:
+                with path.open("r", encoding="utf-8") as f:
+                    current_data = json.load(f)
+            except Exception:
+                pass
+        
+        # Nur erlaubte Felder updaten
+        allowed_fields = {
+            "public_hostname", "public_base_url", "bearer_token", 
+            "raw_payload_ndjson_enabled", "local_timezone", "log_level",
+            "points_page_size_default", "points_page_size_max"
+        }
+        filtered_updates = {k: v for k, v in updates.items() if k in allowed_fields}
+        
+        current_data.update(filtered_updates)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(current_data, f, indent=2)
 
     def masked_config_summary(self) -> dict[str, object]:
         return {
