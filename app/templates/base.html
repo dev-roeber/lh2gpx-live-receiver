@@ -39,7 +39,7 @@
         <div class="sidebar-section">
           <h4 class="nav-group-label">{{ group.title }}</h4>
           <ul>
-            {% for item in group.items %}
+            {% for item in group["items"] %}
             <li>
               <a href="{{ item.href }}" class="{{ 'active' if active_nav == item.key }}">
                 {{ item.label }}
@@ -58,6 +58,12 @@
         <a href="/readyz" target="_blank">Readyz Check</a>
         <a href="/api/live-summary" target="_blank">Live Summary API</a>
         <a href="/api/stats" target="_blank">Stats API</a>
+      </div>
+
+      <hr class="sidebar-divider">
+
+      <div class="sidebar-api-links">
+        <a href="/logout" style="color: var(--text-muted); font-size: 0.8rem;">Abmelden</a>
       </div>
     </aside>
 

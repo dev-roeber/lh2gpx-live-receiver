@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Anmelden — LH2GPX Live Receiver</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛰️</text></svg>">
+  <style>
+    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .login-wrap { width: 100%; max-width: 420px; padding: 1.5rem; }
+    .login-brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 2rem; }
+    .login-brand-mark {
+      width: 2.5rem; height: 2.5rem; border-radius: 8px;
+      background: var(--accent-color); color: #000;
+      font-weight: 700; font-size: 0.85rem;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .login-brand-name { font-size: 1.1rem; font-weight: 600; }
+    .login-brand-sub { font-size: 0.8rem; color: var(--text-muted); }
+    .login-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 2rem;
+    }
+    .login-card h2 { margin: 0 0 0.25rem; font-size: 1.25rem; }
+    .login-card .subtitle { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.75rem; }
+    .field { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1.25rem; }
+    .field label { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .field input {
+      padding: 0.65rem 0.75rem;
+      border: 1px solid var(--border-color);
+      border-radius: 5px;
+      background: var(--bg-primary);
+      color: var(--text-color);
+      font-size: 0.9rem;
+      font-family: inherit;
+      transition: border-color 0.15s;
+    }
+    .field input:focus { outline: none; border-color: var(--accent-color); }
+    .error-box {
+      background: rgba(239,68,68,0.12);
+      border: 1px solid rgba(239,68,68,0.4);
+      border-radius: 5px;
+      padding: 0.65rem 0.85rem;
+      font-size: 0.85rem;
+      color: #f87171;
+      margin-bottom: 1.25rem;
+    }
+    .login-btn {
+      width: 100%;
+      padding: 0.7rem;
+      background: var(--accent-color);
+      color: #000;
+      border: none;
+      border-radius: 5px;
+      font-weight: 700;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .login-btn:hover { opacity: 0.85; }
+    .readyz-hint { text-align: center; margin-top: 1.25rem; font-size: 0.78rem; color: var(--text-muted); }
+    .readyz-hint a { color: var(--accent-color); text-decoration: none; }
+    .readyz-hint a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-brand">
+      <div class="login-brand-mark">LL</div>
+      <div>
+        <div class="login-brand-name">Live Receiver</div>
+        <div class="login-brand-sub">LH2GPX Dashboard</div>
+      </div>
+    </div>
+
+    <div class="login-card">
+      <h2>Anmelden</h2>
+      <p class="subtitle">Server-URL und Bearer-Token eingeben, um auf das Dashboard zuzugreifen.</p>
+
+      {% if error %}
+      <div class="error-box">{{ error }}</div>
+      {% endif %}
+
+      <form method="post" action="/login" autocomplete="off">
+        <div class="field">
+          <label for="server_url">Server-URL</label>
+          <input
+            type="url"
+            id="server_url"
+            name="server_url"
+            value="{{ server_url }}"
+            placeholder="https://…/live-location"
+            required
+            spellcheck="false"
+            autocomplete="off"
+          >
+        </div>
+
+        <div class="field">
+          <label for="bearer_token">Bearer Token</label>
+          <input
+            type="password"
+            id="bearer_token"
+            name="bearer_token"
+            placeholder="Token eingeben"
+            required
+            spellcheck="false"
+            autocomplete="current-password"
+          >
+        </div>
+
+        <button type="submit" class="login-btn">Anmelden</button>
+      </form>
+
+      <div class="readyz-hint">
+        <a href="/readyz" target="_blank">Readyz-Check</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

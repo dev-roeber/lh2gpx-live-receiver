@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 import platform
@@ -12,7 +14,7 @@ from ipaddress import ip_address
 from pathlib import Path
 from secrets import compare_digest
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
@@ -28,6 +30,13 @@ from .storage import ReceiverStorage, StorageError
 
 LOGGER = logging.getLogger("lh2gpx_live_receiver")
 APP_VERSION = "0.4.0"
+
+_SESSION_COOKIE = "lh2gpx_session"
+_SESSION_MAX_AGE = 7 * 24 * 3600  # 7 Tage
+
+
+class _LoginRequired(Exception):
+    """Raised by _require_admin_access for HTML dashboard routes that need a login redirect."""
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DOCS_DIR = ROOT_DIR / "docs"
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
@@ -450,6 +459,59 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not item:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found.")
         return {"requestId": request.state.request_id, "session": item}
+
+    @app.exception_handler(_LoginRequired)
+    async def login_required_handler(request: Request, exc: _LoginRequired) -> RedirectResponse:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    @app.get("/login", response_class=HTMLResponse, include_in_schema=False)
+    async def login_page(request: Request, error: str | None = None) -> HTMLResponse:
+        settings = _settings(request)
+        server_url = settings.public_base_url.rstrip("/") + "/live-location"
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={"server_url": server_url, "error": error},
+        )
+
+    @app.post("/login", include_in_schema=False, response_model=None)
+    async def login_submit(request: Request) -> RedirectResponse | HTMLResponse:
+        settings = _settings(request)
+        raw_body = await request.body()
+        form = {k: v[0] for k, v in parse_qs(raw_body.decode("utf-8", errors="replace")).items()}
+        supplied_url = form.get("server_url", "").strip()
+        supplied_token = form.get("bearer_token", "").strip()
+
+        expected_url = settings.public_base_url.rstrip("/") + "/live-location"
+        url_ok = not supplied_url or supplied_url.rstrip("/") == expected_url.rstrip("/")
+        token_ok = settings.bearer_token and compare_digest(supplied_token, settings.bearer_token)
+
+        if not url_ok or not token_ok:
+            server_url = expected_url
+            return templates.TemplateResponse(
+                request=request,
+                name="login.html",
+                context={"server_url": server_url, "error": "Ungültige Anmeldedaten."},
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        token = _create_session_token(settings)
+        redirect = RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+        redirect.set_cookie(
+            key=_SESSION_COOKIE,
+            value=token,
+            max_age=_SESSION_MAX_AGE,
+            httponly=True,
+            samesite="strict",
+            secure=True,
+        )
+        return redirect
+
+    @app.get("/logout", include_in_schema=False)
+    async def logout(request: Request) -> RedirectResponse:
+        redirect = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+        redirect.delete_cookie(key=_SESSION_COOKIE, samesite="strict")
+        return redirect
 
     @app.get("/admin", include_in_schema=False)
     async def admin_redirect() -> RedirectResponse:
@@ -876,6 +938,29 @@ def _json_error(
     return response
 
 
+def _session_signing_key(settings: Settings) -> bytes:
+    key = settings.bearer_token or "lh2gpx-no-auth-fallback"
+    return key.encode("utf-8")
+
+
+def _create_session_token(settings: Settings) -> str:
+    ts = str(int(time.time()))
+    sig = hmac.new(_session_signing_key(settings), ts.encode(), hashlib.sha256).hexdigest()
+    return f"{ts}:{sig}"
+
+
+def _validate_session_token(token: str, settings: Settings) -> bool:
+    try:
+        ts_str, sig = token.split(":", 1)
+        ts = int(ts_str)
+    except (ValueError, AttributeError):
+        return False
+    if time.time() - ts > _SESSION_MAX_AGE:
+        return False
+    expected = hmac.new(_session_signing_key(settings), ts_str.encode(), hashlib.sha256).hexdigest()
+    return compare_digest(sig, expected)
+
+
 async def _require_bearer_token(request: Request, authorization: str | None = Header(default=None)) -> None:
     settings = _settings(request)
     if not settings.auth_required:
@@ -899,6 +984,13 @@ async def _apply_rate_limit(request: Request) -> None:
 
 async def _require_admin_access(request: Request, authorization: str | None = Header(default=None)) -> None:
     settings = _settings(request)
+
+    # 1. Session-Cookie — gilt für alle Zugriffspfade
+    cookie = request.cookies.get(_SESSION_COOKIE, "")
+    if cookie and _validate_session_token(cookie, settings):
+        return
+
+    # 2. HTTP-Basic-Auth (wenn Admin-Credentials konfiguriert)
     if settings.admin_auth_enabled:
         scheme, _, encoded = (authorization or "").partition(" ")
         if scheme.lower() != "basic" or not encoded:
@@ -926,15 +1018,22 @@ async def _require_admin_access(request: Request, authorization: str | None = He
             )
         return
 
-    if not _is_local_operator_request(
+    # 3. Lokaler Zugriff
+    if _is_local_operator_request(
         request.state.remote_addr,
         request.url.hostname,
         request.headers.get("host", ""),
     ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Dashboard is local-only until admin credentials are configured.",
-        )
+        return
+
+    # 4. Dashboard-Routen → Login-Redirect statt 403
+    if request.url.path.startswith("/dashboard"):
+        raise _LoginRequired()
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Dashboard is local-only until admin credentials are configured.",
+    )
 
 
 async def _record_failure(*, request: Request, http_status: int, error_category: str, error_detail: str) -> None:
