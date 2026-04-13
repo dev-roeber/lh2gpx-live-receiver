@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 def _read_non_empty_env(name: str, *, default: str) -> str:
@@ -32,6 +33,15 @@ def _read_bool_env(name: str, *, default: bool) -> bool:
     if raw_value in {"0", "false", "no", "off"}:
         return False
     raise ValueError(f"{name} must be a boolean, got {raw_value!r}.")
+
+
+def _read_timezone_env(name: str, *, default: str) -> str:
+    value = _read_non_empty_env(name, default=default)
+    try:
+        ZoneInfo(value)
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError(f"{name} must be a valid IANA timezone, got {value!r}.") from exc
+    return value
 
 
 @dataclass(frozen=True)
@@ -107,7 +117,7 @@ class Settings:
             raw_payload_ndjson_path=raw_payload_ndjson_path,
             legacy_request_ndjson_path=legacy_request_ndjson_path,
             raw_payload_ndjson_enabled=_read_bool_env("ENABLE_RAW_PAYLOAD_NDJSON", default=True),
-            local_timezone=_read_non_empty_env("LOCAL_TIMEZONE", default="UTC"),
+            local_timezone=_read_timezone_env("LOCAL_TIMEZONE", default="UTC"),
             log_level=_read_non_empty_env("LOG_LEVEL", default="INFO").upper(),
             request_body_max_bytes=_read_int_env("REQUEST_BODY_MAX_BYTES", default=262144, minimum=1024),
             points_page_size_default=_read_int_env("POINTS_PAGE_SIZE_DEFAULT", default=50, minimum=1, maximum=500),

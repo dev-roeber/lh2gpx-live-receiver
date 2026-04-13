@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import io
 import json
-import os as _os
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -773,6 +772,15 @@ class ReceiverStorage:
             ],
         }
 
+    def get_live_summary(self, *, limit: int) -> dict[str, Any]:
+        self._require_ready()
+        capped_limit = max(1, min(limit, self.settings.points_page_size_max * 40))
+        return {
+            "generatedAtUtc": isoformat_utc(datetime.now(timezone.utc)),
+            "stats": self.get_stats(),
+            "recentPoints": self.list_points(PointFilters(page=1, page_size=capped_limit))["items"],
+        }
+
     def list_points(self, filters: PointFilters) -> dict[str, Any]:
         self._require_ready()
         where_clause, parameters = _build_shared_filters(
@@ -825,18 +833,42 @@ class ReceiverStorage:
         }
 
     def export_points(self, filters: PointFilters, *, export_format: str) -> tuple[str, str]:
-        listed = self.list_points(
-            PointFilters(
-                date_from=filters.date_from,
-                date_to=filters.date_to,
-                session_id=filters.session_id,
-                capture_mode=filters.capture_mode,
-                source=filters.source,
-                search=filters.search,
-                page=1,
-                page_size=self.settings.points_page_size_max * 100,
-            )
-        )["items"]
+        self._require_ready()
+        where_clause, parameters = _build_shared_filters(
+            date_from=filters.date_from,
+            date_to=filters.date_to,
+            time_from=filters.time_from,
+            time_to=filters.time_to,
+            session_id=filters.session_id,
+            capture_mode=filters.capture_mode,
+            source=filters.source,
+            search=filters.search,
+            time_column="point_timestamp_utc",
+            local_date_column="point_date_local",
+            local_time_column="point_time_local",
+        )
+        query = f"""
+            SELECT
+                id,
+                request_id,
+                received_at_utc,
+                sent_at_utc,
+                point_timestamp_utc,
+                point_timestamp_local,
+                point_date_local,
+                point_time_local,
+                latitude,
+                longitude,
+                horizontal_accuracy_m,
+                session_id,
+                source,
+                capture_mode
+            FROM gps_points
+            {where_clause}
+            ORDER BY point_timestamp_utc DESC, id DESC
+        """
+        with self._connect() as connection:
+            listed = [dict(row) for row in connection.execute(query, parameters).fetchall()]
 
         if export_format == "json":
             return json.dumps(listed, ensure_ascii=False, indent=2), "application/json"
@@ -1128,9 +1160,18 @@ class ReceiverStorage:
     def _is_writable(self) -> bool:
         try:
             self._prepare_filesystem()
-            probe_path = self.settings.data_dir / ".receiver-write-test"
-            probe_path.write_text("ok", encoding="utf-8")
-            probe_path.unlink(missing_ok=True)
+            probe_paths = (
+                self.settings.data_dir / ".receiver-write-test",
+                self.sqlite_path.parent / ".receiver-sqlite-write-test",
+            )
+            for probe_path in probe_paths:
+                probe_path.write_text("ok", encoding="utf-8")
+                probe_path.unlink(missing_ok=True)
+            with self.sqlite_path.open("a", encoding="utf-8"):
+                pass
+            if self.settings.raw_payload_ndjson_enabled:
+                with self.raw_ndjson_path.open("a", encoding="utf-8"):
+                    pass
             return True
         except Exception as exc:
             self._last_error = str(exc)
@@ -1300,8 +1341,7 @@ class ReceiverStorage:
         try:
             with self._lock:
                 self.raw_ndjson_path.parent.mkdir(parents=True, exist_ok=True)
-                fd = _os.open(str(self.raw_ndjson_path), _os.O_CREAT | _os.O_WRONLY | _os.O_APPEND, 0o600)
-                with _os.fdopen(fd, "a", encoding="utf-8") as handle:
+                with self.raw_ndjson_path.open("a", encoding="utf-8") as handle:
                     handle.write(line)
                     handle.write("\n")
             return str(self.raw_ndjson_path)

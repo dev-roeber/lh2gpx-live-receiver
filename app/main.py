@@ -296,6 +296,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def api_stats(request: Request) -> dict[str, Any]:
         return {"requestId": request.state.request_id, "stats": _storage(request).get_stats()}
 
+    @app.get("/api/live-summary", dependencies=[Depends(_require_admin_access)])
+    async def api_live_summary(
+        request: Request,
+        limit: int = Query(default=100, ge=1, le=10000),
+    ) -> dict[str, Any]:
+        summary = _storage(request).get_live_summary(limit=limit)
+        return {"requestId": request.state.request_id, **summary}
+
     @app.get("/api/config-summary", dependencies=[Depends(_require_admin_access)])
     async def api_config_summary(request: Request) -> dict[str, Any]:
         return {
@@ -432,8 +440,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             page=page,
             page_size=effective_page_size,
         )
-        snapshot = _storage(request).get_dashboard_snapshot()
-        recent_points = _storage(request).list_points(PointFilters(page=1, page_size=8))
+        snapshot = _dashboard_snapshot(request)
+        try:
+            recent_points = _storage(request).list_points(PointFilters(page=1, page_size=8))
+        except StorageError:
+            recent_points = {"items": [], "page": 1, "pageSize": 8, "total": 0}
         context = _base_template_context(
             request,
             active_nav="dashboard",
@@ -458,7 +469,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/dashboard/live-status", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
     async def dashboard_live_status(request: Request) -> HTMLResponse:
-        snapshot = _storage(request).get_dashboard_snapshot()
+        snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
             request,
             active_nav="live_status",
@@ -471,7 +482,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/dashboard/activity", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
     async def dashboard_activity(request: Request) -> HTMLResponse:
-        snapshot = _storage(request).get_dashboard_snapshot()
+        snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
             request,
             active_nav="activity",
@@ -510,7 +521,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             page_size=effective_page_size,
         )
         points = _storage(request).list_points(point_filters)
-        snapshot = _storage(request).get_dashboard_snapshot()
+        snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
             request,
             active_nav="points",
@@ -527,7 +538,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         item = _storage(request).get_point(point_id)
         if not item:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Point not found.")
-        snapshot = _storage(request).get_dashboard_snapshot()
+        snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
             request,
             active_nav="points",
@@ -569,7 +580,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             page_size=effective_page_size,
         )
         requests_payload = _storage(request).list_requests(request_filters)
-        snapshot = _storage(request).get_dashboard_snapshot()
+        snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
             request,
             active_nav="requests",
@@ -586,7 +597,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         item = _storage(request).get_request(request_id)
         if not item:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found.")
-        snapshot = _storage(request).get_dashboard_snapshot()
+        snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
             request,
             active_nav="requests",
@@ -600,7 +611,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/dashboard/sessions", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
     async def dashboard_sessions(request: Request) -> HTMLResponse:
-        snapshot = _storage(request).get_dashboard_snapshot()
+        snapshot = _dashboard_snapshot(request)
         sessions = _storage(request).list_sessions()
         context = _base_template_context(
             request,
@@ -618,7 +629,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         item = _storage(request).get_session(session_id)
         if not item:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found.")
-        snapshot = _storage(request).get_dashboard_snapshot()
+        snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
             request,
             active_nav="sessions",
@@ -632,7 +643,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/dashboard/exports", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
     async def dashboard_exports(request: Request) -> HTMLResponse:
-        snapshot = _storage(request).get_dashboard_snapshot()
+        snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
             request,
             active_nav="exports",
@@ -645,7 +656,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/dashboard/config", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
     async def dashboard_config(request: Request) -> HTMLResponse:
-        snapshot = _storage(request).get_dashboard_snapshot()
+        snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
             request,
             active_nav="config",
@@ -664,7 +675,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/dashboard/storage", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
     async def dashboard_storage(request: Request) -> HTMLResponse:
-        snapshot = _storage(request).get_dashboard_snapshot()
+        snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
             request,
             active_nav="storage",
@@ -677,7 +688,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/dashboard/security", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
     async def dashboard_security(request: Request) -> HTMLResponse:
-        snapshot = _storage(request).get_dashboard_snapshot()
+        snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
             request,
             active_nav="security",
@@ -697,7 +708,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/dashboard/system", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
     async def dashboard_system(request: Request) -> HTMLResponse:
-        snapshot = _storage(request).get_dashboard_snapshot()
+        snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
             request,
             active_nav="system",
@@ -722,7 +733,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/dashboard/troubleshooting", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
     async def dashboard_troubleshooting(request: Request) -> HTMLResponse:
-        snapshot = _storage(request).get_dashboard_snapshot()
+        snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
             request,
             active_nav="troubleshooting",
@@ -736,7 +747,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/dashboard/open-items", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
     async def dashboard_open_items(request: Request) -> HTMLResponse:
-        snapshot = _storage(request).get_dashboard_snapshot()
+        snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
             request,
             active_nav="open_items",
@@ -873,7 +884,11 @@ async def _require_admin_access(request: Request, authorization: str | None = He
             )
         return
 
-    if not _is_local_operator_request(request.state.remote_addr, request.state.proxied_ip):
+    if not _is_local_operator_request(
+        request.state.remote_addr,
+        request.url.hostname,
+        request.headers.get("host", ""),
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Dashboard is local-only until admin credentials are configured.",
@@ -989,6 +1004,86 @@ def _base_template_context(
             {"label": "Config summary", "href": "/api/config-summary"},
         ],
     }
+
+
+def _dashboard_snapshot(request: Request) -> dict[str, Any]:
+    try:
+        return _storage(request).get_dashboard_snapshot()
+    except StorageError:
+        readiness = asdict(_storage(request).readiness())
+        now_utc = datetime.now(timezone.utc)
+        return {
+            "generatedAtUtc": now_utc.isoformat(),
+            "storage": {
+                "sqlitePath": readiness["sqlite_path"],
+                "rawPayloadNdjsonPath": readiness["raw_ndjson_path"],
+                "legacyRequestNdjsonPath": str(_settings(request).legacy_request_ndjson_path),
+                "rawPayloadNdjsonEnabled": _settings(request).raw_payload_ndjson_enabled,
+                "readiness": readiness,
+                "sqliteFile": {"exists": Path(readiness["sqlite_path"]).exists(), "path": readiness["sqlite_path"], "sizeBytes": None, "modifiedAtUtc": None},
+                "rawPayloadFile": {"exists": Path(readiness["raw_ndjson_path"]).exists(), "path": readiness["raw_ndjson_path"], "sizeBytes": None, "modifiedAtUtc": None},
+            },
+            "totals": {
+                "totalRequests": 0,
+                "acceptedRequests": 0,
+                "failedRequests": 0,
+                "totalPoints": 0,
+                "totalSessions": 0,
+                "lastSuccessAt": None,
+                "lastFailureAt": None,
+                "successRate": 0.0,
+                "failureRate": 0.0,
+            },
+            "periods": {
+                "requests24h": 0,
+                "requests7d": 0,
+                "requestsToday": 0,
+                "points24h": 0,
+                "points7d": 0,
+                "pointsToday": 0,
+                "sessions24h": 0,
+                "sessions7d": 0,
+                "sessionEvents24h": 0,
+                "sessionEvents7d": 0,
+            },
+            "latest": {
+                "request": None,
+                "success": None,
+                "failure": None,
+                "firstPoint": None,
+                "lastPoint": None,
+            },
+            "accuracy": {
+                "minAccuracyM": None,
+                "avgAccuracyM": None,
+                "maxAccuracyM": None,
+            },
+            "lists": {
+                "recentRequests": [],
+                "recentPoints": [],
+                "recentSessions": [],
+                "topSessions": [],
+                "pointsPerDay": [],
+                "requestsPerDay": [],
+                "responseCodes": [],
+                "sourceDistribution": [],
+                "captureModeDistribution": [],
+                "errorDistribution": [],
+            },
+            "status": {
+                "hasIssues": True,
+                "lastErrorCategory": "storage_not_ready",
+                "lastErrorDetail": readiness["message"],
+                "lastWarning": readiness["message"],
+                "lastHttpStatus": None,
+                "lastIngestStatus": None,
+            },
+            "exports": [
+                {"label": "CSV export", "format": "csv", "path": "/api/points?format=csv"},
+                {"label": "JSON export", "format": "json", "path": "/api/points?format=json"},
+                {"label": "NDJSON export", "format": "ndjson", "path": "/api/points?format=ndjson"},
+            ],
+        }
 
 
 def _receiver_summary(snapshot: dict[str, Any], settings: Settings, started_at_utc: datetime) -> dict[str, Any]:
@@ -1168,15 +1263,28 @@ def _load_markdown_outline(path: Path) -> dict[str, Any]:
     return {"title": title, "sections": sections, "path": str(path.relative_to(ROOT_DIR))}
 
 
-def _is_local_operator_request(remote_addr: str, proxied_ip: str) -> bool:
-    if proxied_ip:
-        return proxied_ip in {"127.0.0.1", "::1", "localhost", "testclient"}
+def _is_loopback_hostname(hostname: str | None) -> bool:
+    if not hostname:
+        return False
+    candidate = hostname.strip().strip("[]").split(":", 1)[0].lower()
+    return candidate in {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+def _is_local_operator_request(remote_addr: str, request_hostname: str | None = None, host_header: str = "") -> bool:
     if remote_addr in {"127.0.0.1", "::1", "localhost", "testclient"}:
         return True
     try:
-        return ip_address(remote_addr).is_private
+        remote_ip = ip_address(remote_addr)
     except ValueError:
         return False
+    if remote_ip.is_loopback:
+        return True
+    # Docker port publishing to 127.0.0.1 commonly reaches the app from a bridge
+    # gateway IP rather than real loopback. Only treat that as local when the
+    # request itself still targets a loopback host.
+    if (_is_loopback_hostname(request_hostname) or _is_loopback_hostname(host_header)) and remote_ip.is_private:
+        return True
+    return False
 
 
 app = create_app()
