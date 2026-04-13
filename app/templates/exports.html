@@ -36,6 +36,11 @@
         <strong>{{ export.label }}</strong>
         <span>{{ export.path }}</span>
       </a>
+      {% else %}
+      <div class="empty-state">
+        <strong>Keine Exporte verfügbar.</strong>
+        <span>Nach dem ersten Ingest werden Exporte hier angezeigt.</span>
+      </div>
       {% endfor %}
     </div>
   </article>
@@ -46,8 +51,8 @@
     </div>
     <div class="stack-list">
       <div class="list-card static">
-        <strong>Komplettexport</strong>
-        <span>Die Links links exportieren die gesamte aktuelle Punktbasis direkt ueber <code>/api/points</code>.</span>
+        <strong>Direkter Datenabzug</strong>
+        <span>Die Links links exportieren die gesamte aktuelle Punktbasis direkt über <code>/api/points</code>.</span>
       </div>
       <div class="list-card static">
         <strong>Gefilterter Export</strong>
