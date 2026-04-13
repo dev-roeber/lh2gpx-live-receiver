@@ -203,13 +203,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.exception_handler(StorageError)
-    async def storage_exception_handler(request: Request, exc: StorageError) -> JSONResponse:
+    async def storage_exception_handler(request: Request, exc: StorageError) -> RawResponse:
         await _record_failure(
             request=request,
             http_status=status.HTTP_503_SERVICE_UNAVAILABLE,
             error_category=exc.error_category,
             error_detail=str(exc),
         )
+        # für Dashboard-Routen: HTML-Fehlerseite
+        if "/dashboard" in str(request.url.path):
+            return templates.TemplateResponse(
+                "error.html",
+                {"request": request, "status_code": 503, "detail": exc.public_message},
+                status_code=503,
+            )
+        # für API-Aufrufe: JSON-Fehler
         return _json_error(
             request=request,
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -648,7 +656,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             page=page,
             page_size=effective_page_size,
         )
-        points = _storage(request).list_points(point_filters)
+        try:
+            points = _storage(request).list_points(point_filters)
+        except StorageError:
+            points = []
         snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
             request,
@@ -707,7 +718,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             page=page,
             page_size=effective_page_size,
         )
-        requests_payload = _storage(request).list_requests(request_filters)
+        try:
+            requests_payload = _storage(request).list_requests(request_filters)
+        except StorageError:
+            requests_payload = None
         snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
             request,
@@ -740,7 +754,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/dashboard/sessions", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
     async def dashboard_sessions(request: Request) -> HTMLResponse:
         snapshot = _dashboard_snapshot(request)
-        sessions = _storage(request).list_sessions()
+        try:
+            sessions = _storage(request).list_sessions()
+        except StorageError:
+            sessions = []
         context = _base_template_context(
             request,
             active_nav="sessions",
