@@ -545,6 +545,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redirect.delete_cookie(key=_SESSION_COOKIE, samesite="strict")
         return redirect
 
+    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+    async def home(request: Request) -> HTMLResponse:
+        endpoint_count = len([r for r in app.routes if hasattr(r, 'path')])
+        return templates.TemplateResponse(
+            request=request,
+            name="home.html",
+            context={
+                "app_version": request.app.version,
+                "endpoint_count": endpoint_count,
+            },
+        )
+
     @app.get("/admin", include_in_schema=False)
     async def admin_redirect() -> RedirectResponse:
         return RedirectResponse(url="/dashboard", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
