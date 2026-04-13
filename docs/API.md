@@ -101,7 +101,7 @@ Masked operator summary of runtime config. Secrets bleiben maskiert.
 
 ## `GET /dashboard`
 
-HTML-Receiver-Dashboard fuer Operatoren.
+HTML-Receiver-Dashboard für Operatoren.
 
 ## Weitere HTML-Views unter `/dashboard/*`
 
@@ -123,7 +123,7 @@ Die Operator-UI ist jetzt in mehrere serverseitig gerenderte Arbeitsbereiche auf
 - `/dashboard/troubleshooting`
 - `/dashboard/open-items`
 
-Alle Seiten bleiben durch dieselbe Admin-Zugriffskontrolle geschuetzt wie das Haupt-Dashboard.
+Alle Seiten bleiben durch dieselbe Admin-Zugriffskontrolle geschützt wie das Haupt-Dashboard.
 
 ## Scope-Hinweis
 

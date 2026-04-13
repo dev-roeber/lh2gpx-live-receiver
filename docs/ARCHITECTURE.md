@@ -2,13 +2,13 @@
 
 ## Ziel
 
-Der Receiver nimmt optionale Live-Location-Uploads an und macht sie fuer den Serverbetrieb sichtbar, exportierbar und diagnostizierbar.
+Der Receiver nimmt optionale Live-Location-Uploads an und macht sie für den Serverbetrieb sichtbar, exportierbar und diagnostizierbar.
 
 ## Bausteine
 
 - FastAPI-App
-- SQLite-Datenbank fuer Requests und GPS-Punkte
-- optionales NDJSON fuer Rohpayload-Audit
+- SQLite-Datenbank für Requests und GPS-Punkte
+- optionales NDJSON für Rohpayload-Audit
 - Caddy als TLS-Reverse-Proxy
 - receiver-first Operator-UI in serverseitig gerendertem HTML mit mehreren Admin-Views
 
@@ -28,32 +28,32 @@ Der Receiver nimmt optionale Live-Location-Uploads an und macht sie fuer den Ser
 ## Warum SQLite + NDJSON
 
 - SQLite liefert schnelle Listen-, Filter- und Detailabfragen
-- SQLite ist leicht zu sichern und benoetigt keine externe Datenbank
+- SQLite ist leicht zu sichern und benötigt keine externe Datenbank
 - NDJSON bleibt als leicht lesbarer Rohpayload-Auditpfad optional erhalten
 - diese Kombination deckt Operator-UI und Export ohne unnötige Infrastruktur ab
 
 ## Fehlerbehandlung
 
-- `401` fuer fehlende oder ungueltige Bearer-Tokens
-- `413` fuer zu grosse Requests
-- `422` fuer Payload-/Schemafehler
-- `429` fuer Rate-Limit
-- `503` fuer Storage-Probleme oder fehlende Schreibbereitschaft
-- `500` nur fuer unerwartete Fehler
+- `401` für fehlende oder ungültige Bearer-Tokens
+- `413` für zu große Requests
+- `422` für Payload-/Schemafehler
+- `429` für Rate-Limit
+- `503` für Storage-Probleme oder fehlende Schreibbereitschaft
+- `500` nur für unerwartete Fehler
 
 ## Sicherheitsmodell
 
 - Ingest getrennt von Operator-Zugriff
-- Bearer-Token fuer Ingest optional
+- Bearer-Token für Ingest optional
 - Operator-UI lokal-only, bis Admin-Credentials gesetzt sind
 - keine Secret-Anzeige in API oder HTML
-- JSON-Access-Logs ueber Caddy
+- JSON-Access-Logs über Caddy
 
 ## Informationsarchitektur der Operator-UI
 
-Die HTML-Oberflaeche ist entlang des Receiver-Betriebs gruppiert:
+Die HTML-Oberfläche ist entlang des Receiver-Betriebs gruppiert:
 
-- Receiver: Dashboard, Live-Status, Letzte Aktivitaet
+- Receiver: Dashboard, Live-Status, Letzte Aktivität
 - Daten: Punkte, Requests, Sessions, Exporte
 - Betrieb: Konfiguration, Storage, Troubleshooting, Open Items
 - Sicherheit: Auth-Status und Security-Hinweise
@@ -63,11 +63,11 @@ Das erlaubt eine klarere Operator-Sicht, ohne die Ingest-, Storage- oder API-Log
 
 ## Bewusst nicht umgesetzt
 
-- kein eigenes Session-/Login-System fuer Operatoren
+- kein eigenes Session-/Login-System für Operatoren
 - kein kartenbasiertes Session-/Track-Preview
 - kein externes Migrationsframework
 
-Begruendung:
+Begründung:
 
 - der Lauf sollte den Receiver-Kern stabilisieren, nicht die zweite Ausbauphase vorwegnehmen
 - offene Ausbaupunkte sind in [OPEN_ITEMS.md](OPEN_ITEMS.md) gesammelt

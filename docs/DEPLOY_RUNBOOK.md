@@ -5,7 +5,7 @@ Dieses Runbook beschreibt nur den Receiver-/Serverbetrieb. App, Wrapper und loka
 ## Voraussetzungen
 
 - Docker und `docker compose`
-- Port `80/tcp` und `443/tcp` oeffenbar fuer den Reverse-Proxy
+- Port `80/tcp` und `443/tcp` offenbar für den Reverse-Proxy
 - eine lokale `.env` mit nicht versionierten Werten
 
 ## Erstes Setup
@@ -21,7 +21,7 @@ docker compose up -d
 Hinweis zum NDJSON-Fix:
 
 - neue `raw-payloads.ndjson`-Dateien werden im aktuellen Stand mit `0600` angelegt
-- bereits vorhandene Dateien erben diese Rechte nicht nachtraeglich; Altbestaende muessen bei Bedarf separat geprueft oder operativ gehaertet werden
+- bereits vorhandene Dateien erben diese Rechte nicht nachtraeglich; Altbestaende müssen bei Bedarf separat geprueft oder operativ gehaertet werden
 
 ## Pflichtchecks nach dem Start
 
@@ -47,8 +47,8 @@ Ergebnis:
 
 - Receiver und Caddy liefen weiter sauber
 - `health` und `readyz` blieben erfolgreich
-- Live-Ingest, Dashboard und Punkteliste blieben funktionsfaehig
-- aus diesem Check war kein weiterer Receiver-Commit noetig
+- Live-Ingest, Dashboard und Punkteliste blieben funktionsfähig
+- aus diesem Check war kein weiterer Receiver-Commit nötig
 
 ## Update-Deploy
 
@@ -75,7 +75,7 @@ Der `0600`-Fix greift nur beim Anlegen neuer Raw-Payload-Dateien; bestehende Dat
 - ohne `ADMIN_USERNAME` und `ADMIN_PASSWORD`:
   - Dashboard ist nur lokal erreichbar
 - mit gesetzten Credentials:
-  - Dashboard und API sind zusaetzlich ueber HTTP Basic Auth geschuetzt
+  - Dashboard und API sind zusätzlich über HTTP Basic Auth geschützt
 
 ## Sichere Defaults
 
@@ -94,7 +94,7 @@ docker compose build
 docker compose up -d
 ```
 
-Wenn die Datenbasis erhalten bleiben soll, `./data` nicht loeschen.
+Wenn die Datenbasis erhalten bleiben soll, `./data` nicht löschen.
 
 ## Bewusst verschobene Folgearbeit
 
@@ -103,7 +103,7 @@ Vor einem breiteren produktiven Betrieb weiterhin offen:
 - separate Admin-Authentifizierung statt nur Local-only-/Basic-Auth-Modell
 - formalisierte Backup-/Restore-Automatisierung
 - automatische Retention-/Export-Jobs
-- finaler App-/Wrapper-Abgleich ausserhalb dieses Repos
-- Haertung bereits existierender Raw-Payload- oder Legacy-NDJSON-Dateien auf dem Host, falls solche Altbestaende vor dem Fix bereits vorhanden waren
+- finaler App-/Wrapper-Abgleich außerhalb dieses Repos
+- Härtung bereits existierender Raw-Payload- oder Legacy-NDJSON-Dateien auf dem Host, falls solche Altbestaende vor dem Fix bereits vorhanden waren
 
 Siehe auch: [OPEN_ITEMS.md](OPEN_ITEMS.md)

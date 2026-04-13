@@ -5,29 +5,29 @@ Diese Datei trennt bewusst zwischen dem jetzt abgeschlossenen Receiver-Kern und 
 ## Jetzt real fertig
 
 - stabile Annahme von `POST /live-location`
-- robuste Persistenz ueber SQLite
+- robuste Persistenz über SQLite
 - optionales NDJSON-Rohpayload-Audit
 - Dashboard mit Kennzahlen, Punkteliste, Request- und Session-Details
 - CSV-, JSON- und NDJSON-Exporte
 - `health` und `readyz`
 - strukturierte Logs mit `request_id`
 - redigierte Secret-Darstellung in Logs, API und Dashboard
-- Docker-/Compose-/Caddy-Deployment mit erfolgreichen lokalen und oeffentlichen Smoke-Checks
+- Docker-/Compose-/Caddy-Deployment mit erfolgreichen lokalen und öffentlichen Smoke-Checks
 - Merge nach `main`
 - erfolgreiche Post-Merge-Verifikation auf `main`
-- aus der Post-Merge-Verifikation keine weiteren Receiver-Aenderungen noetig
+- aus der Post-Merge-Verifikation keine weiteren Receiver-Änderungen nötig
 
-## Fuer jetzt abgeschlossen
+## Für jetzt abgeschlossen
 
-- der Receiver-Strang gilt fuer den aktuellen Scope als abgeschlossen
-- weitere Arbeit an Receiver-Haertung Phase 2 bleibt bewusst getrennt
+- der Receiver-Strang gilt für den aktuellen Scope als abgeschlossen
+- weitere Arbeit an Receiver-Härtung Phase 2 bleibt bewusst getrennt
 - App-/Wrapper-Abgleich bleibt bewusst getrennt
-- ein echter End-to-End-iPhone-Gegenlauf gegen den finalen Receiver-Stand folgt spaeter separat
+- ein echter End-to-End-iPhone-Gegenlauf gegen den finalen Receiver-Stand folgt später separat
 
 ## Bewusst verschoben, um Scope klein und stabil zu halten
 
 - separate vollwertige Admin-Authentifizierung mit Session-Login
-- weitergehende Zugriffshaertung fuer Dashboard/Admin jenseits des aktuellen Local-only-/Basic-Auth-Modells
+- weitergehende Zugriffshaertung für Dashboard/Admin jenseits des aktuellen Local-only-/Basic-Auth-Modells
 - persistentes serverseitiges Rate-Limit-Backend
 - automatische Daten-Retention
 - geplante Export-Jobs oder Cron-basierte Exporte
@@ -35,30 +35,30 @@ Diese Datei trennt bewusst zwischen dem jetzt abgeschlossenen Receiver-Kern und 
 - formales Schema-Migrationsframework
 - Karten-/Track-Preview in der Operator-UI
 
-Begruendung:
+Begründung:
 
 - dieser Lauf war bewusst auf einen stabilen Receiver-Kern begrenzt
 - zuerst mussten Ingest, Speicherung, Listen, Exporte und Diagnose belastbar werden
-- zusaetzliche Härtungsschichten sollen spaeter separat und kontrolliert folgen
+- zusätzliche Härtungsschichten sollen später separat und kontrolliert folgen
 
-## Empfohlene naechste Receiver-Schritte
+## Empfohlene nächste Receiver-Schritte
 
-- Admin-Zugriff mit eigenstaendiger Auth-Schicht und sauberer Rollen-/Zugriffsgrenze nachziehen
+- Admin-Zugriff mit eigenständiger Auth-Schicht und sauberer Rollen-/Zugriffsgrenze nachziehen
 - Rotation und Austausch des derzeit lokal verwendeten Bearer-Test-Tokens vor weiterem externen Testbetrieb
-- Retention-/Backup-Konzept fuer laenger laufende Serverinstanzen festlegen
-- kleines Wartungs-Runbook fuer SQLite-Vacuum, Exportzyklen und Restore-Proben konkretisieren
-- optionales persistentes Rate-Limit oder Upstream-Schutz pruefen, falls der Dienst extern breiter erreichbar wird
+- Retention-/Backup-Konzept für länger laufende Serverinstanzen festlegen
+- kleines Wartungs-Runbook für SQLite-Vacuum, Exportzyklen und Restore-Proben konkretisieren
+- optionales persistentes Rate-Limit oder Upstream-Schutz prüfen, falls der Dienst extern breiter erreichbar wird
 
-## Spaetere App-/Wrapper-Folgearbeiten
+## Spätere App-/Wrapper-Folgearbeiten
 
 Diese Punkte wurden in diesem Lauf bewusst **nicht** umgesetzt:
 
 - App-/Wrapper-Abgleich gegen den neuen Receiver-Stand
 - appseitige Privacy-/Review-Anpassungen
-- Bereinigung moeglicher Testserver-/Testtoken-Defaults ausserhalb dieses Repos; Testserver/Testwerte duerfen nicht Produktstandard bleiben
+- Bereinigung möglicher Testserver-/Testtoken-Defaults außerhalb dieses Repos; Testserver/Testwerte dürfen nicht Produktstandard bleiben
 - finaler echter End-to-End-iPhone-Gegenlauf gegen den neuen Receiver
 
-Begruendung:
+Begründung:
 
 - dieser Lauf durfte nur den Receiver/Server anfassen
 - App, Wrapper und lokale App-Daten blieben absichtlich unveraendert
@@ -73,7 +73,7 @@ Begruendung:
 ## Nicht Teil dieses Receiver-Laufs
 
 - keine neuen Client-Funktionen
-- keine Aenderungen an App oder Wrapper
-- keine Produkt-/Release-Annahmen fuer App-Defaults
+- keine Änderungen an App oder Wrapper
+- keine Produkt-/Release-Annahmen für App-Defaults
 - keine App-Store-Artefakte
-- keine Migration oder Aenderung lokaler Standortdaten ausserhalb dieses Repos
+- keine Migration oder Aenderung lokaler Standortdaten außerhalb dieses Repos

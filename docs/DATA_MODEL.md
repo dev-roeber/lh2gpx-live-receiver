@@ -1,6 +1,6 @@
 # Data Model
 
-## Primaerer Storage
+## Primärer Storage
 
 SQLite-Datei: `receiver.sqlite3`
 
@@ -50,11 +50,11 @@ Speichert pro Punkt:
 
 ### `schema_metadata`
 
-Kleine Metadaten-Tabelle, aktuell fuer den Legacy-NDJSON-Importstatus.
+Kleine Metadaten-Tabelle, aktuell für den Legacy-NDJSON-Importstatus.
 
 ## Optionales NDJSON
 
-Wenn `ENABLE_RAW_PAYLOAD_NDJSON=true` gesetzt ist, schreibt der Receiver zusaetzlich ein Rohpayload-Audit in `RAW_PAYLOAD_NDJSON_PATH`.
+Wenn `ENABLE_RAW_PAYLOAD_NDJSON=true` gesetzt ist, schreibt der Receiver zusätzlich ein Rohpayload-Audit in `RAW_PAYLOAD_NDJSON_PATH`.
 
 ## Legacy-Import
 

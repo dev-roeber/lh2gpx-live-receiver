@@ -12,7 +12,7 @@ README.md, CHANGELOG.md, docs/API.md, docs/ARCHITECTURE.md, docs/DATA_MODEL.md, 
 
 - `.venv/bin/python -m pytest tests/ -q --tb=short` -> 14 Tests, 0 Failures
 - `docker compose config` -> valide
-- `git status --short --branch` vor Aenderungen sauber
+- `git status --short --branch` vor Änderungen sauber
 
 ## 4. Sicher belegter Ist-Stand
 
@@ -40,9 +40,9 @@ Diese Punkte stammen aus dem frueheren 4-Repo-Abgleich am 2026-03-31_08-16 und w
 ## 7. Offene Punkte
 
 - Bearer-Token rotieren
-- Admin-Auth / Operations-Haertung weiterfuehren
-- App-seitige Testserver-/Testtoken-Defaults bereinigen; sie duerfen nicht als Produktstandard bestehen bleiben
-- finalen End-to-End-iPhone-Gegenlauf spaeter getrennt durchfuehren
+- Admin-Auth / Operations-Härtung weiterfuehren
+- App-seitige Testserver-/Testtoken-Defaults bereinigen; sie dürfen nicht als Produktstandard bestehen bleiben
+- finalen End-to-End-iPhone-Gegenlauf später getrennt durchfuehren
 
 ## 8. Konkrete Doku-Korrekturen dieses Laufs
 
@@ -52,7 +52,7 @@ Diese Punkte stammen aus dem frueheren 4-Repo-Abgleich am 2026-03-31_08-16 und w
 ## 9. Ehrliche Grenzen
 
 - kein neuer Live-Smoke gegen den laufenden Receiver in diesem 08-48-Lauf
-- kein neuer externer Betriebsnachweis ueber Tests und Compose-Konfiguration hinaus
+- kein neuer externer Betriebsnachweis über Tests und Compose-Konfiguration hinaus
 
 ## 10. Abschlussfazit
 

@@ -1,10 +1,10 @@
 # App-Store / Privacy Notes
 
-Diese Notizen betreffen nur den Receiver. App- und Wrapper-Dateien wurden in diesem Schritt bewusst nicht geaendert.
+Diese Notizen betreffen nur den Receiver. App- und Wrapper-Dateien wurden in diesem Schritt bewusst nicht geändert.
 
 ## Receiver-Sicht auf den Datenfluss
 
-Wenn ein Client den optionalen Upload aktiviert, koennen beim Receiver ankommen:
+Wenn ein Client den optionalen Upload aktiviert, können beim Receiver ankommen:
 
 - Latitude
 - Longitude
@@ -19,30 +19,30 @@ Wenn ein Client den optionalen Upload aktiviert, koennen beim Receiver ankommen:
 ## Speicherverhalten
 
 - Requests und Punkte werden serverseitig gespeichert
-- auf Wunsch wird zusaetzlich ein Rohpayload-Audit als NDJSON gefuehrt
-- diese Daten sind sensible Standortdaten und entsprechend zu schuetzen
+- auf Wunsch wird zusätzlich ein Rohpayload-Audit als NDJSON geführt
+- diese Daten sind sensible Standortdaten und entsprechend zu schützen
 
 ## Wichtige Receiver-Grenzen
 
-- dieses Repo liefert keine verpflichtende Online-Vorgabe fuer die Produkt-App
-- es enthaelt keinen versionierten Bearer-Token
-- es enthaelt keine versionierte produktive Servervorgabe
+- dieses Repo liefert keine verpflichtende Online-Vorgabe für die Produkt-App
+- es enthält keinen versionierten Bearer-Token
+- es enthält keine versionierte produktive Servervorgabe
 
-## Folgearbeit ausserhalb dieses Scopes
+## Folgearbeit außerhalb dieses Scopes
 
-Spaeter separat pruefen:
+Später separat prüfen:
 
-- App-Disclosure fuer optionalen Standort-Upload
-- Review-Wording fuer App Store Connect
+- App-Disclosure für optionalen Standort-Upload
+- Review-Wording für App Store Connect
 - appseitige Privacy-Texte
 - Entfernen appseitiger Test-Defaults, falls dort noch vorhanden
 
 ## Bewusst nicht Teil dieses Laufs
 
-- keine Aenderungen an App- oder Wrapper-Dateien
-- keine Aenderungen an App-Store-Artefakten
-- keine Produktvorgabe fuer Hostname oder Bearer-Token
+- keine Änderungen an App- oder Wrapper-Dateien
+- keine Änderungen an App-Store-Artefakten
+- keine Produktvorgabe für Hostname oder Bearer-Token
 
-Dieser Receiver-Lauf bereitet die spaetere Review-/Privacy-Arbeit nur dokumentarisch vor. Die eigentlichen App-/Wrapper-Anpassungen muessen spaeter separat erfolgen.
+Dieser Receiver-Lauf bereitet die spätere Review-/Privacy-Arbeit nur dokumentarisch vor. Die eigentlichen App-/Wrapper-Anpassungen müssen später separat erfolgen.
 
 Siehe auch: [OPEN_ITEMS.md](OPEN_ITEMS.md)

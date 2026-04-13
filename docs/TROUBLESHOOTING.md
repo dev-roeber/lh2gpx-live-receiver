@@ -67,10 +67,10 @@ Ohne Admin-Credentials:
 
 Mit Admin-Credentials:
 
-- Basic-Auth Header pruefen
+- Basic-Auth Header prüfen
 - `ADMIN_USERNAME`
 - `ADMIN_PASSWORD`
-- falls einzelne Menuepunkte nicht laden: dieselbe Admin-Auth muss auch fuer `/dashboard/*` Unterseiten mitgesendet werden
+- falls einzelne Menüpunkte nicht laden: dieselbe Admin-Auth muss auch für `/dashboard/*` Unterseiten mitgesendet werden
 
 ## Punkte erscheinen nicht in der Liste
 
@@ -87,21 +87,21 @@ Pruefen:
 Pruefen:
 
 - aktive Filter im Dashboard oder Query-String
-- ob Punkte ueberhaupt in SQLite gespeichert wurden
-- fuer gefilterte HTML-Exporte zuerst `/dashboard/points` pruefen und die gesetzten Filter kontrollieren
+- ob Punkte überhaupt in SQLite gespeichert wurden
+- für gefilterte HTML-Exporte zuerst `/dashboard/points` prüfen und die gesetzten Filter kontrollieren
 
 ## Was diese Fehlerhilfe bewusst nicht abdeckt
 
 Dieses Troubleshooting beschreibt den aktuellen Receiver-Kern. Noch nicht Teil dieses Laufs:
 
-- Session-Login-/Admin-Auth-Fehlerbilder einer spaeteren eigenstaendigen Admin-Schicht
+- Session-Login-/Admin-Auth-Fehlerbilder einer späteren eigenständigen Admin-Schicht
 - Cron-/Retention-/Backup-Job-Fehlerbilder
-- App- oder Wrapper-seitige Fehlersuche ausserhalb dieses Repos
+- App- oder Wrapper-seitige Fehlersuche außerhalb dieses Repos
 
 Die offen verschobenen Punkte stehen gesammelt in [OPEN_ITEMS.md](OPEN_ITEMS.md).
 
 ## Aktueller Abschlussstand
 
 - der aktuelle Receiver-Kern ist verifiziert und nach `main` gemergt
-- ein zusaetzlicher Post-Merge-Check auf `main` zeigte keinen unerwarteten Rueckschritt
-- neue Probleme aus diesem Abschlusscheck muessen derzeit nicht nachgezogen werden
+- ein zusätzlicher Post-Merge-Check auf `main` zeigte keinen unerwarteten Rückschritt
+- neue Probleme aus diesem Abschlusscheck müssen derzeit nicht nachgezogen werden

@@ -1,26 +1,26 @@
 # lh2gpx-live-receiver
 
-Receiver- und Operator-Server fuer optionale Live-Location-Uploads aus der `LocationHistory2GPX`-App (Haupt-App-Repo: `dev-roeber/iOS-App`).
+Receiver- und Operator-Server für optionale Live-Location-Uploads aus der `LocationHistory2GPX`-App (Haupt-App-Repo: `dev-roeber/iOS-App`).
 
-Diese Arbeit hat bewusst nur dieses Receiver-Repo und den Serverbetrieb geaendert. App, Wrapper und lokale Standortdaten wurden absichtlich nicht angefasst.
+Diese Arbeit hat bewusst nur dieses Receiver-Repo und den Serverbetrieb geändert. App, Wrapper und lokale Standortdaten wurden absichtlich nicht angefasst.
 
 ## Rolle im 5-Repo-System
 
-- optionaler Self-Hosted-Receiver fuer Live-Punkte aus der iOS-App
-- nicht erforderlich fuer lokalen Import, lokale Analyse oder lokale Exporte; diese Produktpfade bleiben ohne Pflicht-Online-Infrastruktur moeglich
-- gedacht fuer nutzerseitig selbst konfigurierte Server statt fuer eine zentrale Pflicht-Cloud
-- Testserver/Testwerte aus anderen Repos duerfen nicht als Produktstandard fuer diesen Receiver-Pfad gelesen werden
+- optionaler Self-Hosted-Receiver für Live-Punkte aus der iOS-App
+- nicht erforderlich für lokalen Import, lokale Analyse oder lokale Exporte; diese Produktpfade bleiben ohne Pflicht-Online-Infrastruktur moeglich
+- gedacht für nutzerseitig selbst konfigurierte Server statt für eine zentrale Pflicht-Cloud
+- Testserver/Testwerte aus anderen Repos dürfen nicht als Produktstandard für diesen Receiver-Pfad gelesen werden
 
 ## Kurzstatus
 
-- FastAPI-Receiver fuer `POST /live-location`
-- SQLite als Standard-Persistenz fuer Requests und einzelne GPS-Punkte
-- optionales NDJSON-Audit fuer Rohpayloads
-- Dashboard fuer Betrieb, Diagnose und Exporte
-- verbesserte Loopback-Erkennung fuer Docker-Bridge-Umgebungen
+- FastAPI-Receiver für `POST /live-location`
+- SQLite als Standard-Persistenz für Requests und einzelne GPS-Punkte
+- optionales NDJSON-Audit für Rohpayloads
+- Dashboard für Betrieb, Diagnose und Exporte
+- verbesserte Loopback-Erkennung für Docker-Bridge-Umgebungen
 - Docker-Compose-Deployment mit Caddy als TLS-Reverse-Proxy
 
-## Current state
+## Aktueller Stand
 
 - **Integration abgeschlossen (April 2026):** Die lokal entwickelten Verbesserungen (Features, Stabilität, Refactoring) wurden vollständig in den `main`-Branch integriert.
 - **Vereinfachte Sicherheit:** Die integrierte HTTP Basic Auth via `ADMIN_USERNAME`/`PASSWORD` wurde aus der Standard-`compose.yaml` entfernt, um das Deployment zu vereinfachen. Das Dashboard ist nun standardmäßig im lokalen Netz/über den Proxy zugänglich.
@@ -32,18 +32,18 @@ Diese Arbeit hat bewusst nur dieses Receiver-Repo und den Serverbetrieb geaender
 Der bisherige 500er war kein Client-Schemafehler, sondern ein Server-Storage-Problem:
 
 - der Dienst lief als `appuser`
-- der aktive Volume-/Dateipfad fuer `live-location.ndjson` war im Container nicht sauber vorbereitet
+- der aktive Volume-/Dateipfad für `live-location.ndjson` war im Container nicht sauber vorbereitet
 - der Storage-Code schrieb blind append-only in eine Datei
 - dadurch schlugen echte Requests mit `FileNotFoundError` fehl
 - dieser konkrete Runtime-Pfad ist im aktuellen Stand behoben; neue `raw-payloads.ndjson`-Dateien werden mit `0600` angelegt
-- vorhandene `raw-payloads.ndjson`- oder Legacy-`live-location.ndjson`-Dateien in bestehenden Deployments werden dadurch nicht automatisch umgestellt und muessen operativ geprueft werden
+- vorhandene `raw-payloads.ndjson`- oder Legacy-`live-location.ndjson`-Dateien in bestehenden Deployments werden dadurch nicht automatisch umgestellt und müssen operativ geprueft werden
 - die alten Tests deckten diesen Runtime-Pfad nicht ab
 
-Der aktuelle Stand beseitigt das ueber:
+Der aktuelle Stand beseitigt das über:
 
 - vorbereitete und beschreibbare Daten- und Log-Verzeichnisse
 - SQLite als primaeren Storage
-- `readyz` fuer echte Schreibbereitschaft
+- `readyz` für echte Schreibbereitschaft
 - 503 statt blindem 500 bei Storage-Problemen
 - strukturierte Request- und Fehlerlogs mit `request_id`
 
@@ -72,7 +72,7 @@ Unbekannte additive Zusatzfelder werden weiter toleriert und im Rohpayload gespe
 - `GET /api/live-summary` (NEU)
   - Kompakter Echtzeit-Status inkl. neuester Punkte für Monitoring-Tools.
 - `GET /api/stats`
-  - Kennzahlen fuer Requests, Punkte, Sessions und Zeitraeume
+  - Kennzahlen für Requests, Punkte, Sessions und Zeitraeume
 - `GET /api/points`
   - Punkteliste, Filter und Export
 - `GET /api/points/{id}`
@@ -90,7 +90,7 @@ Unbekannte additive Zusatzfelder werden weiter toleriert und im Rohpayload gespe
 
 ## Operator-UI
 
-Die Admin-Oberflaeche (v0.5) ist als receiver-first Operator-Workspace mit moderner Informationsarchitektur aufgebaut.
+Die Admin-Oberfläche (v0.5) ist als receiver-first Operator-Workspace mit moderner Informationsarchitektur aufgebaut.
 
 ### Informationsarchitektur
 
@@ -106,18 +106,18 @@ Jede Seite hat:
 6 kompakte Status-Kacheln mit STATUS-Badge (OK / WARN / CRIT / INFO):
 - **Receiver**: Health, Readiness, letzter Ingest, Erfolgsquote
 - **Security**: Ingest-Auth, Admin-Zugriff, letzte Fehlerkategorie
-- **Storage**: SQLite-Groesse, Raw-Audit-Groesse, Schreibbarkeit
+- **Storage**: SQLite-Größe, Raw-Audit-Größe, Schreibbarkeit
 - **System**: Uptime, Startzeit
 - **Ingest-Volumen**: Requests/Punkte/Sessions gesamt, Fehler gesamt
-- **Aktivitaet**: Requests/Punkte heute und 24h
+- **Aktivität**: Requests/Punkte heute und 24h
 
-Darunter: priorisierte Next-Actions, juengste Requests-Tabelle, Top-Sessions, neueste GPS-Punkte.
+Darunter: priorisierte Next-Actions, jüngste Requests-Tabelle, Top-Sessions, neueste GPS-Punkte.
 
 ### Navigation (task-orientiert)
 
-- **Overview**: Overview · Receiver Health · Aktivitaet
+- **Overview**: Overview · Receiver Health · Aktivität
 - **Daten**: Requests · Sessions · Punkte · Exporte
-- **Betrieb &amp; Sicherheit**: Security · Storage · Konfiguration · System
+- **Betrieb & Sicherheit**: Security · Storage · Konfiguration · System
 - **Hilfe**: Troubleshooting · Open Items
 
 ### Compact / Full Mode
@@ -144,7 +144,7 @@ Weitere Operator-Seiten zeigen unter anderem:
 - separate Request-, Session- und Punkt-Detailseiten
 - Request-Historie mit Fehlerkategorien
 - Session-Uebersicht mit Requestanzahl und Accuracy-Mittelwert
-- Storage-Dateigroessen und letzte Schreibzeiten
+- Storage-Dateigrößen und letzte Schreibzeiten
 - maskierte Konfigurations- und Auth-Uebersicht
 - Troubleshooting- und Open-Items-Doku direkt in der UI
 - Systemseite mit Version, Laufzeit und Changelog-Ausschnitten
@@ -169,7 +169,7 @@ Hinweis:
 
 - Screenshot-Testdaten sind nur lokal und nicht versioniert zu verwenden.
 - Der Bearer-Token darf nie in Git, README, Logs oder API-Responses landen.
-- Dieses Repo liefert keine verpflichtende Online-Vorgabe fuer spaetere Nutzer aus.
+- Dieses Repo liefert keine verpflichtende Online-Vorgabe für spätere Nutzer aus.
 - `ENABLE_RAW_PAYLOAD_NDJSON=true` aktiviert den optionalen Rohpayload-Export; bei `false` bleibt er aus.
 - Neue Rohpayload-Dateien werden mit `0600` angelegt, bestehende Dateien werden nicht automatisch nachtraeglich angepasst.
 
@@ -194,7 +194,7 @@ docker compose ps
 docker compose logs --tail=200
 ```
 
-Der Backend-Port bleibt lokal auf `127.0.0.1:8080`. Oeffentlich wird nur Caddy auf `80/443` exponiert.
+Der Backend-Port bleibt lokal auf `127.0.0.1:8080`. Öffentlich wird nur Caddy auf `80/443` exponiert.
 
 ## Smoke-Test
 

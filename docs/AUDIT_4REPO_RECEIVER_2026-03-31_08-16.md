@@ -2,7 +2,7 @@
 
 ## 1. Ziel / Scope
 
-Repo-Truth-Pruefung des Receiver-Repos als Teil des 4-Repo-Audits.
+Repo-Truth-Prüfung des Receiver-Repos als Teil des 4-Repo-Audits.
 
 ## 2. Gelesene Pflichtdateien
 
@@ -12,7 +12,7 @@ README.md, CHANGELOG.md, .env.example, compose.yaml, Caddyfile, Dockerfile, requ
 
 Keine ROADMAP.md, keine NEXT_STEPS.md (offene Punkte stehen in docs/OPEN_ITEMS.md; bestehende Konvention).
 
-## 4. Ausgefuehrte Pruefungen
+## 4. Ausgeführte Prüfungen
 
 - `python3 -m pytest tests/ -q --tb=short`: 14 Tests, 0 Failures
 - `docker compose config`: valide
@@ -25,27 +25,27 @@ Keine ROADMAP.md, keine NEXT_STEPS.md (offene Punkte stehen in docs/OPEN_ITEMS.m
 - Der Bearer-Token in der lokalen `.env` ist nur auf dem Server vorhanden und nicht committet
 - `docs/SECURITY.md` dokumentiert das Token-/Secret-Handling korrekt
 
-## 6. Gefundene Widersprueche
+## 6. Gefundene Widersprüche
 
-Keine neuen Widersprueche gefunden.
+Keine neuen Widersprüche gefunden.
 
 ## 7. Konkrete Korrekturen
 
-Keine inhaltlichen Korrekturen noetig. Nur dieses Audit-Artefakt angelegt.
+Keine inhaltlichen Korrekturen nötig. Nur dieses Audit-Artefakt angelegt.
 
 ## 8. Verbleibende offene Punkte (aus OPEN_ITEMS.md)
 
 - Token-Rotation fuer den laufenden Test-Token
-- Admin-Auth-Haertung ueber Basic/lokal hinaus
+- Admin-Auth-Härtung über Basic/lokal hinaus
 - Retention-/Backup-Konzept
 - Bereinigung der hardcoded Test-Server-IP in iOS-/Wrapper-Repos (Cross-Repo)
 - Finaler End-to-End-iPhone-Gegenlauf gegen den Receiver
 
 ## 9. Ehrliche Grenzen der Verifikation
 
-- Docker-Container-Build und -Start wurden nicht erneut ausgefuehrt (nur `docker compose config` validiert)
+- Docker-Container-Build und -Start wurden nicht erneut ausgeführt (nur `docker compose config` validiert)
 - Der laufende Server-Zustand wurde nicht geprueft (kein Smoke-Test gegen den Live-Service)
 
 ## 10. Abschlussfazit
 
-Das Receiver-Repo ist sauber, Tests gruen, Doku konsistent. Keine Aenderungen noetig. Die naechsten Schritte sind Token-Rotation und Admin-Auth-Haertung.
+Das Receiver-Repo ist sauber, Tests gruen, Doku konsistent. Keine Änderungen nötig. Die nächsten Schritte sind Token-Rotation und Admin-Auth-Härtung.
