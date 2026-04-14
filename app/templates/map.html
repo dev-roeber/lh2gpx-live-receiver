@@ -86,7 +86,7 @@
   
   function initMap() {
     map = L.map('map-container').setView([52.52, 13.405], 10);
-    L.tileLayer('https://tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', { // OSM France Tile Server
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { // Standard OSM Tiles
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map);
@@ -139,9 +139,10 @@
         if (autoCenter) {
           map.fitBounds(pathLayer.getBounds(), {padding: [40, 40]});
         }
-        stats.innerText = `${points.length} Punkte visualisiert.`;
+        // Anzeige der Gesamtanzahl der Punkte basierend auf den Filtern
+        stats.innerText = `${data.points.total} Punkte gefunden (${points.length} angezeigt).`;
       } else {
-        stats.innerText = "Keine Punkte im gewählten Zeitraum gefunden.";
+        stats.innerText = "Keine Punkte im gewählten Zeitraum oder für diese Session gefunden.";
       }
 
       // 2. Live Log aktualisieren
@@ -185,6 +186,7 @@
     }
   }
 
+  // Animation für neue Punkte
   const style = document.createElement('style');
   style.innerHTML = `
     @keyframes fadeHighlight {
@@ -198,5 +200,4 @@
   document.getElementById('refresh-map-btn').onclick = updateMap;
   document.addEventListener('DOMContentLoaded', initMap);
 </script>
-
 {% endblock %}
