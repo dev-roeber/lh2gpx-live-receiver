@@ -136,7 +136,7 @@
         }).addTo(pathLayer).bindPopup(`<b>Letzte Position</b><br>${last.point_timestamp_local}<br>Genauigkeit: ${last.horizontal_accuracy_m}m`);
         
         // Nur zoomen/zentrieren, wenn Auto-Zentrierung aktiv ist
-        if (autoCenter) {
+        if (autoCenter && pathLayer.getLayers().length > 0) {
           map.fitBounds(pathLayer.getBounds(), {padding: [40, 40]});
         }
         // Anzeige der Gesamtanzahl der Punkte basierend auf den Filtern
@@ -170,7 +170,7 @@
           }
         });
 
-        // Limit im Log einhalten
+        // Limit im Log einhalten - remove excess from bottom
         while (logBody.children.length > logLimit) {
           logBody.removeChild(logBody.lastChild);
         }
@@ -180,9 +180,10 @@
       console.error("Live Update Error:", e);
       stats.innerText = "Fehler beim Laden der Kartendaten oder Session abgelaufen.";
       stats.style.color = "var(--c-crit)";
+      liveIndicator.style.opacity = '1';
     } finally {
-      btnText.style.display = 'inline';
-      btnSpinner.style.display = 'none';
+      document.getElementById('btn-text').style.display = 'inline';
+      document.getElementById('btn-spinner').style.display = 'none';
     }
   }
 
