@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block content %}
+
+{# ── Map Assets ── #}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJCeoli+7LNmXhnDb7ZrZ3niUBC8Wv2jwKCNEc=" crossorigin=""/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+<style>
+  .map-filter-panel {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: flex-end;
+    margin-bottom: 1.5rem;
+    padding: 1.5rem;
+    background: var(--bg-card);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+  }
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .filter-group label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .filter-group select, .filter-group input {
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-page);
+    color: var(--text-base);
+    font-size: 0.9rem;
+    min-width: 140px;
+  }
+  #map-container {
+    height: calc(100vh - 400px);
+    min-height: 500px;
+    width: 100%;
+    margin-bottom: 1.5rem;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    z-index: 1;
+  }
+  .custom-range-group {
+    display: none;
+    gap: 1rem;
+    align-items: flex-end;
+  }
+  .custom-range-group.active {
+    display: flex;
+  }
+  .map-stats {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-top: 0.5rem;
+  }
+</style>
+
+{# ── Map & Filters ── #}
+<article class="panel" style="margin-bottom: 2rem;">
+  <div class="panel-header">
+    <div>
+      <p class="eyebrow">Interaktive Karte</p>
+      <h3>Standort-Historie</h3>
+    </div>
+    <div id="map-loading-indicator" style="display: none;">Lade Punkte...</div>
+  </div>
+
+  <div class="map-filter-panel">
+    <div class="filter-group">
+      <label for="time-range-select">Zeitraum</label>
+      <select id="time-range-select">
+        <option value="15m">Letzte 15 Min.</option>
+        <option value="30m">Letzte 30 Min.</option>
+        <option value="1h">Letzte 1 Std.</option>
+        <option value="6h">Letzte 6 Std.</option>
+        <option value="12h">Letzte 12 Std.</option>
+        <option value="24h" selected>Letzte 24 Std.</option>
+        <option value="custom">Eigener Zeitraum...</option>
+      </select>
+    </div>
+
+    <div id="custom-range" class="custom-range-group">
+      <div class="filter-group">
+        <label for="date-from">Von</label>
+        <input type="date" id="date-from">
+      </div>
+      <div class="filter-group">
+        <label for="date-to">Bis</label>
+        <input type="date" id="date-to">
+      </div>
+    </div>
+
+    <div class="filter-group">
+      <label for="session-select">Session</label>
+      <select id="session-select">
+        <option value="">Alle Sessions</option>
+        {% for session in sessions %}
+        <option value="{{ session.session_id }}">{{ session.session_id | truncate(16) }} ({{ session.points_count }})</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="filter-group" style="margin-left: auto;">
+      <button id="refresh-map-btn" class="button-link primary">Aktualisieren</button>
+    </div>
+  </div>
+
+  <div id="map-container"></div>
+  <div class="map-stats" id="map-stats-text">Initialisiere Karte...</div>
+</article>
+
+<script>
+  let map, pathLayer;
+  
+  function initMap() {
+    map = L.map('map-container').setView([52.52, 13.405], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+    pathLayer = L.featureGroup().addTo(map);
+    updateMap();
+  }
+
+  async function updateMap() {
+    const range = document.getElementById('time-range-select').value;
+    const sessionId = document.getElementById('session-select').value;
+    const loading = document.getElementById('map-loading-indicator');
+    const statsText = document.getElementById('map-stats-text');
+    
+    loading.style.display = 'block';
+    
+    let url = `/api/points?page_size=5000`;
+    if (sessionId) url += `&session_id=${sessionId}`;
+    
+    if (range === 'custom') {
+      const from = document.getElementById('date-from').value;
+      const to = document.getElementById('date-to').value;
+      if (from) url += `&date_from=${from}`;
+      if (to) url += `&date_to=${to}`;
+    } else {
+      const minutes = {
+        '15m': 15, '30m': 30, '1h': 60, '6h': 360, '12h': 720, '24h': 1440
+      }[range];
+      const fromDate = new Date(Date.now() - minutes * 60 * 1000);
+      url += `&date_from=${fromDate.toISOString().split('T')[0]}`;
+      url += `&time_from=${fromDate.toISOString().split('T')[1].substring(0, 8)}`;
+    }
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}: ${response.statusText}`);
+      }
+      const data = await response.json();
+      const points = data.points ? data.points.items : [];
+      
+      pathLayer.clearLayers();
+      
+      if (points && points.length > 0) {
+        const latlngs = points.map(p => [p.latitude, p.longitude]);
+        const polyline = L.polyline(latlngs, {color: '#667eea', weight: 4, opacity: 0.7}).addTo(pathLayer);
+        
+        // Letzten Punkt markieren (erster im Array bei API-Sortierung)
+        const last = points[0];
+        L.circleMarker([last.latitude, last.longitude], {
+          radius: 8, fillOpacity: 0.9, color: '#fff', fillColor: '#667eea', weight: 2
+        }).addTo(pathLayer).bindPopup(`<b>Letzte Position</b><br>${last.point_timestamp_local}<br>Accuracy: ${last.horizontal_accuracy_m}m`);
+        
+        map.fitBounds(pathLayer.getBounds(), {padding: [30, 30]});
+        statsText.innerText = `${points.length} Punkte gefunden.`;
+      } else {
+        statsText.innerText = 'Keine Punkte im gewählten Zeitraum oder für diese Session gefunden.';
+        map.setView([52.52, 13.405], 2);
+      }
+    } catch (err) {
+      console.error('Map update error:', err);
+      statsText.innerText = `Fehler beim Laden der Daten: ${err.message}`;
+      statsText.style.color = 'var(--status-crit-text, #e53e3e)';
+    } finally {
+      loading.style.display = 'none';
+    }
+  }
+
+  document.getElementById('time-range-select').addEventListener('change', (e) => {
+    document.getElementById('custom-range').classList.toggle('active', e.target.value === 'custom');
+    if (e.target.value !== 'custom') updateMap();
+  });
+  
+  document.getElementById('refresh-map-btn').addEventListener('click', updateMap);
+  document.getElementById('session-select').addEventListener('change', updateMap);
+
+  document.addEventListener('DOMContentLoaded', initMap);
+</script>
+
+{% endblock %}

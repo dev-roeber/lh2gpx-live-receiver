@@ -1,22 +1,22 @@
 {
-	admin off
+        admin off
 }
 
 {$PUBLIC_HOSTNAME:localhost} {
-	encode zstd gzip
+        encode zstd gzip
 
-	header {
-		X-Content-Type-Options "nosniff"
-		X-Frame-Options "DENY"
-		Referrer-Policy "no-referrer"
-		Permissions-Policy "interest-cohort=()"
-		-Server
-	}
+        header {
+                X-Content-Type-Options "nosniff"
+                X-Frame-Options "DENY"
+                Referrer-Policy "strict-origin-when-cross-origin"
+                Permissions-Policy "interest-cohort=()"
+                -Server
+        }
 
-	log {
-		output stdout
-		format json
-	}
+        log {
+                output stdout
+                format json
+        }
 
-	reverse_proxy live-location-receiver:8080
+        reverse_proxy live-location-receiver:8080
 }

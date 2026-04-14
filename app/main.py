@@ -46,6 +46,7 @@ NAV_GROUPS = [
         "title": "Übersicht",
         "items": [
             {"key": "dashboard", "label": "Übersicht", "href": "/dashboard"},
+            {"key": "map", "label": "Karte", "href": "/dashboard/map"},
             {"key": "live_status", "label": "Receiver-Status", "href": "/dashboard/live-status"},
             {"key": "activity", "label": "Aktivität", "href": "/dashboard/activity"},
         ],
@@ -614,6 +615,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
         )
         return templates.TemplateResponse(request=request, name="dashboard.html", context=context)
+
+    @app.get("/dashboard/map", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    async def dashboard_map(request: Request) -> HTMLResponse:
+        snapshot = _dashboard_snapshot(request)
+        try:
+            sessions = _storage(request).list_sessions()
+        except StorageError:
+            sessions = []
+            
+        context = _base_template_context(
+            request,
+            active_nav="map",
+            page_title="Interaktive Karte",
+            page_kicker="Standort-Visualisierung",
+            page_description="Visualisierung der empfangenen GPS-Punkte auf einer interaktiven Karte mit flexiblen Zeitfiltern.",
+            snapshot=snapshot,
+        )
+        context.update({
+            "sessions": sessions,
+            "config_summary": _settings(request).masked_config_summary(),
+        })
+        return templates.TemplateResponse(request=request, name="map.html", context=context)
 
     @app.get("/dashboard/live-status", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
     async def dashboard_live_status(request: Request) -> HTMLResponse:
