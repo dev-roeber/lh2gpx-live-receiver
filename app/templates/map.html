@@ -32,6 +32,11 @@
         {% endfor %}
       </select>
     </div>
+    {# Checkbox für Auto-Zentrierung #}
+    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px; margin-left: 15px;">
+      <input type="checkbox" id="auto-center-toggle" checked style="width: auto; cursor: pointer;">
+      <label for="auto-center-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Auto-Zentrierung</label>
+    </div>
     <div class="filter-actions" style="align-self: flex-end; margin-left: auto;">
       <button id="refresh-map-btn" class="button-link primary">
         <span id="btn-text">Karte aktualisieren</span>
@@ -44,40 +49,65 @@
   <p id="map-stats-text" class="eyebrow" style="margin-top: 15px; color: var(--text-muted);">Initialisiere Karte...</p>
 </article>
 
+{# ── Live Log Panel ── #}
+<article class="panel">
+  <div class="panel-header">
+    <div>
+      <p class="eyebrow">Echtzeit-Übertragung</p>
+      <h3>Live-Punkt-Log</h3>
+    </div>
+    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px;">
+      <label for="log-limit" style="margin: 0;">Anzeige:</label>
+      <input type="number" id="log-limit" value="50" min="1" max="1000" style="width: 100px; padding: 5px 10px;">
+      <span class="status-badge info" id="live-indicator">LIVE</span>
+    </div>
+  </div>
+
+  <div class="table-panel" style="max-height: 400px; overflow-y: auto; background: #0f172a; border-radius: var(--radius-sm);">
+    <table style="min-width: 100%; border-collapse: separate; border-spacing: 0;">
+      <thead style="position: sticky; top: 0; z-index: 10; background: #1e293b;">
+        <tr style="color: #94a3b8; font-size: 0.75rem;">
+          <th style="background: #1e293b; border-bottom: 1px solid #334155;">Datum</th>
+          <th style="background: #1e293b; border-bottom: 1px solid #334155;">Uhrzeit</th>
+          <th style="background: #1e293b; border-bottom: 1px solid #334155;">Geodaten (Lat, Lon)</th>
+          <th style="background: #1e293b; border-bottom: 1px solid #334155;">Genauigkeit</th>
+        </tr>
+      </thead>
+      <tbody id="live-log-body" style="font-family: 'IBM Plex Mono', monospace; font-size: 0.85rem; color: #e2e8f0;">
+        <tr><td colspan="4" style="text-align: center; padding: 40px; color: #64748b;">Warte auf Daten-Ingest...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</article>
+
 <script>
   let map, pathLayer;
+  let knownPointIds = new Set();
   
   function initMap() {
-    // Initialisierung
     map = L.map('map-container').setView([52.52, 13.405], 10);
-    
-    // Standard OSM Tiles mit Subdomains {s}
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer('https://tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', { // OSM France Tile Server
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map);
     
     pathLayer = L.featureGroup().addTo(map);
     
-    // Fix: Container-Größe nach Rendering erzwingen (etwas längerer Delay)
     setTimeout(() => { map.invalidateSize(); }, 600);
-    
     updateMap();
+    setInterval(updateMap, 5000); // Live Polling
   }
 
   async function updateMap() {
     const range = document.getElementById('time-range-select').value;
     const sessionId = document.getElementById('session-select').value;
     const stats = document.getElementById('map-stats-text');
-    const btnText = document.getElementById('btn-text');
-    const btnSpinner = document.getElementById('btn-spinner');
-    
-    // Lade-Indikator an
-    btnText.style.display = 'none';
-    btnSpinner.style.display = 'inline';
-    stats.innerText = "Lade GPS-Punkte vom Server...";
+    const logBody = document.getElementById('live-log-body');
+    const logLimit = parseInt(document.getElementById('log-limit').value) || 50;
+    const liveIndicator = document.getElementById('live-indicator');
+    const autoCenter = document.getElementById('auto-center-toggle').checked; // Checkbox-Status auslesen
 
-    let url = `/api/points?page_size=2000`;
+    let url = `/api/points?page_size=${logLimit}`;
     if (sessionId) url += `&session_id=${sessionId}`;
     
     if (range !== 'all') {
@@ -87,40 +117,83 @@
     }
 
     try {
-      // Fix: credentials: 'same-origin' hinzugefügt für Session-Cookie Support
-      const res = await fetch(url, { credentials: 'same-origin' });
+      liveIndicator.style.opacity = '0.5'; // Lade-Indikator anzeigen
+      const res = await fetch(url, { credentials: 'same-origin' }); // Cookies für Auth mitliefern
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       
       const data = await res.json();
       const points = data.points.items;
       
+      // 1. Karte aktualisieren
       pathLayer.clearLayers();
-      
       if (points && points.length > 0) {
         const coords = points.map(p => [p.latitude, p.longitude]);
         L.polyline(coords, {color: '#3b82f6', weight: 5, opacity: 0.6}).addTo(pathLayer);
         
-        // Letzter Punkt (Markierung)
-        const last = points[0];
+        const last = points[0]; // Neueste Punkt ist index 0 wegen API-Sortierung
         L.circleMarker([last.latitude, last.longitude], {
           radius: 10, color: '#fff', fillColor: '#3b82f6', fillOpacity: 1, weight: 3
         }).addTo(pathLayer).bindPopup(`<b>Letzte Position</b><br>${last.point_timestamp_local}<br>Genauigkeit: ${last.horizontal_accuracy_m}m`);
         
-        map.fitBounds(pathLayer.getBounds(), {padding: [40, 40]});
-        stats.innerText = `${points.length} Punkte erfolgreich visualisiert.`;
+        // Nur zoomen/zentrieren, wenn Auto-Zentrierung aktiv ist
+        if (autoCenter) {
+          map.fitBounds(pathLayer.getBounds(), {padding: [40, 40]});
+        }
+        stats.innerText = `${points.length} Punkte visualisiert.`;
       } else {
         stats.innerText = "Keine Punkte im gewählten Zeitraum gefunden.";
       }
+
+      // 2. Live Log aktualisieren
+      if (points && points.length > 0) {
+        if (knownPointIds.size === 0) logBody.innerHTML = ''; // Initial clear
+
+        points.forEach((p) => { // Iteriere über alle erhaltenen Punkte
+          if (!knownPointIds.has(p.id)) {
+            knownPointIds.add(p.id);
+            const row = document.createElement('tr');
+            row.style.borderBottom = '1px solid #1e293b';
+            row.style.animation = 'fadeHighlight 2s ease-out';
+            
+            const ts = p.point_timestamp_utc.split('T');
+            const date = ts[0];
+            const time = ts[1].substring(0, 8);
+            
+            row.innerHTML = `
+              <td style="padding: 12px 16px; color: #94a3b8;">${date}</td>
+              <td style="padding: 12px 16px; font-weight: 600;">${time}</td>
+              <td style="padding: 12px 16px; color: #3b82f6;">${p.latitude.toFixed(5)}, ${p.longitude.toFixed(5)}</td>
+              <td style="padding: 12px 16px; color: #64748b;">${p.horizontal_accuracy_m}m</td>
+            `;
+            logBody.insertBefore(row, logBody.firstChild); // Oben einfügen
+          }
+        });
+
+        // Limit im Log einhalten
+        while (logBody.children.length > logLimit) {
+          logBody.removeChild(logBody.lastChild);
+        }
+      }
+      liveIndicator.style.opacity = '1';
     } catch (e) {
-      console.error("Map Load Error:", e);
-      stats.innerText = "Fehler beim Laden der Kartendaten (Session abgelaufen?).";
+      console.error("Live Update Error:", e);
+      stats.innerText = "Fehler beim Laden der Kartendaten oder Session abgelaufen.";
       stats.style.color = "var(--c-crit)";
     } finally {
-      // Lade-Indikator aus
       btnText.style.display = 'inline';
       btnSpinner.style.display = 'none';
     }
   }
+
+  const style = document.createElement('style');
+  style.innerHTML = `
+    @keyframes fadeHighlight {
+      0% { background: rgba(59, 130, 246, 0.3); color: #fff; }
+      100% { background: transparent; }
+    }
+    #live-log-body tr:hover { background: #1e293b; }
+  `;
+  document.head.appendChild(style);
 
   document.getElementById('refresh-map-btn').onclick = updateMap;
   document.addEventListener('DOMContentLoaded', initMap);
