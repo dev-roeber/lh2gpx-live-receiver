@@ -15,48 +15,52 @@
 <article class="panel">
   <div class="map-filter-panel">
     <div class="filter-group">
-      <label>Zeitraum</label>
+      <label for="time-range-select">Zeitraum</label>
       <select id="time-range-select">
         <option value="15m">Letzte 15 Min.</option>
         <option value="1h">Letzte 1 Std.</option>
         <option value="24h" selected>Letzte 24 Std.</option>
-        <option value="all">Gesamt</option>
+        <option value="all">Gesamt (Max. 2000 Punkte)</option>
       </select>
     </div>
     <div class="filter-group">
-      <label>Session</label>
+      <label for="session-select">Session</label>
       <select id="session-select">
         <option value="">Alle Sessions</option>
         {% for session in sessions %}
-        <option value="{{ session.session_id }}">{{ short_id(session.session_id, 12) }}</option>
+        <option value="{{ session.session_id }}">{{ short_id(session.session_id, 16) }} ({{ session.points_count }} Pkt.)</option>
         {% endfor %}
       </select>
     </div>
-    <div class="filter-actions" style="align-self: flex-end;">
-      <button id="refresh-map-btn" class="button-link primary">Karte aktualisieren</button>
+    <div class="filter-actions" style="align-self: flex-end; margin-left: auto;">
+      <button id="refresh-map-btn" class="button-link primary">
+        <span id="btn-text">Karte aktualisieren</span>
+        <span id="btn-spinner" style="display: none;">⌛ Lade...</span>
+      </button>
     </div>
   </div>
 
   <div id="map-container"></div>
-  <p id="map-stats-text" class="eyebrow" style="margin-top: 10px;">Lade Daten...</p>
+  <p id="map-stats-text" class="eyebrow" style="margin-top: 15px; color: var(--text-muted);">Initialisiere Karte...</p>
 </article>
 
 <script>
   let map, pathLayer;
   
   function initMap() {
-    // Initialisierung mit Standard-View
+    // Initialisierung
     map = L.map('map-container').setView([52.52, 13.405], 10);
     
+    // Standard OSM Tiles mit Subdomains {s}
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map);
     
     pathLayer = L.featureGroup().addTo(map);
     
-    // Wichtiger Fix für Container-Größe
-    setTimeout(() => { map.invalidateSize(); }, 400);
+    // Fix: Container-Größe nach Rendering erzwingen (etwas längerer Delay)
+    setTimeout(() => { map.invalidateSize(); }, 600);
     
     updateMap();
   }
@@ -65,11 +69,17 @@
     const range = document.getElementById('time-range-select').value;
     const sessionId = document.getElementById('session-select').value;
     const stats = document.getElementById('map-stats-text');
+    const btnText = document.getElementById('btn-text');
+    const btnSpinner = document.getElementById('btn-spinner');
     
+    // Lade-Indikator an
+    btnText.style.display = 'none';
+    btnSpinner.style.display = 'inline';
+    stats.innerText = "Lade GPS-Punkte vom Server...";
+
     let url = `/api/points?page_size=2000`;
     if (sessionId) url += `&session_id=${sessionId}`;
     
-    // Zeitfilter Logik (vereinfacht für API)
     if (range !== 'all') {
       const mins = { '15m': 15, '1h': 60, '24h': 1440 }[range];
       const from = new Date(Date.now() - mins * 60000).toISOString();
@@ -77,29 +87,38 @@
     }
 
     try {
-      const res = await fetch(url);
+      // Fix: credentials: 'same-origin' hinzugefügt für Session-Cookie Support
+      const res = await fetch(url, { credentials: 'same-origin' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      
       const data = await res.json();
       const points = data.points.items;
       
       pathLayer.clearLayers();
       
-      if (points.length > 0) {
+      if (points && points.length > 0) {
         const coords = points.map(p => [p.latitude, p.longitude]);
         L.polyline(coords, {color: '#3b82f6', weight: 5, opacity: 0.6}).addTo(pathLayer);
         
-        // Letzter Punkt
+        // Letzter Punkt (Markierung)
         const last = points[0];
         L.circleMarker([last.latitude, last.longitude], {
           radius: 10, color: '#fff', fillColor: '#3b82f6', fillOpacity: 1, weight: 3
-        }).addTo(pathLayer).bindPopup(`<b>Letzte Position</b><br>${last.point_timestamp_local}`);
+        }).addTo(pathLayer).bindPopup(`<b>Letzte Position</b><br>${last.point_timestamp_local}<br>Genauigkeit: ${last.horizontal_accuracy_m}m`);
         
         map.fitBounds(pathLayer.getBounds(), {padding: [40, 40]});
-        stats.innerText = `${points.length} Punkte visualisiert.`;
+        stats.innerText = `${points.length} Punkte erfolgreich visualisiert.`;
       } else {
         stats.innerText = "Keine Punkte im gewählten Zeitraum gefunden.";
       }
     } catch (e) {
-      stats.innerText = "Fehler beim Laden der Kartendaten.";
+      console.error("Map Load Error:", e);
+      stats.innerText = "Fehler beim Laden der Kartendaten (Session abgelaufen?).";
+      stats.style.color = "var(--c-crit)";
+    } finally {
+      // Lade-Indikator aus
+      btnText.style.display = 'inline';
+      btnSpinner.style.display = 'none';
     }
   }
 
