@@ -337,17 +337,22 @@
     const logLimit = parseInt(document.getElementById('log-limit').value) || 50;
     const autoCenter = document.getElementById('auto-center-toggle').checked;
     const apiStatus = document.getElementById('api-status');
-
-    let url = `/api/points?page_size=${Math.min(logLimit * 2, 250)}`;
-    if (sessionId) url += `&session_id=${sessionId}`;
     const fitBounds = document.getElementById('fit-bounds-toggle').checked;
 
-    if (range !== 'all') {
+    // Wenn fitBounds aktiv: ALLE Punkte laden
+    const pageSize = fitBounds ? 2000 : Math.min(logLimit * 2, 250);
+    let url = `/api/points?page_size=${pageSize}`;
+    if (sessionId) url += `&session_id=${sessionId}`;
+
+    // Bei fitBounds ignoriere Zeitraum-Filter und lade ALLES
+    const effectiveRange = fitBounds ? 'all' : range;
+
+    if (effectiveRange !== 'all') {
       const mins = {
         '2m': 2, '5m': 5, '10m': 10, '15m': 15, '30m': 30, '45m': 45,
         '1h': 60, '2h': 120, '4h': 240, '6h': 360, '8h': 480, '12h': 720, '18h': 1080, '24h': 1440,
         '2d': 2880, '3d': 4320, '5d': 7200, '7d': 10080, '14d': 20160, '30d': 43200
-      }[range];
+      }[effectiveRange];
       const from = new Date(Date.now() - mins * 60000).toISOString();
       url += `&date_from=${from.split('T')[0]}&time_from=${from.split('T')[1].substring(0, 8)}`;
     }
