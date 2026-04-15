@@ -107,7 +107,7 @@
     <table style="min-width: 100%; border-collapse: separate; border-spacing: 0;">
       <thead style="position: sticky; top: 0; z-index: 10; background: #1e293b;">
         <tr style="color: #94a3b8; font-size: 0.8rem; font-weight: 600;">
-          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Uhrzeit (UTC)</th>
+          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Uhrzeit</th>
           <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Koordinaten</th>
           <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Genauigkeit</th>
           <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Quelle</th>
@@ -413,7 +413,7 @@
             row.dataset.time = p.point_timestamp_local;
             row.dataset.accuracy = p.horizontal_accuracy_m;
 
-            const ts = p.point_timestamp_utc.split('T');
+            const ts = p.point_timestamp_local.split('T');
             const coordText = `${p.latitude.toFixed(5)}, ${p.longitude.toFixed(5)}`;
             const requestIdShort = (p.request_id || 'N/A').substring(0, 12);
 
