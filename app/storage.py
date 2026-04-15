@@ -811,17 +811,21 @@ class ReceiverStorage:
         skipped += len(point_rows) - len(deduped)
         point_rows = deduped
 
-        # 2) Bereits in der DB vorhandene Punkte herausfiltern
+        # 2) Bereits in der DB vorhandene Punkte herausfiltern (in Batches wegen SQLite-Variablenlimit)
         if point_rows:
+            _BATCH = 500
             ts_values = list({r[3] for r in point_rows})
-            placeholders = ",".join("?" * len(ts_values))
+            existing: set[tuple] = set()
             with self._connect() as check_conn:
-                existing_rows = check_conn.execute(
-                    f"SELECT point_timestamp_utc, latitude, longitude FROM gps_points "
-                    f"WHERE point_timestamp_utc IN ({placeholders})",
-                    ts_values,
-                ).fetchall()
-            existing: set[tuple] = {(r[0], r[1], r[2]) for r in existing_rows}
+                for i in range(0, len(ts_values), _BATCH):
+                    batch = ts_values[i : i + _BATCH]
+                    placeholders = ",".join("?" * len(batch))
+                    rows = check_conn.execute(
+                        f"SELECT point_timestamp_utc, latitude, longitude FROM gps_points "
+                        f"WHERE point_timestamp_utc IN ({placeholders})",
+                        batch,
+                    ).fetchall()
+                    existing.update((r[0], r[1], r[2]) for r in rows)
             before = len(point_rows)
             point_rows = [r for r in point_rows if (r[3], r[4], r[5]) not in existing]
             skipped += before - len(point_rows)
