@@ -42,7 +42,7 @@
     </div>
     <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px; margin-left: 15px;">
       <input type="checkbox" id="auto-center-toggle" checked style="width: auto; cursor: pointer;">
-      <label for="auto-center-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Auto-Zentrierung</label>
+      <label for="auto-center-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Letzter Punkt folgen</label>
     </div>
     <div class="filter-actions" style="align-self: flex-end; margin-left: auto; display: flex; gap: 10px; align-items: center;">
       <label for="polling-interval" style="margin: 0; font-size: 0.85rem;">Update:</label>
@@ -198,8 +198,9 @@
           });
         }
         
-        if (autoCenter && pathLayer.getLayers().length > 0) {
-          map.fitBounds(pathLayer.getBounds(), {padding: [40, 40]});
+        if (autoCenter) {
+          // Focus on latest point with zoom level 18
+          map.setView([last.latitude, last.longitude], 18, {animate: true});
         }
         stats.innerText = `${data.points.total} Punkte gefunden (${points.length} angezeigt).`;
       } else {
