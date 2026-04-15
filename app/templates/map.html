@@ -58,11 +58,19 @@
     <div class="filter-actions" style="align-self: flex-end; margin-left: auto; display: flex; gap: 10px; align-items: center;">
       <label for="polling-interval" style="margin: 0; font-size: 0.85rem;">Update:</label>
       <select id="polling-interval" style="padding: 5px 8px; border: 1px solid var(--text-muted); border-radius: 4px;">
+        <option value="2000">2s</option>
+        <option value="3000">3s</option>
         <option value="5000" selected>5s</option>
         <option value="10000">10s</option>
         <option value="15000">15s</option>
+        <option value="20000">20s</option>
         <option value="30000">30s</option>
+        <option value="45000">45s</option>
         <option value="60000">1min</option>
+        <option value="90000">1.5min</option>
+        <option value="120000">2min</option>
+        <option value="180000">3min</option>
+        <option value="300000">5min</option>
       </select>
       <button id="fullscreen-btn" class="button-link secondary" title="Vollbild">⛶</button>
       <button id="export-geojson-btn" class="button-link secondary" title="GeoJSON exportieren">💾</button>
