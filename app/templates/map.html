@@ -79,49 +79,66 @@
     </div>
 
     <p class="fp-section-label">Navigation</p>
-    <div class="filter-group fp-row">
-      <input type="checkbox" id="auto-center-toggle" checked>
-      <label for="auto-center-toggle" class="fp-check-label">Letzter Punkt folgen</label>
+    <div class="filter-group fp-row" style="align-items:flex-start;flex-direction:column;gap:2px;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" id="auto-center-toggle" checked>
+        <label for="auto-center-toggle" class="fp-check-label">Letzter Punkt folgen</label>
+      </div>
+      <small style="color:var(--text-3);font-size:0.72rem;padding-left:20px;">Karte springt automatisch zum neuesten GPS-Punkt.</small>
     </div>
-    <div class="filter-group fp-row">
-      <input type="checkbox" id="fit-bounds-toggle">
-      <label for="fit-bounds-toggle" class="fp-check-label">Gesamten Track anzeigen</label>
+    <div class="filter-group fp-row" style="align-items:flex-start;flex-direction:column;gap:2px;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" id="fit-bounds-toggle">
+        <label for="fit-bounds-toggle" class="fp-check-label">Gesamten Track anzeigen</label>
+      </div>
+      <small style="color:var(--text-3);font-size:0.72rem;padding-left:20px;">Zoom wird so gewählt, dass alle geladenen Punkte sichtbar sind. Überschreibt Zeitraum-Filter (lädt alles).</small>
     </div>
 
     <p class="fp-section-label">Layer</p>
+    <small style="color:var(--text-3);font-size:0.72rem;display:block;margin:-4px 0 6px 0;">Welche Darstellungen auf der Karte aktiv sind.</small>
     <div class="fp-layer-row">
-      <label class="fp-layer-btn">
+      <label class="fp-layer-btn" title="Dichteverteilung aller Punkte als Wärmebild">
         <input type="checkbox" id="heatmap-toggle"> Heatmap
       </label>
-      <label class="fp-layer-btn">
+      <label class="fp-layer-btn" title="Jeden GPS-Punkt als Kreis anzeigen">
         <input type="checkbox" id="points-toggle" checked> Punkte
       </label>
-      <label class="fp-layer-btn">
+      <label class="fp-layer-btn" title="Bewegungspfad als farbige Linie pro Segment">
         <input type="checkbox" id="polyline-toggle" checked> Linien
+      </label>
+      <label class="fp-layer-btn" title="Genauigkeitsradius als transparenter Kreis um jeden Punkt (max. 300 Punkte)">
+        <input type="checkbox" id="accuracy-toggle"> Radius
+      </label>
+      <label class="fp-layer-btn" title="Uhrzeit am Anfang und Ende jedes Routen-Segments einblenden">
+        <input type="checkbox" id="labels-toggle"> Labels
       </label>
     </div>
 
     <p class="fp-section-label">Routen-Segmentierung</p>
+    <small style="color:var(--text-3);font-size:0.72rem;display:block;margin:-4px 0 6px 0;">Ab wann eine neue Route beginnt (Lücke im Track).</small>
     <div class="filter-group fp-row fp-numrow">
-      <label for="route-time-gap" title="Zeitlücke ab der eine neue Route beginnt" class="fp-num-label">Zeit (min)</label>
-      <input type="number" id="route-time-gap" value="5" min="1" max="1440" class="fp-num-input">
+      <label for="route-time-gap" class="fp-num-label" title="Zeitlücke ab der eine neue Route beginnt">Zeit (min)</label>
+      <input type="number" id="route-time-gap" min="1" max="1440" class="fp-num-input">
     </div>
+    <small style="color:var(--text-3);font-size:0.72rem;margin:-2px 0 4px 0;display:block;">Pause länger als X Minuten → neues Segment.</small>
     <div class="filter-group fp-row fp-numrow">
-      <label for="route-dist-gap" title="Distanzlücke ab der eine neue Route beginnt" class="fp-num-label">Distanz (m)</label>
-      <input type="number" id="route-dist-gap" value="300" min="10" class="fp-num-input">
+      <label for="route-dist-gap" class="fp-num-label" title="Distanzlücke ab der eine neue Route beginnt">Distanz (m)</label>
+      <input type="number" id="route-dist-gap" min="10" class="fp-num-input">
     </div>
+    <small style="color:var(--text-3);font-size:0.72rem;margin:-2px 0 0 0;display:block;">Sprung größer als X Meter → neues Segment.</small>
 
     <p class="fp-section-label">Datenabruf</p>
     <div class="filter-group fp-row fp-numrow">
-      <label for="map-max-points" title="Max. Punkte von der API" class="fp-num-label">Max. Punkte</label>
-      <input type="number" id="map-max-points" value="5000" min="1" class="fp-num-input">
+      <label for="map-max-points" class="fp-num-label" title="Maximale Anzahl Punkte die von der API geladen werden">Max. Punkte</label>
+      <input type="number" id="map-max-points" min="1" class="fp-num-input">
     </div>
+    <small style="color:var(--text-3);font-size:0.72rem;margin:-2px 0 6px 0;display:block;">Mehr Punkte = mehr Detail, aber langsamer.</small>
     <div class="filter-group">
-      <label for="polling-interval">Update-Intervall</label>
+      <label for="polling-interval">Auto-Aktualisierung</label>
       <select id="polling-interval">
         <option value="2000">2s</option>
         <option value="3000">3s</option>
-        <option value="5000" selected>5s</option>
+        <option value="5000">5s</option>
         <option value="10000">10s</option>
         <option value="15000">15s</option>
         <option value="20000">20s</option>
@@ -134,23 +151,31 @@
         <option value="300000">5min</option>
       </select>
     </div>
+    <small style="color:var(--text-3);font-size:0.72rem;margin:2px 0 0 0;display:block;">Wie oft die Karte automatisch neu geladen wird.</small>
 
     <p class="fp-section-label">Aktionen</p>
     <div class="filter-actions">
-      <button id="fullscreen-btn" class="button-link secondary" title="Vollbild" style="flex:1;">⛶</button>
-      <button id="export-geojson-btn" class="button-link secondary" title="GeoJSON exportieren (geladene Punkte)" style="flex:1;">💾</button>
-      <button id="dark-mode-btn" class="button-link secondary" title="Karte Hell/Dunkel umschalten" style="flex:1;">🌙</button>
+      <button id="fullscreen-btn" class="button-link secondary" title="Karte auf Vollbild vergrößern" style="flex:1;">⛶ Vollbild</button>
+      <button id="dark-mode-btn" class="button-link secondary" title="Karte zwischen hell und dunkel wechseln" style="flex:1;">🌙 Modus</button>
     </div>
     <div class="filter-actions">
+      <button id="export-geojson-btn" class="button-link secondary" title="Alle aktuell geladenen Punkte als GeoJSON-Datei herunterladen" style="flex:1;">💾 GeoJSON</button>
       <button id="refresh-map-btn" class="button-link primary" style="flex:1;">
-        <span id="btn-text">Aktualisieren</span>
+        <span id="btn-text">↻ Jetzt laden</span>
         <span id="btn-spinner" style="display:none;">⌛ Lade…</span>
       </button>
     </div>
 
-    <div class="fp-status-bar">
-      <span class="fp-status-label">API</span>
-      <span class="status-badge" id="api-status">● OFFLINE</span>
+    <div class="fp-status-bar" style="flex-direction:column;align-items:flex-start;gap:4px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+        <span class="fp-status-label">API</span>
+        <span class="status-badge" id="api-status">● OFFLINE</span>
+      </div>
+      <div style="font-size:0.72rem;color:var(--text-3);line-height:1.5;">
+        <div>Punkte geladen: <span id="api-info-points" style="color:var(--text-2);">—</span></div>
+        <div>Antwortzeit: <span id="api-info-ms" style="color:var(--text-2);">—</span></div>
+        <div style="word-break:break-all;">Endpunkt: <span id="api-info-url" style="color:var(--text-2);font-family:monospace;font-size:0.68rem;">—</span></div>
+      </div>
     </div>
   </div>
 
@@ -200,6 +225,22 @@
           <div style="display:flex;align-items:center;gap:7px;">
             <span style="width:22px;height:3px;background:#BF5AF2;border-radius:2px;flex-shrink:0;display:inline-block;"></span><span>Segment 4+</span>
           </div>
+        </div>
+      </div>
+
+      <div id="legend-accuracy" style="display:none;min-width:120px;">
+        <div style="font-weight:600;color:var(--text-2);margin-bottom:6px;">Genauigkeits-Radius</div>
+        <div style="display:flex;align-items:center;gap:7px;">
+          <span style="width:18px;height:18px;border-radius:50%;border:1.5px solid #0A84FF;background:rgba(10,132,255,0.1);flex-shrink:0;display:inline-block;"></span>
+          <span>±-Radius in Metern (blau, max. 300 Pkt.)</span>
+        </div>
+      </div>
+
+      <div id="legend-labels" style="display:none;min-width:120px;">
+        <div style="font-weight:600;color:var(--text-2);margin-bottom:6px;">Zeitmarken</div>
+        <div style="display:flex;align-items:center;gap:7px;">
+          <span style="background:#0A84FF;color:#fff;font-size:0.65rem;font-weight:700;padding:1px 5px;border-radius:4px;">14:32</span>
+          <span>Uhrzeit am Segment-Start / -Ende</span>
         </div>
       </div>
 
@@ -298,16 +339,22 @@
 <script>
   // === CONFIG ===
   let POLLING_INTERVAL = parseInt(localStorage.getItem('map-polling-interval')) || 5000;
-  let TIME_RANGE = localStorage.getItem('map-time-range') || '1h';
+  let TIME_RANGE       = localStorage.getItem('map-time-range') || '1h';
+  let MAP_MAX_POINTS   = parseInt(localStorage.getItem('map-max-points'))   || 5000;
+  let ROUTE_TIME_GAP   = parseInt(localStorage.getItem('map-route-time-gap'))  || 5;
+  let ROUTE_DIST_GAP   = parseInt(localStorage.getItem('map-route-dist-gap'))  || 300;
   const FILTER_DEBOUNCE = 300;
   const MAX_LOG_LINES = 1000;
   const CLUSTER_THRESHOLD = 50;
 
   // === STATE ===
   let map, pathLayer, markerClusterGroup, heatLayer, pointsLayer, polylineLayer, knownPointIds = new Set();
-  let heatmapActive = false;
-  let pointsActive = true;
+  let heatmapActive  = false;
+  let pointsActive   = true;
   let polylineActive = true;
+  let accuracyActive = false;
+  let labelsActive   = false;
+  let accuracyLayer, labelsLayer;
   let darkMode = localStorage.getItem('map-dark-mode') === 'true' || false;
   let tileLayer;
   let lastApiStatus = 'loading';
@@ -496,6 +543,8 @@
     markerClusterGroup = L.markerClusterGroup().addTo(map);
     polylineLayer = L.featureGroup().addTo(map);
     pointsLayer = L.featureGroup().addTo(map);
+    accuracyLayer = L.featureGroup().addTo(map);
+    labelsLayer   = L.featureGroup().addTo(map);
     heatLayer = L.heatLayer([], {
       radius: 14, blur: 12, maxZoom: 19, minOpacity: 0.25, max: 1.0,
       gradient: {
@@ -530,6 +579,15 @@
     });
     resizeObserver.observe(mapContainer);
 
+    // Eingabefelder mit gespeicherten Werten befüllen
+    document.getElementById('map-max-points').value  = MAP_MAX_POINTS;
+    document.getElementById('route-time-gap').value  = ROUTE_TIME_GAP;
+    document.getElementById('route-dist-gap').value  = ROUTE_DIST_GAP;
+    // Polling-Interval korrekt vorauswählen
+    const piSel = document.getElementById('polling-interval');
+    piSel.value = String(POLLING_INTERVAL);
+    if (!piSel.value) piSel.value = '5000'; // Fallback falls gespeicherter Wert nicht in Liste
+
     updateLegend();
     updateMap();
     updateInterval = setInterval(updateMap, POLLING_INTERVAL);
@@ -543,6 +601,22 @@
       updateInterval = setInterval(updateMap, POLLING_INTERVAL);
       nextRefreshTime = Date.now() + POLLING_INTERVAL;
       tickRefreshBar();
+    };
+
+    // Max-Punkte + Segmentierungs-Werte speichern
+    document.getElementById('map-max-points').onchange = (e) => {
+      MAP_MAX_POINTS = parseInt(e.target.value) || 5000;
+      localStorage.setItem('map-max-points', MAP_MAX_POINTS);
+    };
+    document.getElementById('route-time-gap').onchange = (e) => {
+      ROUTE_TIME_GAP = parseInt(e.target.value) || 5;
+      localStorage.setItem('map-route-time-gap', ROUTE_TIME_GAP);
+      debounce(updateMap, 500)();
+    };
+    document.getElementById('route-dist-gap').onchange = (e) => {
+      ROUTE_DIST_GAP = parseInt(e.target.value) || 300;
+      localStorage.setItem('map-route-dist-gap', ROUTE_DIST_GAP);
+      debounce(updateMap, 500)();
     };
   }
 
@@ -563,7 +637,7 @@
     const fitBounds = document.getElementById('fit-bounds-toggle').checked;
     const overlay = document.getElementById('map-loading-overlay');
 
-    const mapMaxPoints = parseInt(document.getElementById('map-max-points').value) || 5000;
+    const mapMaxPoints = parseInt(document.getElementById('map-max-points').value) || MAP_MAX_POINTS;
     const pageSize = mapMaxPoints;
     let url = `/api/points?page_size=${pageSize}`;
     if (sessionId) url += `&session_id=${sessionId}`;
@@ -586,7 +660,9 @@
       apiStatus.textContent = '● LADEN';
       apiStatus.style.color = 'var(--orange)';
       if (isManualRefresh) overlay.style.display = 'flex';
+      const fetchStart = Date.now();
       const res = await fetch(url, { credentials: 'same-origin' });
+      const fetchMs = Date.now() - fetchStart;
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const data = await res.json();
@@ -598,6 +674,11 @@
       lastRefreshTime = Date.now();
       nextRefreshTime = Date.now() + POLLING_INTERVAL;
       tickRefreshBar();
+      // API-Info-Zeilen aktualisieren
+      document.getElementById('api-info-points').textContent = `${(points || []).length.toLocaleString('de-DE')} / ${(data.points.total || 0).toLocaleString('de-DE')} gesamt`;
+      document.getElementById('api-info-ms').textContent = `${fetchMs} ms`;
+      const shortUrl = url.length > 48 ? url.slice(0, 48) + '…' : url;
+      document.getElementById('api-info-url').textContent = shortUrl;
       
       // === MAP UPDATE ===
       pathLayer.clearLayers();
@@ -617,10 +698,12 @@
         if (map.hasLayer(heatLayer)) map.removeLayer(heatLayer);
       }
       
-      // === PUNKTE & POLYLINIEN ===
+      // === PUNKTE & POLYLINIEN & EXTRA-LAYER ===
       pointsLayer.clearLayers();
       polylineLayer.clearLayers();
       markerClusterGroup.clearLayers();
+      accuracyLayer.clearLayers();
+      labelsLayer.clearLayers();
 
       if (points && points.length > 0) {
         const sorted = [...points].sort((a, b) =>
@@ -650,8 +733,8 @@
 
         // === POLYLINIEN-LAYER (Routen-Segmentierung) ===
         if (polylineActive) {
-          const timeGapMs  = (parseInt(document.getElementById('route-time-gap').value)  || 5)   * 60000;
-          const distGapM   =  parseInt(document.getElementById('route-dist-gap').value)  || 300;
+          const timeGapMs  = (parseInt(document.getElementById('route-time-gap').value) || ROUTE_TIME_GAP) * 60000;
+          const distGapM   =  parseInt(document.getElementById('route-dist-gap').value) || ROUTE_DIST_GAP;
 
           // Haversine in Metern
           function haversine(a, b) {
@@ -680,13 +763,42 @@
           // Farben nach Segment-Index durchrotieren
           const palette = ['#0A84FF','#30D158','#FF9F0A','#BF5AF2','#5AC8FA','#FF453A'];
           segments.forEach((s, i) => {
+            const color = palette[i % palette.length];
             const coords = s.map(p => [p.latitude, p.longitude]);
-            L.polyline(coords, {
-              color: palette[i % palette.length], weight: 4, opacity: 0.75
-            }).bindPopup(
+            L.polyline(coords, { color, weight: 4, opacity: 0.75 }).bindPopup(
               `Route ${i+1} · ${s.length} Punkte<br>` +
               `${s[0].point_timestamp_local?.slice(11,16) || ''} – ${s[s.length-1].point_timestamp_local?.slice(11,16) || ''}`
             ).addTo(polylineLayer);
+
+            // === LABELS-LAYER: Uhrzeit am Start und Ende jedes Segments ===
+            if (labelsActive) {
+              [s[0], s[s.length - 1]].forEach((pt, idx) => {
+                const t = (pt.point_timestamp_local || pt.point_timestamp_utc || '').slice(11, 16);
+                if (!t) return;
+                L.marker([pt.latitude, pt.longitude], {
+                  icon: L.divIcon({
+                    className: '',
+                    html: `<span style="background:${color};color:#fff;font-size:0.65rem;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.4);">${t}</span>`,
+                    iconAnchor: [0, 0]
+                  }),
+                  interactive: false
+                }).addTo(labelsLayer);
+              });
+            }
+          });
+        }
+
+        // === ACCURACY-LAYER: Genauigkeitskreis um jeden Punkt (max. 300) ===
+        if (accuracyActive) {
+          const accPoints = sorted.length > 300 ? sorted.slice(-300) : sorted;
+          accPoints.forEach(p => {
+            const r = p.horizontal_accuracy_m;
+            if (r > 0 && r < 5000) {
+              L.circle([p.latitude, p.longitude], {
+                radius: r, color: '#0A84FF', fillColor: '#0A84FF',
+                fillOpacity: 0.06, weight: 1, opacity: 0.35
+              }).addTo(accuracyLayer);
+            }
           });
         }
 
@@ -798,11 +910,12 @@
   }
 
   function updateLegend() {
-    document.getElementById('legend-points').style.display  = pointsActive   ? '' : 'none';
-    document.getElementById('legend-lines').style.display   = polylineActive ? '' : 'none';
-    document.getElementById('legend-heatmap').style.display = heatmapActive  ? '' : 'none';
-    // Legende nur sichtbar wenn mindestens ein Layer aktiv
-    const anyActive = pointsActive || polylineActive || heatmapActive;
+    document.getElementById('legend-points').style.display   = pointsActive   ? '' : 'none';
+    document.getElementById('legend-lines').style.display    = polylineActive ? '' : 'none';
+    document.getElementById('legend-heatmap').style.display  = heatmapActive  ? '' : 'none';
+    document.getElementById('legend-accuracy').style.display = accuracyActive ? '' : 'none';
+    document.getElementById('legend-labels').style.display   = labelsActive   ? '' : 'none';
+    const anyActive = pointsActive || polylineActive || heatmapActive || accuracyActive || labelsActive;
     document.getElementById('map-legend').style.display = anyActive ? 'flex' : 'none';
   }
 
@@ -885,11 +998,12 @@
     if (e.target.checked) document.getElementById('fit-bounds-toggle').checked = false;
   };
 
-  document.getElementById('heatmap-toggle').onchange  = (e) => { heatmapActive = e.target.checked; updateLegend(); updateMap(); };
-  document.getElementById('points-toggle').onchange   = (e) => { pointsActive  = e.target.checked; updateLegend(); updateMap(); };
-  document.getElementById('polyline-toggle').onchange = (e) => { polylineActive = e.target.checked; updateLegend(); updateMap(); };
-  document.getElementById('route-time-gap').onchange  = debounce(updateMap, 500);
-  document.getElementById('route-dist-gap').onchange  = debounce(updateMap, 500);
+  document.getElementById('heatmap-toggle').onchange   = (e) => { heatmapActive  = e.target.checked; updateLegend(); updateMap(); };
+  document.getElementById('points-toggle').onchange    = (e) => { pointsActive   = e.target.checked; updateLegend(); updateMap(); };
+  document.getElementById('polyline-toggle').onchange  = (e) => { polylineActive = e.target.checked; updateLegend(); updateMap(); };
+  document.getElementById('accuracy-toggle').onchange  = (e) => { accuracyActive = e.target.checked; updateLegend(); updateMap(); };
+  document.getElementById('labels-toggle').onchange    = (e) => { labelsActive   = e.target.checked; updateLegend(); updateMap(); };
+  // route-time-gap + route-dist-gap: onchange wird in initMap() gesetzt (mit localStorage-Speicherung)
 
   // Hilfsfunktion: Dropdown aktivieren/deaktivieren
   function setDropdown(id, active) {
