@@ -514,8 +514,9 @@
         '1h': 60, '2h': 120, '4h': 240, '6h': 360, '8h': 480, '12h': 720, '18h': 1080, '24h': 1440,
         '2d': 2880, '3d': 4320, '5d': 7200, '7d': 10080, '14d': 20160, '30d': 43200
       }[effectiveRange];
+      // Voller UTC-ISO-Timestamp → Backend filtert korrekt auf point_timestamp_utc (nicht auf lokale Datum+Zeit getrennt)
       const from = new Date(Date.now() - mins * 60000).toISOString();
-      url += `&date_from=${from.slice(0, 10)}&time_from=${from.slice(11, 19)}`;
+      url += `&date_from=${encodeURIComponent(from)}`;
     }
 
     try {

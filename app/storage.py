@@ -1478,14 +1478,16 @@ def _build_shared_filters(
     parameters: list[Any] = []
 
     if date_from:
-        if local_date_column:
+        # Voller ISO-Timestamp (enthält 'T') → UTC-Spalte verwenden (z. B. Karten-Zeitraum-Filter)
+        # Nur-Datum (YYYY-MM-DD) → lokale Datumsspalte verwenden (z. B. Dashboard-Datumsauswahl)
+        if local_date_column and "T" not in date_from:
             clauses.append(f"{local_date_column} >= ?")
             parameters.append(date_from)
         else:
             clauses.append(f"{time_column} >= ?")
             parameters.append(_normalize_datetime_filter(date_from, end_of_day=False))
     if date_to:
-        if local_date_column:
+        if local_date_column and "T" not in date_to:
             clauses.append(f"{local_date_column} <= ?")
             parameters.append(date_to)
         else:
