@@ -17,13 +17,14 @@ from typing import Any
 from urllib.parse import parse_qs, urlencode
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response as RawResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .config import Settings
+from .import_parsers import ImportError as GpsImportError, parse_file as parse_import_file
 from .models import LiveLocationRequest, PointFilters, RequestFilters, RequestMetadata
 from .storage import ReceiverStorage, StorageError
 
@@ -47,6 +48,7 @@ NAV_GROUPS = [
         "items": [
             {"key": "dashboard", "label": "Übersicht", "href": "/dashboard"},
             {"key": "map", "label": "Karte", "href": "/dashboard/map"},
+            {"key": "import", "label": "Import", "href": "/dashboard/import"},
             {"key": "live_status", "label": "Receiver-Status", "href": "/dashboard/live-status"},
             {"key": "activity", "label": "Aktivität", "href": "/dashboard/activity"},
         ],
@@ -637,6 +639,44 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "config_summary": _settings(request).masked_config_summary(),
         })
         return templates.TemplateResponse(request=request, name="map.html", context=context)
+
+    @app.get("/dashboard/import", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    async def dashboard_import(request: Request) -> HTMLResponse:
+        snapshot = _dashboard_snapshot(request)
+        context = _base_template_context(
+            request, active_nav="import",
+            page_title="Import", page_kicker="GPS-Daten importieren",
+            page_description="Importiere GPS-Daten aus Google Maps, GPX, KML, KMZ, GeoJSON, CSV oder ZIP.",
+            snapshot=snapshot,
+        )
+        return templates.TemplateResponse(request=request, name="import.html", context=context)
+
+    @app.post("/api/import", dependencies=[Depends(_require_admin_access)])
+    async def api_import(request: Request, file: UploadFile = File(...)) -> JSONResponse:
+        MAX_BYTES = 100 * 1024 * 1024  # 100 MB
+        data = await file.read(MAX_BYTES + 1)
+        if len(data) > MAX_BYTES:
+            raise HTTPException(status_code=413, detail="Datei zu groß (max. 100 MB).")
+        filename = file.filename or "upload"
+        try:
+            points = parse_import_file(filename, data)
+        except GpsImportError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Parser-Fehler: {e}")
+
+        import_id = str(uuid4())
+        session_id = f"import-{import_id[:8]}"
+        source = f"import:{filename}"
+        try:
+            result = _storage(request).import_points(
+                points, source=source, session_id=session_id, request_id=import_id
+            )
+        except StorageError as e:
+            raise HTTPException(status_code=503, detail=str(e))
+        return JSONResponse({"ok": True, "inserted": result["inserted"],
+                             "skipped": result["skipped"], "session_id": session_id,
+                             "filename": filename})
 
     @app.get("/dashboard/live-status", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
     async def dashboard_live_status(request: Request) -> HTMLResponse:

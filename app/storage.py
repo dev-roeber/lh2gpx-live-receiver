@@ -772,6 +772,60 @@ class ReceiverStorage:
             ],
         }
 
+    def import_points(self, points: list[dict[str, Any]], *, source: str, session_id: str, request_id: str) -> dict[str, Any]:
+        """Bulk-insert GPS points from an import operation."""
+        self._require_ready()
+        now_utc = datetime.now(timezone.utc)
+        received_iso = isoformat_utc(now_utc)
+
+        point_rows = []
+        skipped = 0
+        for p in points:
+            try:
+                ts_utc = p["timestamp_utc"]
+                if isinstance(ts_utc, str):
+                    ts_utc = datetime.fromisoformat(ts_utc.replace("Z", "+00:00")).astimezone(timezone.utc)
+                ts_local = ts_utc.astimezone(self._timezone)
+                point_rows.append((
+                    request_id, received_iso, received_iso,
+                    isoformat_utc(ts_utc),
+                    float(p["latitude"]), float(p["longitude"]),
+                    float(p.get("accuracy_m") or 0),
+                    source, session_id,
+                    p.get("capture_mode") or "imported",
+                    ts_local.strftime("%Y-%m-%d"),
+                    ts_local.strftime("%H:%M:%S"),
+                    ts_local.isoformat(),
+                ))
+            except Exception:
+                skipped += 1
+
+        inserted = len(point_rows)
+        if point_rows:
+            ts_list = [r[3] for r in point_rows]
+            first_ts, last_ts = min(ts_list), max(ts_list)
+            with self._locked_transaction() as connection:
+                connection.execute(
+                    """INSERT OR IGNORE INTO ingest_requests (
+                        request_id, received_at_utc, sent_at_utc, source, session_id,
+                        capture_mode, points_count, first_point_ts_utc, last_point_ts_utc,
+                        user_agent, remote_addr, proxied_ip, ingest_status, http_status,
+                        error_category, error_detail, raw_payload_json, raw_payload_reference
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (request_id, received_iso, received_iso, source, session_id,
+                     "imported", inserted, first_ts, last_ts,
+                     "import", "", "", "accepted", 202, None, None, "{}", None),
+                )
+                connection.executemany(
+                    """INSERT INTO gps_points (
+                        request_id, received_at_utc, sent_at_utc, point_timestamp_utc,
+                        latitude, longitude, horizontal_accuracy_m, source, session_id,
+                        capture_mode, point_date_local, point_time_local, point_timestamp_local
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    point_rows,
+                )
+        return {"inserted": inserted, "skipped": skipped, "request_id": request_id}
+
     def get_live_summary(self, *, limit: int) -> dict[str, Any]:
         self._require_ready()
         capped_limit = max(1, min(limit, self.settings.points_page_size_max * 40))
