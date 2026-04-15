@@ -1,9 +1,67 @@
 # Changelog
 
+## 2026-04-15
+
+### Added
+- interaktive Echtzeit-Karte (`/dashboard/map`) mit Leaflet, CartoDB-Dark-Tiles und MarkerCluster
+- Live-Punkt-Log direkt unter der Karte: scrollbare Echtzeit-Tabelle, Zeitstempel in `Europe/Berlin`
+- Zeitraumfilter auf der Karte: 2min bis 30 Tage und gesamt (max. 2000 Punkte), mit localStorage-Persistenz
+- Session-Filter per Dropdown, beschriftet mit Zeitstempelbereich der Session
+- Auto-Follow: Karte folgt automatisch dem neuesten eingehenden Punkt (Zoom 18)
+- Fit-Bounds: gesamten Track auf einmal anzeigen
+- konfigurierbares Polling-Intervall: 2s / 3s / 5s (Standard) / 10s bis 5min
+- GeoJSON-Export des aktuellen Karteninhalts, Copy-to-Clipboard für Koordinaten
+- iOS-Vollbild-Fallback: `position:fixed; 100vw/100dvh` per ⛶-Button, da `requestFullscreen()` auf iOS nicht unterstützt wird
+- einmaliger "Zum Home-Bildschirm"-Banner mit Anleitung (pro Session, schließbar)
+- Punkte/min-Statistik basierend auf den letzten 100 Punkten
+- vollständige deutsche Lokalisierung aller Dashboard-Seiten
+- Session-Cookie-Auth für das Dashboard; nach Login Redirect auf `/dashboard/map`
+- `POINTS_PAGE_SIZE_MAX` von 250 auf 2000 erhöht für vollständige Track-Darstellung
+
+### Changed
+- iOS-inspiriertes Dark-Design-System für alle Templates: OLED-Schwarz `#000000`, Mint-Akzent `#30D158`, semantische Farben (Blau, Orange, Lila, Rot, Teal), Glasmorphismus-Header (`backdrop-filter: blur(20px)`), Pill-Buttons, gerundete Karten
+- CSS-Grid-Layout für die Kartenseite: 3-Spalten Desktop (≥1440px), 2-Spalten Tablet (768–1439px), 1-Spalte Mobile (<768px)
+- Filter-Panel auf Mobile einklappbar via Toggle-Button
+- Breakpoints vereinheitlicht: 768px und 1440px (vorher: 767/768px und 1400/1440px durchmischt)
+- Leaflet `invalidateSize()` sofort beim Laden + ResizeObserver statt verzögertem Timeout
+- Log-Zeitstempel auf `Europe/Berlin` via `Intl.DateTimeFormat` umgestellt
+- Zeitraumfilter sendet UTC-Werte (korrekt, da `LOCAL_TIMEZONE=UTC` in DB)
+
+### Fixed
+- iPhone-Overflow: `min-width:0` + `overflow-x:hidden` auf allen CSS-Grid-Children (`app-shell`, `page-shell`, `panel`, `map-page-container`)
+- Tabellen-`min-width:900px` auf `@media (min-width:1024px)` beschränkt (verhinderte horizontalen Overflow auf 375px-Screens)
+- Panel-Padding von 4px auf 12px erhöht (war unlesbar auf Mobile)
+- Sidebar nicht scrollbar auf `max-width:1024px` → `overflow-y:auto` ergänzt
+- Map-Filter-Panel wurde unten abgeschnitten → `max-height: calc(100vh - …)` + `overflow-y:auto`
+- `<script>`-Tag stand nach `</html>` (invalides HTML) → in `</body>` verschoben
+- Log-Search-Input mit `width:200px` fest → `width:100%; max-width:200px`
+- Zeitraumfilter-Bug durch Berlin-Zeit-Versuch verursacht → revertiert auf UTC (`toISOString().slice`)
+- Spalte `Genauigkeit` im Live-Log auf Mobile ausgeblendet (`.log-col-accuracy`)
+- Session-Select-Dropdown-Synchronisation bei leerem Default-Wert korrigiert
+
+## 2026-04-13
+
+### Added
+- Session-Cookie-basierte Login-Seite für das Dashboard (`/login`), inkl. Logout
+- `feat(auth)`: Template-Bug im Gemini-generierten Code behoben der Login-Redirect verhinderte
+- vollständige Bedienungsanleitungen in `docs/WEBSEITE_BEDIENUNG.md` und `docs/WEBSEITE_TECHNISCH.md`
+- Nutzer- und Betreuer-Anleitungen (`docs/USER_GUIDE.md`, `docs/MAINTAINER_GUIDE.md`)
+- dedizierte Desktop- und Mobile-CSS-Dateien (`desktop.css`, `mobile.css`) neben `style.css`
+- Homepage (`/`) mit vollständiger Übersicht und verifizierten Endpunkten
+- Empty-State auf der Exporte-Seite verbessert
+
+### Fixed
+- `StorageError` lieferte JSON statt HTML → gibt jetzt korrekte HTML-Fehlerseite zurück
+- temporäre Audit-Artefakte aus dem Repo entfernt
+- Tippfehler in mehreren Templates und Dokumentationsdateien
+
+### Changed
+- Dokumentation umfassend überarbeitet und Formatierung bereinigt
+
 ## [2026-04-12]
 ### Security
 - `storage.py`: Raw-Payload-NDJSON-Datei wird jetzt mit Modus 0o600 erstellt (vorher: umask-abhängig)
-- `.env.example`: Erlaeuternder Kommentar zu ENABLE_RAW_PAYLOAD_NDJSON hinzugefuegt
+- `.env.example`: erklärender Kommentar zu ENABLE_RAW_PAYLOAD_NDJSON ergänzt
 
 ## 2026-03-31 (v0.5 — UI-Redesign)
 
