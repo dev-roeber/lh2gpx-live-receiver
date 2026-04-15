@@ -622,10 +622,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def dashboard_map(request: Request) -> HTMLResponse:
         snapshot = _dashboard_snapshot(request)
         try:
-            sessions = _storage(request).list_sessions()
+            all_sessions = _storage(request).list_sessions()
         except StorageError:
-            sessions = []
-            
+            all_sessions = []
+        sessions = [s for s in all_sessions if not (s.get("source") or "").startswith("import:")]
+        import_sessions = [s for s in all_sessions if (s.get("source") or "").startswith("import:")]
+
         context = _base_template_context(
             request,
             active_nav="map",
@@ -636,6 +638,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         context.update({
             "sessions": sessions,
+            "import_sessions": import_sessions,
             "config_summary": _settings(request).masked_config_summary(),
         })
         return templates.TemplateResponse(request=request, name="map.html", context=context)

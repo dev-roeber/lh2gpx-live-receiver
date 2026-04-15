@@ -56,6 +56,16 @@
       </select>
     </div>
     <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px;">
+      <input type="checkbox" id="import-filter-toggle" style="width: auto; cursor: pointer;">
+      <label for="import-filter-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Import:</label>
+      <select id="import-select-dropdown" disabled style="flex: 1; opacity: 0.5; padding: 5px 8px; border: 1px solid var(--text-muted); border-radius: 4px; font-size: 0.85rem;">
+        <option value="">Alle Importe</option>
+        {% for s in import_sessions %}
+        <option value="{{ s.session_id }}">{{ s.source[7:] | truncate(22, true, '…') }} ({{ s.points_count }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px;">
       <input type="checkbox" id="auto-center-toggle" checked style="width: auto; cursor: pointer;">
       <label for="auto-center-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Letzter Punkt folgen</label>
     </div>
@@ -724,6 +734,24 @@
   document.getElementById('route-dist-gap').onchange  = debounce(updateMap, 500);
 
   // Session filter toggle
+  document.getElementById('import-filter-toggle').onchange = (e) => {
+    const dd = document.getElementById('import-select-dropdown');
+    dd.disabled = !e.target.checked;
+    dd.style.opacity = e.target.checked ? '1' : '0.5';
+    if (!e.target.checked) { dd.value = ''; document.getElementById('session-select').value = ''; updateMap(); }
+  };
+  document.getElementById('import-select-dropdown').onchange = (e) => {
+    // Wenn Import gewählt: Session-Filter deaktivieren und umgekehrt
+    if (e.target.value) {
+      document.getElementById('session-filter-toggle').checked = false;
+      document.getElementById('session-select-dropdown').disabled = true;
+      document.getElementById('session-select-dropdown').style.opacity = '0.5';
+      document.getElementById('session-select-dropdown').value = '';
+    }
+    document.getElementById('session-select').value = e.target.value;
+    updateMap();
+  };
+
   document.getElementById('session-filter-toggle').onchange = (e) => {
     const dropdown = document.getElementById('session-select-dropdown');
     dropdown.disabled = !e.target.checked;
@@ -732,10 +760,14 @@
       dropdown.value = '';
       document.getElementById('session-select').value = '';
       updateMap();
+    } else {
+      // Session aktiv → Import-Filter deaktivieren
+      document.getElementById('import-filter-toggle').checked = false;
+      const idd = document.getElementById('import-select-dropdown');
+      idd.disabled = true; idd.style.opacity = '0.5'; idd.value = '';
     }
   };
 
-  // Dropdown change
   document.getElementById('session-select-dropdown').onchange = (e) => {
     document.getElementById('session-select').value = e.target.value;
     updateMap();

@@ -61,6 +61,13 @@
     <button class="btn-pill secondary" id="clear-file">✕ Entfernen</button>
   </div>
 
+  <div id="progress-wrap" style="display:none;">
+    <div class="progress-bar-track">
+      <div class="progress-bar-fill" id="progress-fill"></div>
+    </div>
+    <p id="progress-label" class="progress-label">Wird hochgeladen…</p>
+  </div>
+
   <div id="import-status" class="import-status" style="display:none;"></div>
 
   <div class="import-actions">
@@ -133,6 +140,17 @@
 .import-status.loading { background: var(--blue-dim); border: 1px solid var(--blue-border); color: var(--blue); }
 .import-status.success { background: var(--mint-dim); border: 1px solid var(--mint-border); color: var(--mint); }
 .import-status.error   { background: var(--red-dim);  border: 1px solid var(--red-border);  color: var(--red); }
+
+.progress-bar-track {
+  height: 6px; background: var(--surface-3); border-radius: 999px; overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%; width: 0%; background: var(--mint); border-radius: 999px;
+  transition: width 0.2s ease;
+}
+.progress-label {
+  font-size: 0.75rem; color: var(--text-3); margin: 6px 0 0; text-align: center;
+}
 
 .import-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 
@@ -207,18 +225,44 @@ dropZone.addEventListener('drop', e => {
   if (f) setFile(f);
 });
 
-importBtn.addEventListener('click', async () => {
+const progressWrap = document.getElementById('progress-wrap');
+const progressFill = document.getElementById('progress-fill');
+const progressLabel = document.getElementById('progress-label');
+
+function setProgress(pct, label) {
+  progressFill.style.width = pct + '%';
+  progressLabel.textContent = label;
+}
+
+importBtn.addEventListener('click', () => {
   if (!selectedFile) return;
   importBtn.disabled = true;
-  showStatus('Datei wird hochgeladen und verarbeitet…', 'loading');
+  statusBox.style.display = 'none';
+  progressWrap.style.display = 'block';
+  setProgress(0, 'Upload wird vorbereitet…');
 
   const form = new FormData();
   form.append('file', selectedFile);
 
-  try {
-    const res = await fetch('/api/import', { method: 'POST', body: form, credentials: 'same-origin' });
-    const json = await res.json();
-    if (res.ok && json.ok) {
+  const xhr = new XMLHttpRequest();
+
+  xhr.upload.addEventListener('progress', e => {
+    if (!e.lengthComputable) return;
+    const pct = Math.round((e.loaded / e.total) * 85);
+    setProgress(pct, `Hochladen… ${formatBytes(e.loaded)} / ${formatBytes(e.total)}`);
+  });
+
+  xhr.upload.addEventListener('load', () => {
+    setProgress(90, 'Datei empfangen – wird verarbeitet…');
+  });
+
+  xhr.addEventListener('load', () => {
+    setProgress(100, 'Fertig.');
+    progressWrap.style.display = 'none';
+    let json;
+    try { json = JSON.parse(xhr.responseText); } catch { json = {}; }
+
+    if (xhr.status >= 200 && xhr.status < 300 && json.ok) {
       showStatus(
         `✓ ${json.inserted} Punkte importiert` +
         (json.skipped > 0 ? ` · ${json.skipped} übersprungen` : '') +
@@ -227,13 +271,35 @@ importBtn.addEventListener('click', async () => {
       );
       clearFile();
     } else {
-      showStatus('✗ ' + (json.detail || 'Unbekannter Fehler'), 'error');
+      // Detaillierte Fehlermeldung aus dem Server
+      const detail = json.detail || json.message || null;
+      let msg = '✗ Import fehlgeschlagen';
+      if (xhr.status === 413) msg = '✗ Datei zu groß (max. 100 MB)';
+      else if (xhr.status === 422 && detail) msg = `✗ Dateiinhalt ungültig: ${detail}`;
+      else if (xhr.status === 415) msg = '✗ Dateiformat nicht unterstützt';
+      else if (xhr.status === 503) msg = '✗ Datenbank nicht erreichbar – bitte neu laden';
+      else if (detail) msg = `✗ ${detail}`;
+      else if (xhr.status === 0) msg = '✗ Keine Verbindung zum Server';
+      showStatus(msg, 'error');
       importBtn.disabled = false;
     }
-  } catch (e) {
-    showStatus('✗ Netzwerkfehler: ' + e.message, 'error');
+  });
+
+  xhr.addEventListener('error', () => {
+    progressWrap.style.display = 'none';
+    showStatus('✗ Netzwerkfehler – Verbindung zum Server unterbrochen', 'error');
     importBtn.disabled = false;
-  }
+  });
+
+  xhr.addEventListener('timeout', () => {
+    progressWrap.style.display = 'none';
+    showStatus('✗ Zeitüberschreitung – Datei zu groß oder Server überlastet', 'error');
+    importBtn.disabled = false;
+  });
+
+  xhr.timeout = 300000; // 5 min
+  xhr.open('POST', '/api/import');
+  xhr.send(form);
 });
 </script>
 
