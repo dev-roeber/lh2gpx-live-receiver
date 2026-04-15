@@ -125,6 +125,9 @@
       <label class="fp-layer-btn" title="Jeden Kalendertag in einer eigenen Farbe darstellen">
         <input type="checkbox" id="daytrack-toggle"> Tage
       </label>
+      <label class="fp-layer-btn" title="GPS-Punkte an Straßen anpassen via OSRM (max. 10 Segmente, benötigt Internet)">
+        <input type="checkbox" id="snap-toggle"> Snap
+      </label>
     </div>
     <div id="stops-config" style="display:none;margin-top:6px;">
       <div class="filter-group fp-row fp-numrow">
@@ -298,6 +301,14 @@
         </div>
       </div>
 
+      <div id="legend-snap" style="display:none;min-width:130px;">
+        <div style="font-weight:600;color:var(--text-2);margin-bottom:6px;">Road Snap</div>
+        <div style="display:flex;align-items:center;gap:7px;">
+          <span style="width:22px;height:3px;background:#30D158;border-radius:2px;display:inline-block;"></span>
+          <span>OSRM-angepasster Streckenverlauf</span>
+        </div>
+      </div>
+
       <div id="legend-heatmap" style="display:none;min-width:160px;">
         <div style="font-weight:600;color:var(--text-2);margin-bottom:6px;">Heatmap — Dichte</div>
         <div style="display:flex;align-items:center;gap:8px;">
@@ -413,7 +424,9 @@
   let speedActive     = false;
   let stopsActive     = false;
   let daytrackActive  = false;
-  let accuracyLayer, labelsLayer, speedLayer, stopsLayer, daytrackLayer;
+  let snapActive      = false;
+  let accuracyLayer, labelsLayer, speedLayer, stopsLayer, daytrackLayer, snapLayer;
+  let canvasRenderer;
   let darkMode = localStorage.getItem('map-dark-mode') === 'true' || false;
   let tileLayer;
   let lastApiStatus = 'loading';
@@ -597,16 +610,18 @@
       ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
       : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
+    canvasRenderer = L.canvas({ padding: 0.5 });
     tileLayer = L.tileLayer(osmUrl, { maxZoom: 19, attribution: '© OpenStreetMap & CartoDB' }).addTo(map);
     pathLayer = L.featureGroup().addTo(map);
-    markerClusterGroup = L.markerClusterGroup().addTo(map);
+    markerClusterGroup = L.markerClusterGroup({ chunkedLoading: true }).addTo(map);
     polylineLayer = L.featureGroup().addTo(map);
-    pointsLayer = L.featureGroup().addTo(map);
-    accuracyLayer  = L.featureGroup().addTo(map);
-    labelsLayer    = L.featureGroup().addTo(map);
-    speedLayer     = L.featureGroup().addTo(map);
-    stopsLayer     = L.featureGroup().addTo(map);
-    daytrackLayer  = L.featureGroup().addTo(map);
+    pointsLayer   = L.featureGroup().addTo(map);
+    accuracyLayer = L.featureGroup().addTo(map);
+    labelsLayer   = L.featureGroup().addTo(map);
+    speedLayer    = L.featureGroup().addTo(map);
+    stopsLayer    = L.featureGroup().addTo(map);
+    daytrackLayer = L.featureGroup().addTo(map);
+    snapLayer     = L.featureGroup().addTo(map);
     heatLayer = L.heatLayer([], {
       radius: 14, blur: 12, maxZoom: 19, minOpacity: 0.25, max: 1.0,
       gradient: {
@@ -781,10 +796,12 @@
       speedLayer.clearLayers();
       stopsLayer.clearLayers();
       daytrackLayer.clearLayers();
+      snapLayer.clearLayers();
 
       if (points && points.length > 0) {
+        // ISO-String-Vergleich: schneller als new Date() für Sortierung
         const sorted = [...points].sort((a, b) =>
-          new Date(a.point_timestamp_utc) - new Date(b.point_timestamp_utc)
+          a.point_timestamp_utc < b.point_timestamp_utc ? -1 : 1
         );
         const last = points[0]; // API liefert DESC
 
@@ -799,13 +816,16 @@
 
         // === PUNKTE-LAYER ===
         if (pointsActive) {
-          sorted.forEach((p, i) => {
+          sorted.forEach((p) => {
             const isLast = p === last;
+            // Ältere Punkte transparenter (Zeitverlauf visuell spürbar)
+            const idx = sorted.indexOf(p);
+            const ageFade = Math.max(0.35, 1 - (sorted.length - 1 - idx) / Math.max(sorted.length, 1) * 0.65);
             const marker = L.circleMarker([p.latitude, p.longitude], isLast
-              ? { radius: 9, color: '#fff', fillColor: '#30D158', fillOpacity: 1, weight: 2.5 }
-              : { radius: 4, color: 'transparent', fillColor: '#0A84FF', fillOpacity: 0.75, weight: 0 }
+              ? { radius: 8, color: '#fff', weight: 2, fillColor: '#30D158', fillOpacity: 1, renderer: canvasRenderer }
+              : { radius: 3.5, color: '#1a5fa8', weight: 0.5, fillColor: '#0A84FF', fillOpacity: ageFade * 0.8, renderer: canvasRenderer }
             ).bindPopup(
-              `<b>${isLast ? 'Letzte Position' : 'GPS-Punkt'}</b><br>` +
+              `<b>${isLast ? '📍 Letzte Position' : 'GPS-Punkt'}</b><br>` +
               `${p.point_timestamp_local || p.point_timestamp_utc}<br>` +
               `±${Math.round(p.horizontal_accuracy_m)}m &nbsp; ${p.source || ''}`
             );
@@ -837,12 +857,13 @@
           }
           if (seg.length > 1) segments.push(seg);
 
-          // Farben nach Segment-Index durchrotieren
           const palette = ['#0A84FF','#30D158','#FF9F0A','#BF5AF2','#5AC8FA','#FF453A'];
           segments.forEach((s, i) => {
             const color = palette[i % palette.length];
             const coords = s.map(p => [p.latitude, p.longitude]);
-            L.polyline(coords, { color, weight: 4, opacity: 0.75 }).bindPopup(
+            // Border-Effekt: dunkle Outline darunter, helle Linie oben
+            L.polyline(coords, { color: 'rgba(0,0,0,0.25)', weight: 6, opacity: 1, renderer: canvasRenderer, interactive: false }).addTo(polylineLayer);
+            L.polyline(coords, { color, weight: 3.5, opacity: 0.9, renderer: canvasRenderer }).bindPopup(
               `Route ${i+1} · ${s.length} Punkte<br>` +
               `${s[0].point_timestamp_local?.slice(11,16) || ''} – ${s[s.length-1].point_timestamp_local?.slice(11,16) || ''}`
             ).addTo(polylineLayer);
@@ -873,34 +894,44 @@
             if (r > 0 && r < 5000) {
               L.circle([p.latitude, p.longitude], {
                 radius: r, color: '#0A84FF', fillColor: '#0A84FF',
-                fillOpacity: 0.06, weight: 1, opacity: 0.35
+                fillOpacity: 0.06, weight: 1, opacity: 0.35, renderer: canvasRenderer
               }).addTo(accuracyLayer);
             }
           });
         }
 
-        // === GESCHWINDIGKEITS-LAYER ===
+        // === GESCHWINDIGKEITS-LAYER (Farb-Gruppierung → statt N-1 Einzelpolylinien) ===
         if (speedActive && sorted.length >= 2) {
           function speedColor(kmh) {
             if (kmh < 0)  return '#8E8E93';
-            if (kmh < 5)  return '#30D158'; // Fuß
-            if (kmh < 20) return '#FFD60A'; // Rad
-            if (kmh < 80) return '#FF9F0A'; // Auto
-            return '#FF453A';               // Bahn/Flug
+            if (kmh < 5)  return '#30D158';
+            if (kmh < 20) return '#FFD60A';
+            if (kmh < 80) return '#FF9F0A';
+            return '#FF453A';
           }
-          // Bei >2000 Punkten jeden zweiten nehmen (Performance)
-          const sp = sorted.length > 2000 ? sorted.filter((_, i) => i % 2 === 0) : sorted;
+          const sp = sorted.length > 3000 ? sorted.filter((_, i) => i % Math.ceil(sorted.length/3000) === 0) : sorted;
+          const groups = []; // {color, coords, kmhSum, count}
           for (let i = 1; i < sp.length; i++) {
             const prev = sp[i-1], cur = sp[i];
+            const tSec = (new Date(cur.point_timestamp_utc) - new Date(prev.point_timestamp_utc)) / 1000;
             const distM = haversine(prev, cur);
-            const tSec  = (new Date(cur.point_timestamp_utc) - new Date(prev.point_timestamp_utc)) / 1000;
-            const kmh   = tSec > 0 ? (distM / tSec) * 3.6 : -1;
-            // Teleporter-Sprünge ignorieren (>500 km/h)
+            const kmh = tSec > 0 ? (distM / tSec) * 3.6 : -1;
             if (kmh > 500) continue;
-            L.polyline([[prev.latitude, prev.longitude],[cur.latitude, cur.longitude]], {
-              color: speedColor(kmh), weight: 4, opacity: 0.85
-            }).bindPopup(`${kmh >= 0 ? kmh.toFixed(1) + ' km/h' : '?'}`).addTo(speedLayer);
+            const color = speedColor(kmh);
+            const last = groups[groups.length - 1];
+            if (last && last.color === color) {
+              last.coords.push([cur.latitude, cur.longitude]);
+              if (kmh >= 0) { last.kmhSum += kmh; last.count++; }
+            } else {
+              groups.push({ color, coords: [[prev.latitude, prev.longitude],[cur.latitude, cur.longitude]], kmhSum: kmh >= 0 ? kmh : 0, count: kmh >= 0 ? 1 : 0 });
+            }
           }
+          groups.forEach(g => {
+            const avgKmh = g.count > 0 ? (g.kmhSum / g.count).toFixed(1) : '?';
+            L.polyline(g.coords, { color: 'rgba(0,0,0,0.2)', weight: 6, opacity: 1, renderer: canvasRenderer, interactive: false }).addTo(speedLayer);
+            L.polyline(g.coords, { color: g.color, weight: 3.5, opacity: 0.9, renderer: canvasRenderer })
+              .bindPopup(`Ø ${avgKmh} km/h`).addTo(speedLayer);
+          });
         }
 
         // === STOP-ERKENNUNG ===
@@ -919,7 +950,7 @@
               const endT   = sorted[j-1].point_timestamp_local?.slice(11,16) || '';
               L.circle([midPt.latitude, midPt.longitude], {
                 radius: STOP_RADIUS_M, color: '#BF5AF2', fillColor: '#BF5AF2',
-                fillOpacity: 0.15, weight: 2, opacity: 0.6
+                fillOpacity: 0.15, weight: 2, opacity: 0.6, renderer: canvasRenderer
               }).addTo(stopsLayer);
               L.marker([midPt.latitude, midPt.longitude], {
                 icon: L.divIcon({
@@ -956,7 +987,7 @@
             if (seg.length > 1) segs.push(seg);
             segs.forEach(s => {
               L.polyline(s.map(p => [p.latitude, p.longitude]), {
-                color, weight: 3, opacity: 0.8
+                color, weight: 3, opacity: 0.85, renderer: canvasRenderer
               }).bindPopup(`${day} · ${pts.length} Punkte`).addTo(daytrackLayer);
             });
             // Tages-Label am ersten Punkt
@@ -969,6 +1000,9 @@
             }).addTo(daytrackLayer);
           });
         }
+
+        // === ROAD-SNAP (OSRM, async — startet nach Rest des Renders) ===
+        if (snapActive) buildSnapLayer(sorted);
 
         // === BOUNDS / AUTOCENTRE ===
         const allCoords = sorted.map(p => [p.latitude, p.longitude]);
@@ -1077,6 +1111,68 @@
     return `vor ${Math.floor(diffMs / 86400000)}d`;
   }
 
+  // === OSRM ROAD-SNAP ===
+  async function snapSegment(pts) {
+    const max = 80;
+    const step = pts.length > max ? Math.ceil(pts.length / max) : 1;
+    const sampled = pts.filter((_, i) => i % step === 0);
+    if (sampled.length < 2) return null;
+    const coords = sampled.map(p => `${p.longitude.toFixed(6)},${p.latitude.toFixed(6)}`).join(';');
+    const ts = sampled.map(p => Math.floor(new Date(p.point_timestamp_utc).getTime() / 1000));
+    // Streng monoton steigend
+    for (let i = 1; i < ts.length; i++) if (ts[i] <= ts[i-1]) ts[i] = ts[i-1] + 1;
+    const radii = sampled.map(() => '50').join(';');
+    const url = `https://router.project-osrm.org/match/v1/driving/${coords}?overview=full&geometries=geojson&timestamps=${ts.join(';')}&radiuses=${radii}`;
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 6000);
+      const res = await fetch(url, { signal: ctrl.signal });
+      clearTimeout(t);
+      if (!res.ok) return null;
+      const d = await res.json();
+      if (d.code !== 'Ok' || !d.matchings?.length) return null;
+      return d.matchings.flatMap(m => m.geometry.coordinates.map(([lon, lat]) => [lat, lon]));
+    } catch { return null; }
+  }
+
+  async function buildSnapLayer(sorted) {
+    snapLayer.clearLayers();
+    const apiStatus = document.getElementById('api-status');
+    apiStatus.textContent = '● SNAP…';
+    apiStatus.style.color = 'var(--teal)';
+    // Segmentierung
+    const tGapMs = ROUTE_TIME_GAP * 60000;
+    const dGapM  = ROUTE_DIST_GAP;
+    const segments = []; let seg = [sorted[0]];
+    function hav(a, b) {
+      const R = 6371000, r = Math.PI/180, dLat = (b.latitude-a.latitude)*r, dLon = (b.longitude-a.longitude)*r;
+      return 2*R*Math.asin(Math.sqrt(Math.sin(dLat/2)**2+Math.cos(a.latitude*r)*Math.cos(b.latitude*r)*Math.sin(dLon/2)**2));
+    }
+    for (let i = 1; i < sorted.length; i++) {
+      const p = sorted[i-1], c = sorted[i];
+      if ((new Date(c.point_timestamp_utc)-new Date(p.point_timestamp_utc)) > tGapMs || hav(p,c) > dGapM) {
+        if (seg.length > 1) segments.push(seg); seg = [];
+      }
+      seg.push(c);
+    }
+    if (seg.length > 1) segments.push(seg);
+    // Max 10 Segmente snappen
+    const toSnap = segments.slice(0, 10);
+    // Max 3 gleichzeitig
+    for (let i = 0; i < toSnap.length; i += 3) {
+      const batch = toSnap.slice(i, i + 3);
+      const results = await Promise.all(batch.map(snapSegment));
+      results.forEach(coords => {
+        if (!coords) return;
+        L.polyline(coords, { color: 'rgba(0,0,0,0.3)', weight: 7, opacity: 1, renderer: canvasRenderer, interactive: false }).addTo(snapLayer);
+        L.polyline(coords, { color: '#30D158', weight: 4, opacity: 0.95, renderer: canvasRenderer })
+          .bindPopup('Straßen-Snap (OSRM)').addTo(snapLayer);
+      });
+    }
+    apiStatus.textContent = '● ONLINE';
+    apiStatus.style.color = 'var(--mint)';
+  }
+
   function updateLegend() {
     document.getElementById('legend-points').style.display    = pointsActive   ? '' : 'none';
     document.getElementById('legend-lines').style.display     = polylineActive ? '' : 'none';
@@ -1086,7 +1182,8 @@
     document.getElementById('legend-speed').style.display     = speedActive    ? '' : 'none';
     document.getElementById('legend-stops').style.display     = stopsActive    ? '' : 'none';
     document.getElementById('legend-daytrack').style.display  = daytrackActive ? '' : 'none';
-    const anyActive = pointsActive || polylineActive || heatmapActive || accuracyActive || labelsActive || speedActive || stopsActive || daytrackActive;
+    document.getElementById('legend-snap').style.display      = snapActive     ? '' : 'none';
+    const anyActive = pointsActive || polylineActive || heatmapActive || accuracyActive || labelsActive || speedActive || stopsActive || daytrackActive || snapActive;
     document.getElementById('map-legend').style.display = anyActive ? 'flex' : 'none';
   }
 
@@ -1195,6 +1292,7 @@
     updateLegend(); updateMap();
   };
   document.getElementById('daytrack-toggle').onchange  = (e) => { daytrackActive = e.target.checked; updateLegend(); updateMap(); };
+  document.getElementById('snap-toggle').onchange      = (e) => { snapActive     = e.target.checked; updateLegend(); updateMap(); };
   // route-time-gap + route-dist-gap: onchange wird in initMap() gesetzt (mit localStorage-Speicherung)
 
   // Hilfsfunktion: Dropdown aktivieren/deaktivieren
