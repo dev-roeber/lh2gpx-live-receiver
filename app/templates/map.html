@@ -376,15 +376,8 @@
         '1h': 60, '2h': 120, '4h': 240, '6h': 360, '8h': 480, '12h': 720, '18h': 1080, '24h': 1440,
         '2d': 2880, '3d': 4320, '5d': 7200, '7d': 10080, '14d': 20160, '30d': 43200
       }[effectiveRange];
-      const fromDate = new Date(Date.now() - mins * 60000);
-      const p = {};
-      new Intl.DateTimeFormat('en-US', {
-        timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-      }).formatToParts(fromDate).forEach(({type, value}) => { p[type] = value; });
-      const berlinDate = `${p.year}-${p.month}-${p.day}`;
-      const berlinTime = `${p.hour === '24' ? '00' : p.hour}:${p.minute}:${p.second}`;
-      url += `&date_from=${berlinDate}&time_from=${berlinTime}`;
+      const from = new Date(Date.now() - mins * 60000).toISOString();
+      url += `&date_from=${from.slice(0, 10)}&time_from=${from.slice(11, 19)}`;
     }
 
     try {
