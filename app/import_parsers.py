@@ -6,7 +6,7 @@ import io
 import json
 import zipfile
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 
@@ -71,6 +71,18 @@ def _parse_ts(value: str) -> datetime:
 def _e7_to_deg(val: Any) -> float:
     f = float(val)
     return f / 1e7 if abs(f) > 180 else f
+
+
+def _parse_geo_uri(s: str) -> tuple[float, float] | None:
+    """Extrahiert lat/lon aus 'geo:lat,lon' oder 'geo:lat,lon?...' Strings."""
+    if not isinstance(s, str) or not s.startswith("geo:"):
+        return None
+    try:
+        coords = s[4:].split("?")[0]
+        lat_s, lon_s = coords.split(",", 1)
+        return float(lat_s), float(lon_s)
+    except Exception:
+        return None
 
 
 # ── JSON (Google Maps Timeline, diverse Formate) ─────────────
@@ -169,6 +181,58 @@ def _parse_json(data: bytes) -> list[dict[str, Any]]:
                     pass
             continue
 
+        # ── Google Timeline 2024+: visit ──
+        if "visit" in item:
+            vis = item["visit"]
+            geo_uri = (vis.get("topCandidate", {}).get("placeLocation")
+                       or vis.get("placeLocation"))
+            coords = _parse_geo_uri(geo_uri) if geo_uri else None
+            if coords:
+                try:
+                    ts_raw = item.get("startTime") or item.get("endTime") or ""
+                    ts = _parse_ts(ts_raw) if ts_raw else datetime.now(timezone.utc)
+                    points.append(_pt(coords[0], coords[1], ts, 0, "google_visit"))
+                except Exception:
+                    pass
+            continue
+
+        # ── Google Timeline 2024+: activity ──
+        if "activity" in item:
+            act = item["activity"]
+            for geo_key, ts_key in (("start", "startTime"), ("end", "endTime")):
+                geo_uri = act.get(geo_key)
+                coords = _parse_geo_uri(geo_uri) if geo_uri else None
+                if not coords:
+                    continue
+                try:
+                    ts_raw = item.get(ts_key) or item.get("startTime") or ""
+                    ts = _parse_ts(ts_raw) if ts_raw else datetime.now(timezone.utc)
+                    points.append(_pt(coords[0], coords[1], ts, 0, "google_activity"))
+                except Exception:
+                    pass
+            continue
+
+        # ── Google Timeline 2024+: timelinePath ──
+        if "timelinePath" in item:
+            path = item["timelinePath"]
+            ts_raw = item.get("startTime") or ""
+            try:
+                base_ts = _parse_ts(ts_raw) if ts_raw else datetime.now(timezone.utc)
+            except Exception:
+                base_ts = datetime.now(timezone.utc)
+            for step in path:
+                geo_uri = step.get("point")
+                coords = _parse_geo_uri(geo_uri) if geo_uri else None
+                if not coords:
+                    continue
+                try:
+                    offset_min = int(step.get("durationMinutesOffsetFromStartTime", 0))
+                    ts = base_ts + timedelta(minutes=offset_min)
+                    points.append(_pt(coords[0], coords[1], ts, 0, "google_path"))
+                except Exception:
+                    continue
+            continue
+
         # ── GeoJSON Feature eingebettet in JSON ──
         if item.get("type") == "Feature":
             geom = item.get("geometry", {})
@@ -187,8 +251,9 @@ def _parse_json(data: bytes) -> list[dict[str, Any]]:
     if not points:
         raise ImportError(
             "Keine GPS-Punkte im JSON gefunden. "
-            "Unterstützt: Google Maps Records.json, Timeline-Objekte (placeVisit/activitySegment), "
-            "GeoJSON-Features sowie JSON-Arrays mit latitude/longitude oder latitudeE7/latE7."
+            "Unterstützt: Google Maps Timeline 2024+ (visit/activity/timelinePath), "
+            "Records.json (latitudeE7), Timeline-Objekte (placeVisit/activitySegment), "
+            "GeoJSON-Features sowie JSON-Arrays mit latitude/longitude."
         )
     return points
 
