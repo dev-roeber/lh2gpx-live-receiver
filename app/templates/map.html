@@ -32,6 +32,11 @@
   <button id="map-filter-toggle-btn" class="map-filter-toggle" style="display: none;">Filteroptionen ▼</button>
 
   <div class="map-filter-panel">
+    <div style="display:flex;justify-content:flex-end;margin:-6px -6px 0 0;">
+      <button id="fp-hide-btn" title="Menü ausblenden"
+        style="background:none;border:none;cursor:pointer;color:var(--text-3);font-size:1rem;padding:2px 6px;border-radius:4px;line-height:1;"
+        onclick="toggleFilterPanel(false)">◀</button>
+    </div>
 
     <p class="fp-section-label">Zeitraum</p>
     <div class="filter-group">
@@ -400,6 +405,7 @@
   </div>
 </article>
 </div>
+<button id="fp-show-btn" title="Menü einblenden" onclick="toggleFilterPanel(true)">Filter ▶</button>
 
 <script>
   // === CONFIG ===
@@ -438,6 +444,22 @@
   let nextRefreshTime = null;   // ms timestamp des nächsten geplanten Updates
   let barTickTimer = null;
   let updateInterval = null;    // Modulebene: damit manueller Refresh den Timer zurücksetzen kann
+
+  // === FILTER-PANEL TOGGLE (Desktop) ===
+  function toggleFilterPanel(show) {
+    const container = document.querySelector('.map-page-container');
+    if (show) {
+      container.classList.remove('fp-hidden');
+    } else {
+      container.classList.add('fp-hidden');
+    }
+    localStorage.setItem('map-fp-hidden', show ? '0' : '1');
+    if (map) setTimeout(() => map.invalidateSize(false), 50);
+  }
+  // Zustand wiederherstellen
+  if (localStorage.getItem('map-fp-hidden') === '1') {
+    document.querySelector('.map-page-container').classList.add('fp-hidden');
+  }
 
   // === DEBOUNCE (per-call timeout) ===
   function debounce(fn, ms) {

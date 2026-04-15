@@ -888,6 +888,37 @@ label {
   #map-container { height: 580px; }
   .table-panel   { max-height: 680px; }
   .tile-grid.six-up { grid-template-columns: repeat(3, 1fr); }
+
+  /* Panel ausgeblendet */
+  .map-page-container.fp-hidden {
+    grid-template-columns: 1fr 360px;
+  }
+  .map-page-container.fp-hidden .map-filter-panel   { display: none; }
+  .map-page-container.fp-hidden .map-container-wrapper { grid-column: 1; }
+  .map-page-container.fp-hidden .map-stats-container   { grid-column: 1; }
+  .map-page-container.fp-hidden .log-container-wrapper { grid-column: 2; }
+
+  /* Wiederherstellungs-Tab */
+  #fp-show-btn {
+    display: none;
+    position: fixed;
+    top: calc(var(--header-height) + 32px);
+    left: 0;
+    z-index: 600;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-left: none;
+    border-radius: 0 6px 6px 0;
+    padding: 8px 6px;
+    cursor: pointer;
+    color: var(--text-2);
+    font-size: 0.8rem;
+    line-height: 1;
+    writing-mode: vertical-rl;
+    letter-spacing: 0.04em;
+  }
+  .map-page-container.fp-hidden ~ #fp-show-btn,
+  body:has(.map-page-container.fp-hidden) #fp-show-btn { display: block; }
 }
 
 @media (min-width: 768px) and (max-width: 1439px) {
