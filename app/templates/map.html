@@ -153,9 +153,6 @@
   let filterTimeout;
   let lastApiStatus = 'loading';
   let sessionStartTime = Date.now();
-  let lastPointCount = 0;
-  let lastUpdateTime = Date.now();
-  let allPoints = [];
 
   // === DEBOUNCE ===
   function debounce(fn, ms) {
@@ -229,11 +226,20 @@
       return;
     }
 
-    // Points per minute
-    const now = Date.now();
-    const elapsed = (now - sessionStartTime) / 60000; // minutes
-    const pointsDiff = points.length - lastPointCount;
-    const ppm = elapsed > 0 ? (points.length / elapsed).toFixed(1) : '0';
+    // Points per minute (based on last 100 points)
+    let ppm = '0';
+    if (points.length >= 2) {
+      const recentPoints = points.slice(0, Math.min(100, points.length));
+      const newestTime = new Date(recentPoints[0].point_timestamp_utc).getTime();
+      const oldestTime = new Date(recentPoints[recentPoints.length - 1].point_timestamp_utc).getTime();
+      const elapsedMs = newestTime - oldestTime;
+      const elapsedMins = elapsedMs / 60000;
+      if (elapsedMins > 0) {
+        ppm = (recentPoints.length / elapsedMins).toFixed(1);
+      } else {
+        ppm = recentPoints.length > 1 ? '∞' : '0';
+      }
+    }
     document.getElementById('stat-points-per-min').innerText = ppm;
 
     // Average accuracy
@@ -257,8 +263,6 @@
       document.getElementById('stat-zoom-level').innerText = map.getZoom();
     }
 
-    lastPointCount = points.length;
-    lastUpdateTime = now;
   }
 
   function initMap() {
