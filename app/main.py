@@ -529,7 +529,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
 
         token = _create_session_token(settings)
-        redirect = RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+        redirect = RedirectResponse(url="/dashboard/map", status_code=status.HTTP_303_SEE_OTHER)
         redirect.set_cookie(
             key=_SESSION_COOKIE,
             value=token,
@@ -560,7 +560,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/admin", include_in_schema=False)
     async def admin_redirect() -> RedirectResponse:
-        return RedirectResponse(url="/dashboard", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+        return RedirectResponse(url="/dashboard/map", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
     @app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
     async def dashboard(
