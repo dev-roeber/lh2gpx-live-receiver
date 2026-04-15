@@ -416,9 +416,10 @@
             const ts = p.point_timestamp_local.split('T');
             const coordText = `${p.latitude.toFixed(5)}, ${p.longitude.toFixed(5)}`;
             const requestIdShort = (p.request_id || 'N/A').substring(0, 12);
+            const relTime = getRelativeTime(p.point_timestamp_local);
 
             row.innerHTML = `
-              <td style="padding: 14px 10px; color: #94a3b8; font-size: 0.9rem;">${ts[1].substring(0, 8)}</td>
+              <td style="padding: 14px 10px; color: #94a3b8; font-size: 0.9rem;"><span style="color: #64748b;">${relTime}</span> • ${ts[1].substring(0, 8)}</td>
               <td style="padding: 14px 10px; color: #3b82f6; cursor: pointer; user-select: none; border-radius: 4px; font-weight: 500;" title="Klicken zum Kopieren">${coordText}</td>
               <td style="padding: 14px 10px; color: #10b981; font-weight: 500;">${p.horizontal_accuracy_m}m</td>
               <td style="padding: 14px 10px; color: #f59e0b; font-size: 0.9rem;">${p.source || 'N/A'}</td>
@@ -466,10 +467,23 @@
     }
   }
 
+  // === RELATIVE TIME ===
+  function getRelativeTime(timestamp) {
+    const now = new Date();
+    const logTime = new Date(timestamp);
+    const diffMs = now - logTime;
+
+    if (diffMs < 1000) return 'jetzt';
+    if (diffMs < 60000) return `vor ${Math.floor(diffMs / 1000)}s`;
+    if (diffMs < 3600000) return `vor ${Math.floor(diffMs / 60000)}m`;
+    if (diffMs < 86400000) return `vor ${Math.floor(diffMs / 3600000)}h`;
+    return `vor ${Math.floor(diffMs / 86400000)}d`;
+  }
+
   function filterLog() {
     const query = document.getElementById('log-search').value.toLowerCase();
     const rows = document.getElementById('live-log-body').querySelectorAll('tr');
-    
+
     rows.forEach(row => {
       if (!query) {
         row.style.display = '';
