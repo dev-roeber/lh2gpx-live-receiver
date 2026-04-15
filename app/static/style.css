@@ -1,6 +1,6 @@
 /* ============================================================
-   LH2GPX Live Receiver — Modern Responsive UI v0.7
-   Optimiert für Desktop-Kompatibilität & 100% Zoom
+   LH2GPX Live Receiver — Fluid Responsive UI v1.0
+   Dynamisch angepasst an Bildschirmgröße & Zoom-Level
    ============================================================ */
 
 :root {
@@ -8,16 +8,16 @@
   --surface:         #ffffff;
   --surface-muted:   #f8fafc;
   --sidebar-bg:      #0f172a;
-  
+
   --accent:          #3b82f6;
   --accent-soft:     rgba(59, 130, 246, 0.1);
   --accent-hover:    #2563eb;
-  
+
   --text:            #1e293b;
   --text-muted:      #64748b;
   --on-dark:         #f8fafc;
   --on-dark-muted:   #94a3b8;
-  
+
   --c-ok:            #10b981;
   --c-ok-bg:         rgba(16, 185, 129, 0.1);
   --c-ok-border:     rgba(16, 185, 129, 0.2);
@@ -30,28 +30,38 @@
   --c-info:          #3b82f6;
   --c-info-bg:       rgba(59, 130, 246, 0.1);
   --c-info-border:   rgba(59, 130, 246, 0.2);
-  
-  --radius:          16px;
-  --radius-sm:       12px;
+
+  --radius:          clamp(8px, 2vw, 16px);
+  --radius-sm:       clamp(6px, 1.5vw, 12px);
   --shadow-sm:       0 1px 3px 0 rgb(0 0 0 / 0.1);
   --shadow:          0 10px 15px -3px rgb(0 0 0 / 0.1);
-  
-  --sidebar-width:   300px;
-  --header-height:   70px;
-  --base-font-size:  18px;
+
+  --sidebar-width:   clamp(250px, 20%, 300px);
+  --header-height:   clamp(50px, 10vh, 70px);
+  --base-font-size:  clamp(14px, 2.5vw, 18px);
+  --spacing:         clamp(8px, 2vw, 24px);
+  --map-height:      clamp(300px, 50vh, 550px);
+  --log-height:      clamp(400px, 45vh, 750px);
 }
 
 /* ── Global Reset ── */
 *, *::before, *::after { box-sizing: border-box; }
 
+html {
+  font-size: clamp(14px, 2.5vw, 18px);
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   font-family: "IBM Plex Sans", system-ui, sans-serif;
-  font-size: var(--base-font-size);
+  font-size: 1rem;
   line-height: 1.6;
   color: var(--text);
   background: var(--bg);
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 a { color: var(--accent); text-decoration: none; transition: color 0.2s; }
