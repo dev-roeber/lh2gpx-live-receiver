@@ -47,7 +47,12 @@
       <div id="session-chips" style="display: flex; flex-wrap: wrap; gap: 8px;">
         <button id="session-all-btn" class="session-chip active" data-session-id="" style="padding: 6px 12px; border: 2px solid var(--accent); background: var(--accent); color: white; border-radius: 20px; cursor: pointer; font-size: 0.85rem; font-weight: 500; transition: all 0.2s;">Alle</button>
         {% for session in sessions %}
-        <button class="session-chip" data-session-id="{{ session.session_id }}" style="padding: 6px 12px; border: 2px solid #e2e8f0; background: white; color: var(--text); border-radius: 20px; cursor: pointer; font-size: 0.85rem; font-weight: 500; transition: all 0.2s;" title="Punkte: {{ session.points_count }} | Genauigkeit: {{ "%.1f"|format(session.avg_accuracy_m) }}m">{{ short_id(session.session_id, 10) }} <span style="font-size: 0.75rem; color: var(--text-muted); margin-left: 4px;">({{ session.points_count }})</span></button>
+        <button class="session-chip" data-session-id="{{ session.session_id }}" style="padding: 6px 12px; border: 2px solid #e2e8f0; background: white; color: var(--text); border-radius: 20px; cursor: pointer; font-size: 0.85rem; font-weight: 500; transition: all 0.2s;" title="Punkte: {{ session.points_count }} | Genauigkeit: {{ "%.1f"|format(session.avg_accuracy_m) }}m">
+          <span>{{ session.first_point_ts_utc[:10] }} {{ session.first_point_ts_utc[11:16] }}</span>
+          <span style="color: var(--text-muted); margin: 0 4px;">-</span>
+          <span>{{ session.last_point_ts_utc[11:16] }}</span>
+          <span style="font-size: 0.75rem; color: var(--text-muted); margin-left: 6px;">({{ session.points_count }})</span>
+        </button>
         {% endfor %}
       </div>
     </div>
