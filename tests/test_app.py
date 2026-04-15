@@ -182,7 +182,7 @@ def test_dashboard_renders_operator_ui(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert "Receiver-Dashboard" in response.text
-    assert "Juengste Requests" in response.text
+    assert "Jüngste Requests" in response.text
     assert "52.52" in response.text
 
 
