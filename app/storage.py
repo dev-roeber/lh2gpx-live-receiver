@@ -1155,14 +1155,24 @@ class ReceiverStorage:
         return [dict(row) for row in rows]
 
     def delete_session(self, session_id: str) -> int:
-        """Löscht alle Punkte einer Session. Gibt Anzahl gelöschter Punkte zurück."""
+        """Löscht Session inkl. aller Punkte und Ingest-Requests.
+        Gibt Anzahl gelöschter GPS-Punkte zurück.
+        Stats (Dashboard-Gesamt) werden korrekt aktualisiert weil ingest_requests
+        gelöscht wird (FK ON DELETE CASCADE löscht gps_points mit)."""
         self._require_ready()
-        with self._connect() as connection:
-            cur = connection.execute(
-                "DELETE FROM gps_points WHERE session_id = ?", (session_id,)
+        with self._locked_transaction() as connection:
+            # Punkte vorab zählen für Rückgabewert
+            count = connection.execute(
+                "SELECT COUNT(*) FROM gps_points WHERE session_id = ?", (session_id,)
+            ).fetchone()[0]
+            # ingest_requests löschen → FK-Cascade löscht gps_points automatisch
+            connection.execute(
+                "DELETE FROM ingest_requests WHERE session_id = ?", (session_id,)
             )
             connection.commit()
-            return cur.rowcount
+            # WAL-Checkpoint damit Dateigröße zeitnah reduziert wird
+            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            return count
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
         self._require_ready()

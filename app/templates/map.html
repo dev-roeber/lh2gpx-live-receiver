@@ -436,8 +436,25 @@
     markerClusterGroup = L.markerClusterGroup().addTo(map);
     polylineLayer = L.featureGroup().addTo(map);
     pointsLayer = L.featureGroup().addTo(map);
-    heatLayer = L.heatLayer([], { radius: 20, blur: 25, maxZoom: 17, max: 1.0,
-      gradient: { 0.2: '#0A84FF', 0.5: '#FF9F0A', 0.8: '#FF453A', 1.0: '#FFD60A' }
+    heatLayer = L.heatLayer([], {
+      radius: 14, blur: 12, maxZoom: 19, minOpacity: 0.25, max: 1.0,
+      gradient: {
+        0.00: 'rgba(0,100,255,0)',
+        0.15: 'rgba(0,100,255,0.6)',
+        0.35: '#0A84FF',
+        0.55: '#30D158',
+        0.72: '#FF9F0A',
+        0.88: '#FF453A',
+        1.00: '#FFD60A'
+      }
+    });
+    // Zoom-adaptiver Radius: bei hohem Zoom feinere Darstellung
+    map.on('zoomend', () => {
+      if (!heatmapActive) return;
+      const z = map.getZoom();
+      const r = z <= 8 ? 18 : z <= 11 ? 14 : z <= 14 ? 10 : z <= 16 ? 7 : 5;
+      const b = Math.round(r * 0.75);
+      heatLayer.setOptions({ radius: r, blur: b });
     });
 
     L.control.scale().addTo(map);
@@ -521,7 +538,12 @@
 
       // === HEATMAP UPDATE ===
       if (heatmapActive && points && points.length > 0) {
-        const heatData = points.map(p => [p.latitude, p.longitude, 1]);
+        const heatData = points.map(p => {
+          // Gewicht: genauere Punkte (kleine accuracy) → stärker; max 1.0
+          const acc = p.horizontal_accuracy_m;
+          const w = (acc > 0 && acc < 500) ? Math.min(1.0, 30 / acc) : 0.4;
+          return [p.latitude, p.longitude, w];
+        });
         heatLayer.setLatLngs(heatData);
         if (!map.hasLayer(heatLayer)) heatLayer.addTo(map);
       } else {
