@@ -85,38 +85,50 @@
   </div>
 </article>
 
-{# ── Import-Verlauf ──────────────────────────────────────── #}
-{% if snapshot and snapshot.get('recentSessions') %}
+{# ── Importierter Dateien-Manager ────────────────────────── #}
 <article class="panel">
-  <div class="panel-header"><h3>Bisherige Importe</h3></div>
+  <div class="panel-header">
+    <div>
+      <p class="eyebrow">Dateimanager</p>
+      <h3>Importierte Dateien</h3>
+    </div>
+    <span id="import-count-badge" class="status-badge" style="font-size:0.75rem;">
+      {{ import_sessions | length }} Datei{{ 'en' if import_sessions | length != 1 else '' }}
+    </span>
+  </div>
+
+  {% if import_sessions %}
   <div class="table-panel" style="overflow-x:auto;">
-    <table style="min-width:100%;border-collapse:separate;border-spacing:0;">
+    <table class="import-mgr-table">
       <thead>
-        <tr style="color:var(--text-2);font-size:0.78rem;font-weight:600;">
-          <th style="padding:10px 12px;text-align:left;border-bottom:1px solid var(--separator);">Dateiname</th>
-          <th style="padding:10px 12px;text-align:left;border-bottom:1px solid var(--separator);">Punkte</th>
-          <th style="padding:10px 12px;text-align:left;border-bottom:1px solid var(--separator);">Zeitraum</th>
-          <th style="padding:10px 12px;text-align:left;border-bottom:1px solid var(--separator);">Aktion</th>
+        <tr>
+          <th>Dateiname</th>
+          <th>Punkte</th>
+          <th>Erster Punkt</th>
+          <th>Letzter Punkt</th>
+          <th style="text-align:right;">Aktionen</th>
         </tr>
       </thead>
-      <tbody>
-        {% for s in snapshot.get('recentSessions', []) %}
-        {% if s.get('source','').startswith('import:') %}
-        <tr style="border-bottom:1px solid var(--separator);">
-          <td style="padding:10px 12px;font-size:0.83rem;color:var(--text);">{{ s.source[7:] }}</td>
-          <td style="padding:10px 12px;font-size:0.83rem;color:var(--mint);font-weight:600;">{{ s.points_count }}</td>
-          <td style="padding:10px 12px;font-size:0.78rem;color:var(--text-3);">{{ s.first_point_ts_utc[:10] if s.first_point_ts_utc else '—' }}</td>
-          <td style="padding:10px 12px;">
-            <a href="/dashboard/map" class="btn-pill secondary sm" style="font-size:0.72rem;padding:4px 10px;">Karte</a>
+      <tbody id="import-mgr-body">
+        {% for s in import_sessions %}
+        <tr id="row-{{ s.session_id }}">
+          <td class="mgr-filename" title="{{ s.source[7:] }}">{{ s.source[7:] }}</td>
+          <td style="color:var(--mint);font-weight:600;">{{ s.points_count | int }}</td>
+          <td class="mgr-date">{{ s.first_point_ts_utc[:10] if s.first_point_ts_utc else '—' }}</td>
+          <td class="mgr-date">{{ s.last_point_ts_utc[:10] if s.last_point_ts_utc else '—' }}</td>
+          <td style="text-align:right;white-space:nowrap;">
+            <a href="/dashboard/map" class="btn-pill secondary sm">Karte</a>
+            <button class="btn-pill danger sm" onclick="deleteSession('{{ s.session_id }}', this)">Löschen</button>
           </td>
         </tr>
-        {% endif %}
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {% else %}
+  <p style="color:var(--text-3);font-size:0.85rem;padding:8px 0;">Noch keine Dateien importiert.</p>
+  {% endif %}
 </article>
-{% endif %}
 
 {# ── Hinweise ─────────────────────────────────────────────── #}
 <article class="panel">
@@ -216,6 +228,31 @@
 .hint-list li code { font-size: 0.76rem; color: var(--teal); }
 
 .page-header-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* ── Import-Manager Tabelle ─────────────────────────────── */
+.import-mgr-table {
+  min-width: 100%; border-collapse: separate; border-spacing: 0;
+}
+.import-mgr-table thead tr th {
+  padding: 10px 12px; text-align: left; font-size: 0.75rem;
+  font-weight: 600; color: var(--text-2);
+  border-bottom: 1px solid var(--separator); background: var(--surface-2);
+}
+.import-mgr-table tbody tr { transition: background 0.12s; }
+.import-mgr-table tbody tr:hover { background: var(--surface-2); }
+.import-mgr-table tbody td {
+  padding: 10px 12px; font-size: 0.82rem; color: var(--text);
+  border-bottom: 1px solid var(--separator);
+}
+.mgr-filename { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.mgr-date { color: var(--text-3); font-size: 0.78rem; }
+
+.btn-pill.danger {
+  background: var(--red-dim); color: var(--red);
+  border: 1px solid var(--red-border);
+}
+.btn-pill.danger:hover:not(:disabled) { background: var(--red); color: #fff; opacity: 1; }
+.btn-pill.danger:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>
 
 <script>
@@ -358,6 +395,36 @@ importBtn.addEventListener('click', () => {
   xhr.open('POST', '/api/import');
   xhr.send(form);
 });
+
+// === Import-Session löschen ===
+async function deleteSession(sessionId, btn) {
+  if (!confirm(`Session „${sessionId}" und alle dazugehörigen Punkte wirklich löschen?`)) return;
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE', credentials: 'same-origin' });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json.ok) {
+      const row = document.getElementById('row-' + sessionId);
+      if (row) row.remove();
+      // Badge aktualisieren
+      const body = document.getElementById('import-mgr-body');
+      const badge = document.getElementById('import-count-badge');
+      if (badge && body) {
+        const count = body.querySelectorAll('tr').length;
+        badge.textContent = count + ' Datei' + (count !== 1 ? 'en' : '');
+      }
+    } else {
+      alert('Fehler: ' + (json.detail || 'Unbekannter Fehler'));
+      btn.disabled = false;
+      btn.textContent = 'Löschen';
+    }
+  } catch {
+    alert('Netzwerkfehler beim Löschen.');
+    btn.disabled = false;
+    btn.textContent = 'Löschen';
+  }
+}
 </script>
 
 {% endblock %}

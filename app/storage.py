@@ -1128,6 +1128,16 @@ class ReceiverStorage:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def delete_session(self, session_id: str) -> int:
+        """Löscht alle Punkte einer Session. Gibt Anzahl gelöschter Punkte zurück."""
+        self._require_ready()
+        with self._connect() as connection:
+            cur = connection.execute(
+                "DELETE FROM gps_points WHERE session_id = ?", (session_id,)
+            )
+            connection.commit()
+            return cur.rowcount
+
     def get_session(self, session_id: str) -> dict[str, Any] | None:
         self._require_ready()
         with self._connect() as connection:

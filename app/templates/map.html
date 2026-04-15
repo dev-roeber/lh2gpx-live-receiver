@@ -258,6 +258,7 @@
   let sessionStartTime = Date.now();
   let filtersExpanded = false;
   let lastLoadedPoints = [];
+  let isManualRefresh = false;
 
   // === DEBOUNCE (per-call timeout) ===
   function debounce(fn, ms) {
@@ -503,7 +504,7 @@
     try {
       apiStatus.textContent = '● LADEN';
       apiStatus.style.color = 'var(--orange)';
-      overlay.style.display = 'flex';
+      if (isManualRefresh) overlay.style.display = 'flex';
       const res = await fetch(url, { credentials: 'same-origin' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -512,6 +513,7 @@
       lastLoadedPoints = points || [];
       lastApiStatus = 'online';
       overlay.style.display = 'none';
+      isManualRefresh = false;
       
       // === MAP UPDATE ===
       pathLayer.clearLayers();
@@ -724,6 +726,7 @@
   }
 
   document.getElementById('refresh-map-btn').onclick = () => {
+    isManualRefresh = true;
     document.getElementById('btn-text').style.display = 'none';
     document.getElementById('btn-spinner').style.display = 'inline';
     updateMap();
@@ -810,27 +813,37 @@
   document.getElementById('time-range-select').value = TIME_RANGE;
 
   // === MOBILE FILTER TOGGLE ===
+  // Einmalig onclick setzen, nicht bei jedem resize überschreiben
+  (function() {
+    const toggleBtn = document.getElementById('map-filter-toggle-btn');
+    const filterPanel = document.querySelector('.map-filter-panel');
+    if (!toggleBtn || !filterPanel) return;
+    toggleBtn.onclick = () => {
+      filtersExpanded = !filtersExpanded;
+      filterPanel.classList.toggle('collapsed', !filtersExpanded);
+      toggleBtn.textContent = filtersExpanded ? 'Filteroptionen ▲' : 'Filteroptionen ▼';
+    };
+  })();
+
   function setupMobileFilterToggle() {
     const toggleBtn = document.getElementById('map-filter-toggle-btn');
     const filterPanel = document.querySelector('.map-filter-panel');
     if (!toggleBtn || !filterPanel) return;
-
     const isMobile = window.innerWidth <= 767;
     if (isMobile) {
       toggleBtn.style.display = 'block';
-      filterPanel.classList.add('collapsed');
-      filtersExpanded = false;
+      // Zustand NICHT überschreiben wenn bereits initialisiert
+      if (toggleBtn.dataset.init !== '1') {
+        toggleBtn.dataset.init = '1';
+        filterPanel.classList.add('collapsed');
+        filtersExpanded = false;
+      }
     } else {
       toggleBtn.style.display = 'none';
       filterPanel.classList.remove('collapsed');
       filtersExpanded = true;
+      toggleBtn.dataset.init = '0'; // beim nächsten Wechsel zu Mobile neu initialisieren
     }
-
-    toggleBtn.onclick = () => {
-      filtersExpanded = !filtersExpanded;
-      filterPanel.classList.toggle('collapsed');
-      toggleBtn.textContent = filtersExpanded ? 'Filteroptionen ▲' : 'Filteroptionen ▼';
-    };
   }
 
   setupMobileFilterToggle();

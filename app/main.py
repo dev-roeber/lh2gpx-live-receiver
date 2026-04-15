@@ -646,13 +646,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/dashboard/import", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
     async def dashboard_import(request: Request) -> HTMLResponse:
         snapshot = _dashboard_snapshot(request)
+        try:
+            all_sessions = _storage(request).list_sessions()
+        except StorageError:
+            all_sessions = []
+        import_sessions = [s for s in all_sessions if (s.get("source") or "").startswith("import:")]
         context = _base_template_context(
             request, active_nav="import",
             page_title="Import", page_kicker="GPS-Daten importieren",
             page_description="Importiere GPS-Daten aus Google Maps, GPX, KML, KMZ, GeoJSON, CSV oder ZIP.",
             snapshot=snapshot,
         )
+        context["import_sessions"] = import_sessions
         return templates.TemplateResponse(request=request, name="import.html", context=context)
+
+    @app.delete("/api/sessions/{session_id}", dependencies=[Depends(_require_admin_access)])
+    async def api_delete_session(request: Request, session_id: str) -> JSONResponse:
+        try:
+            deleted = _storage(request).delete_session(session_id)
+        except StorageError as e:
+            raise HTTPException(status_code=503, detail=str(e))
+        if deleted == 0:
+            raise HTTPException(status_code=404, detail="Session nicht gefunden oder bereits leer.")
+        return JSONResponse({"ok": True, "deleted": deleted, "session_id": session_id})
 
     @app.post("/api/import", dependencies=[Depends(_require_admin_access)])
     async def api_import(request: Request, file: UploadFile = File(...)) -> JSONResponse:
