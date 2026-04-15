@@ -207,16 +207,80 @@
   }
 
   // === FULLSCREEN ===
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  const supportsNativeFullscreen = !!document.documentElement.requestFullscreen;
+
+  // CSS fullscreen state for iOS fallback
+  let cssFsActive = false;
+
   function toggleFullscreen() {
-    const container = document.getElementById('map-container');
-    if (!document.fullscreenElement) {
-      container.requestFullscreen().catch(err => {
-        alert(`Fehler beim Vollbild: ${err.message}`);
-      });
+    if (!isIOS && supportsNativeFullscreen) {
+      // Native fullscreen (Android / Desktop)
+      const container = document.getElementById('map-container');
+      if (!document.fullscreenElement) {
+        container.requestFullscreen().catch(() => activateCssFullscreen());
+      } else {
+        document.exitFullscreen();
+      }
     } else {
-      document.exitFullscreen();
+      // iOS CSS-Vollbild-Fallback
+      activateCssFullscreen();
     }
   }
+
+  function activateCssFullscreen() {
+    const container = document.getElementById('map-container');
+    if (!cssFsActive) {
+      cssFsActive = true;
+      container.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100dvh;z-index:9999;border-radius:0;margin:0;';
+      if (map) map.invalidateSize(false);
+      document.getElementById('fullscreen-btn').textContent = '✕';
+      document.getElementById('fullscreen-btn').title = 'Vollbild beenden';
+    } else {
+      deactivateCssFullscreen();
+    }
+  }
+
+  function deactivateCssFullscreen() {
+    cssFsActive = false;
+    const container = document.getElementById('map-container');
+    container.style.cssText = '';
+    if (map) map.invalidateSize(false);
+    document.getElementById('fullscreen-btn').textContent = '⛶';
+    document.getElementById('fullscreen-btn').title = 'Vollbild';
+  }
+
+  // ESC key exits CSS fullscreen
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && cssFsActive) deactivateCssFullscreen(); });
+
+  // iOS: show Add to Home Screen banner if not already installed
+  function showIOSBanner() {
+    if (!isIOS) return;
+    if (window.navigator.standalone) return; // already installed
+    if (sessionStorage.getItem('ios-banner-dismissed')) return;
+    const banner = document.createElement('div');
+    banner.id = 'ios-home-banner';
+    banner.style.cssText = `
+      position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+      background:#1C1C1E; border:1px solid rgba(255,255,255,0.12);
+      border-radius:16px; padding:14px 16px; z-index:10000;
+      display:flex; align-items:flex-start; gap:12px;
+      max-width:calc(100vw - 32px); box-shadow:0 8px 32px rgba(0,0,0,0.6);
+      font-family:-apple-system,system-ui,sans-serif;
+    `;
+    banner.innerHTML = `
+      <div style="font-size:1.6rem;flex-shrink:0;margin-top:2px;">⊕</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:0.85rem;font-weight:700;color:#fff;margin-bottom:3px;">Zum Home-Bildschirm hinzufügen</div>
+        <div style="font-size:0.75rem;color:rgba(255,255,255,0.55);line-height:1.4;">Tippe auf <strong style="color:#fff;">Teilen ↑</strong> und dann <strong style="color:#fff;">„Zum Home-Bildschirm"</strong> — danach steht echter Vollbild zur Verfügung.</div>
+      </div>
+      <button onclick="document.getElementById('ios-home-banner').remove();sessionStorage.setItem('ios-banner-dismissed','1')"
+        style="background:none;border:none;color:rgba(255,255,255,0.4);font-size:1.1rem;cursor:pointer;flex-shrink:0;padding:0;line-height:1;">✕</button>
+    `;
+    document.body.appendChild(banner);
+  }
+
+  document.addEventListener('DOMContentLoaded', showIOSBanner);
 
   // === GEOJSON EXPORT ===
   function exportGeoJSON() {
