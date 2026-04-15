@@ -19,8 +19,9 @@
   <button id="map-filter-toggle-btn" class="map-filter-toggle" style="display: none;">Filteroptionen ▼</button>
 
   <div class="map-filter-panel">
+
+    <p class="fp-section-label">Zeitraum</p>
     <div class="filter-group">
-      <label for="time-range-select">Zeitraum</label>
       <select id="time-range-select">
         <option value="2m">Letzte 2 Min.</option>
         <option value="5m">Letzte 5 Min.</option>
@@ -45,57 +46,66 @@
         <option value="all">Gesamt</option>
       </select>
     </div>
-    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px;">
-      <input type="checkbox" id="session-filter-toggle" style="width: auto; cursor: pointer;">
-      <label for="session-filter-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Session:</label>
-      <select id="session-select-dropdown" disabled style="flex: 1; opacity: 0.5; padding: 5px 8px; border: 1px solid var(--text-muted); border-radius: 4px; font-size: 0.85rem;">
+
+    <p class="fp-section-label">Session / Import</p>
+    <div class="filter-group fp-row">
+      <input type="checkbox" id="session-filter-toggle">
+      <label for="session-filter-toggle" class="fp-check-label">Session</label>
+      <select id="session-select-dropdown" disabled class="fp-dropdown fp-inactive">
         <option value="">Alle Sessions</option>
         {% for session in sessions %}
-        <option value="{{ session.session_id }}">{{ session.first_point_ts_utc[:10] }} {{ session.first_point_ts_utc[11:16] }} - {{ session.last_point_ts_utc[11:16] }} ({{ session.points_count }})</option>
+        <option value="{{ session.session_id }}">{{ session.first_point_ts_utc[:10] }} {{ session.first_point_ts_utc[11:16] }}–{{ session.last_point_ts_utc[11:16] }} ({{ session.points_count }})</option>
         {% endfor %}
       </select>
     </div>
-    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px;">
-      <input type="checkbox" id="import-filter-toggle" style="width: auto; cursor: pointer;">
-      <label for="import-filter-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Import:</label>
-      <select id="import-select-dropdown" disabled style="flex: 1; opacity: 0.5; padding: 5px 8px; border: 1px solid var(--text-muted); border-radius: 4px; font-size: 0.85rem;">
+    <div class="filter-group fp-row">
+      <input type="checkbox" id="import-filter-toggle">
+      <label for="import-filter-toggle" class="fp-check-label">Import</label>
+      <select id="import-select-dropdown" disabled class="fp-dropdown fp-inactive">
         <option value="">Alle Importe</option>
         {% for s in import_sessions %}
-        <option value="{{ s.session_id }}">{{ s.source[7:] | truncate(22, true, '…') }} ({{ s.points_count }})</option>
+        <option value="{{ s.session_id }}">{{ s.source[7:] | truncate(24, true, '…') }} ({{ s.points_count }})</option>
         {% endfor %}
       </select>
     </div>
-    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px;">
-      <input type="checkbox" id="auto-center-toggle" checked style="width: auto; cursor: pointer;">
-      <label for="auto-center-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Letzter Punkt folgen</label>
+
+    <p class="fp-section-label">Navigation</p>
+    <div class="filter-group fp-row">
+      <input type="checkbox" id="auto-center-toggle" checked>
+      <label for="auto-center-toggle" class="fp-check-label">Letzter Punkt folgen</label>
     </div>
-    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px;">
-      <input type="checkbox" id="fit-bounds-toggle" style="width: auto; cursor: pointer;">
-      <label for="fit-bounds-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Gesamten Track anzeigen</label>
+    <div class="filter-group fp-row">
+      <input type="checkbox" id="fit-bounds-toggle">
+      <label for="fit-bounds-toggle" class="fp-check-label">Gesamten Track anzeigen</label>
     </div>
-    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px;">
-      <input type="checkbox" id="heatmap-toggle" style="width: auto; cursor: pointer;">
-      <label for="heatmap-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Heatmap</label>
+
+    <p class="fp-section-label">Layer</p>
+    <div class="fp-layer-row">
+      <label class="fp-layer-btn">
+        <input type="checkbox" id="heatmap-toggle"> Heatmap
+      </label>
+      <label class="fp-layer-btn">
+        <input type="checkbox" id="points-toggle" checked> Punkte
+      </label>
+      <label class="fp-layer-btn">
+        <input type="checkbox" id="polyline-toggle" checked> Linien
+      </label>
     </div>
-    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px;">
-      <input type="checkbox" id="points-toggle" checked style="width: auto; cursor: pointer;">
-      <label for="points-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Punkte</label>
+
+    <p class="fp-section-label">Routen-Segmentierung</p>
+    <div class="filter-group fp-row fp-numrow">
+      <label for="route-time-gap" title="Zeitlücke ab der eine neue Route beginnt" class="fp-num-label">Zeit (min)</label>
+      <input type="number" id="route-time-gap" value="5" min="1" max="1440" class="fp-num-input">
     </div>
-    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px;">
-      <input type="checkbox" id="polyline-toggle" checked style="width: auto; cursor: pointer;">
-      <label for="polyline-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Polylinien</label>
+    <div class="filter-group fp-row fp-numrow">
+      <label for="route-dist-gap" title="Distanzlücke ab der eine neue Route beginnt" class="fp-num-label">Distanz (m)</label>
+      <input type="number" id="route-dist-gap" value="300" min="10" class="fp-num-input">
     </div>
-    <div class="filter-group">
-      <label for="route-time-gap" title="Zeitlücke in Minuten, ab der eine neue Route beginnt">Routen-Zeitlücke (min)</label>
-      <input type="number" id="route-time-gap" value="5" min="1" max="120" style="width:70px;padding:4px 8px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.85rem;">
-    </div>
-    <div class="filter-group">
-      <label for="route-dist-gap" title="Distanzlücke in Metern, ab der eine neue Route beginnt">Routen-Distanzlücke (m)</label>
-      <input type="number" id="route-dist-gap" value="300" min="10" max="5000" style="width:70px;padding:4px 8px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.85rem;">
-    </div>
-    <div class="filter-group">
-      <label for="map-max-points" title="Maximale Anzahl Punkte, die von der API geladen werden">Max. Punkte (Karte)</label>
-      <input type="number" id="map-max-points" value="5000" min="1" style="width:80px;padding:4px 8px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.85rem;">
+
+    <p class="fp-section-label">Datenabruf</p>
+    <div class="filter-group fp-row fp-numrow">
+      <label for="map-max-points" title="Max. Punkte von der API" class="fp-num-label">Max. Punkte</label>
+      <input type="number" id="map-max-points" value="5000" min="1" class="fp-num-input">
     </div>
     <div class="filter-group">
       <label for="polling-interval">Update-Intervall</label>
@@ -115,26 +125,39 @@
         <option value="300000">5min</option>
       </select>
     </div>
+
+    <p class="fp-section-label">Aktionen</p>
     <div class="filter-actions">
-      <button id="fullscreen-btn" class="button-link secondary" title="Vollbild" style="flex: 1;">⛶</button>
-      <button id="export-geojson-btn" class="button-link secondary" title="GeoJSON exportieren" style="flex: 1;">💾</button>
-      <button id="dark-mode-btn" class="button-link secondary" title="Dark Mode" style="flex: 1;">🌙</button>
+      <button id="fullscreen-btn" class="button-link secondary" title="Vollbild" style="flex:1;">⛶</button>
+      <button id="export-geojson-btn" class="button-link secondary" title="GeoJSON exportieren (geladene Punkte)" style="flex:1;">💾</button>
+      <button id="dark-mode-btn" class="button-link secondary" title="Karte Hell/Dunkel umschalten" style="flex:1;">🌙</button>
     </div>
     <div class="filter-actions">
-      <button id="refresh-map-btn" class="button-link primary" style="flex: 1;">
+      <button id="refresh-map-btn" class="button-link primary" style="flex:1;">
         <span id="btn-text">Aktualisieren</span>
-        <span id="btn-spinner" style="display: none;">⌛ Lade...</span>
+        <span id="btn-spinner" style="display:none;">⌛ Lade…</span>
       </button>
     </div>
-    <div style="padding-top: 8px; border-top: 1px solid rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem;">
-      <span>API Status</span>
-      <span class="status-badge" id="api-status" style="padding: 5px 10px; font-size: 0.8rem;">● OFFLINE</span>
+
+    <div class="fp-status-bar">
+      <span class="fp-status-label">API</span>
+      <span class="status-badge" id="api-status">● OFFLINE</span>
     </div>
   </div>
 
   <article class="panel map-container-wrapper">
-    <div id="map-container"></div>
-    <p id="map-stats-text" class="eyebrow" style="margin-top: 15px; color: var(--text-muted);">Initialisiere Karte...</p>
+    <div id="map-wrap" style="position:relative;">
+      <div id="map-container"></div>
+      <div id="map-loading-overlay" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.35);z-index:500;display:none;align-items:center;justify-content:center;border-radius:var(--radius-sm,8px);">
+        <div style="background:var(--surface-1,#1c1c1e);border:1px solid var(--border);border-radius:12px;padding:16px 24px;font-size:0.85rem;color:var(--text-2);display:flex;align-items:center;gap:10px;">
+          <span style="animation:spin 1s linear infinite;display:inline-block;">⟳</span> Kartendaten werden geladen…
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;flex-wrap:wrap;gap:8px;">
+      <p id="map-stats-text" class="eyebrow" style="margin:0;color:var(--text-muted);">Initialisiere Karte…</p>
+      <span id="map-points-badge" style="display:none;font-size:0.72rem;font-weight:600;color:var(--mint);background:var(--mint-dim);border:1px solid var(--mint-border);border-radius:999px;padding:2px 10px;"></span>
+    </div>
   </article>
 
   <article class="panel log-container-wrapper">
@@ -231,16 +254,17 @@
   let polylineActive = true;
   let darkMode = localStorage.getItem('map-dark-mode') === 'true' || false;
   let tileLayer;
-  let filterTimeout;
   let lastApiStatus = 'loading';
   let sessionStartTime = Date.now();
   let filtersExpanded = false;
+  let lastLoadedPoints = [];
 
-  // === DEBOUNCE ===
+  // === DEBOUNCE (per-call timeout) ===
   function debounce(fn, ms) {
+    let t;
     return function(...args) {
-      clearTimeout(filterTimeout);
-      filterTimeout = setTimeout(() => fn.apply(this, args), ms);
+      clearTimeout(t);
+      t = setTimeout(() => fn.apply(this, args), ms);
     };
   }
 
@@ -320,42 +344,24 @@
 
   document.addEventListener('DOMContentLoaded', showIOSBanner);
 
-  // === GEOJSON EXPORT ===
+  // === GEOJSON EXPORT (aus geladenen Kartenpunkten, nicht DOM) ===
   function exportGeoJSON() {
-    const rows = document.getElementById('live-log-body').querySelectorAll('tr');
-    const features = [];
-
-    rows.forEach(row => {
-      const lat = parseFloat(row.dataset.lat);
-      const lon = parseFloat(row.dataset.lon);
-      const time = row.dataset.time;
-      const acc = parseInt(row.dataset.accuracy);
-
-      if (!isNaN(lat) && !isNaN(lon)) {
-        features.push({
-          type: 'Feature',
-          geometry: {
-            type: 'Point',
-            coordinates: [lon, lat]
-          },
-          properties: {
-            timestamp: time,
-            accuracy_m: acc
-          }
-        });
+    if (!lastLoadedPoints.length) { alert('Keine Punkte geladen.'); return; }
+    const features = lastLoadedPoints.map(p => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [p.longitude, p.latitude] },
+      properties: {
+        timestamp: p.point_timestamp_utc,
+        accuracy_m: p.horizontal_accuracy_m,
+        source: p.source,
+        capture_mode: p.capture_mode
       }
-    });
-
-    const geojson = {
-      type: 'FeatureCollection',
-      features: features
-    };
-
-    const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
+    }));
+    const blob = new Blob([JSON.stringify({ type: 'FeatureCollection', features }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `lh2gpx-${new Date().toISOString().split('T')[0]}.geojson`;
+    a.download = `lh2gpx-${new Date().toISOString().split('T')[0]}-${lastLoadedPoints.length}pts.geojson`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -461,13 +467,20 @@
 
   async function updateMap() {
     const range = document.getElementById('time-range-select').value;
-    const sessionId = document.getElementById('session-select').value;
+    // Direkt aus sichtbaren Dropdowns lesen — kein Hidden-Element nötig
+    const sessionActive = document.getElementById('session-filter-toggle').checked;
+    const importActive  = document.getElementById('import-filter-toggle').checked;
+    const sessionId = sessionActive ? document.getElementById('session-select-dropdown').value
+                    : importActive  ? document.getElementById('import-select-dropdown').value
+                    : '';
     const stats = document.getElementById('map-stats-text');
+    const badge = document.getElementById('map-points-badge');
     const logBody = document.getElementById('live-log-body');
     const logLimit = parseInt(document.getElementById('log-limit').value) || 50;
     const autoCenter = document.getElementById('auto-center-toggle').checked;
     const apiStatus = document.getElementById('api-status');
     const fitBounds = document.getElementById('fit-bounds-toggle').checked;
+    const overlay = document.getElementById('map-loading-overlay');
 
     const mapMaxPoints = parseInt(document.getElementById('map-max-points').value) || 5000;
     const pageSize = mapMaxPoints;
@@ -488,14 +501,17 @@
     }
 
     try {
-      apiStatus.textContent = '● LADEN...';
+      apiStatus.textContent = '● LADEN';
       apiStatus.style.color = 'var(--orange)';
+      overlay.style.display = 'flex';
       const res = await fetch(url, { credentials: 'same-origin' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      
+
       const data = await res.json();
       const points = data.points.items;
+      lastLoadedPoints = points || [];
       lastApiStatus = 'online';
+      overlay.style.display = 'none';
       
       // === MAP UPDATE ===
       pathLayer.clearLayers();
@@ -590,9 +606,12 @@
         } else if (autoCenter) {
           map.setView([last.latitude, last.longitude], 18, {animate: true});
         }
-        stats.innerText = `${data.points.total} Punkte gefunden (${points.length} angezeigt).`;
+        stats.innerText = `${data.points.total.toLocaleString('de-DE')} Punkte gesamt`;
+        badge.textContent = `${points.length.toLocaleString('de-DE')} geladen`;
+        badge.style.display = 'inline';
       } else {
-        stats.innerText = "Keine Punkte im gewählten Zeitraum.";
+        stats.innerText = 'Keine Punkte im gewählten Zeitraum.';
+        badge.style.display = 'none';
       }
 
       // === UPDATE STATS ===
@@ -602,7 +621,7 @@
       if (points && points.length > 0) {
         if (knownPointIds.size === 0) logBody.innerHTML = '';
 
-        points.reverse().forEach((p) => {
+        [...points].reverse().forEach((p) => {
           if (!knownPointIds.has(p.id)) {
             // Limit Size
             if (knownPointIds.size >= MAX_LOG_LINES) {
@@ -661,9 +680,10 @@
       apiStatus.textContent = '● ONLINE';
       apiStatus.style.color = 'var(--mint)';
     } catch (e) {
-      console.error("Error:", e);
-      stats.innerText = "Fehler beim Laden der Kartendaten.";
-      stats.style.color = "var(--c-crit)";
+      console.error('Map update error:', e);
+      overlay.style.display = 'none';
+      stats.innerText = 'Fehler beim Laden der Kartendaten.';
+      stats.style.color = 'var(--c-crit)';
       apiStatus.textContent = '● FEHLER';
       apiStatus.style.color = '#ef4444';
       lastApiStatus = 'offline';
@@ -719,83 +739,72 @@
   document.getElementById('dark-mode-btn').onclick = () => {
     darkMode = !darkMode;
     localStorage.setItem('map-dark-mode', darkMode);
+    document.getElementById('dark-mode-btn').textContent = darkMode ? '☀️' : '🌙';
+    document.getElementById('dark-mode-btn').title = darkMode ? 'Helle Karte' : 'Dunkle Karte';
     const newUrl = darkMode
       ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
       : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
     map.removeLayer(tileLayer);
     tileLayer = L.tileLayer(newUrl, { maxZoom: 19, attribution: '© OpenStreetMap & CartoDB' }).addTo(map);
   };
+  // Init-Icon setzen
+  if (darkMode) {
+    document.getElementById('dark-mode-btn').textContent = '☀️';
+    document.getElementById('dark-mode-btn').title = 'Helle Karte';
+  }
 
   document.getElementById('fullscreen-btn').onclick = toggleFullscreen;
   document.getElementById('export-geojson-btn').onclick = exportGeoJSON;
 
-  // Fit bounds toggle
-  document.getElementById('fit-bounds-toggle').onchange = updateMap;
-  document.getElementById('heatmap-toggle').onchange = (e) => { heatmapActive = e.target.checked; updateMap(); };
-  document.getElementById('points-toggle').onchange  = (e) => { pointsActive   = e.target.checked; updateMap(); };
+  // Fit-bounds ↔ auto-center: gegenseitig exklusiv
+  document.getElementById('fit-bounds-toggle').onchange = (e) => {
+    if (e.target.checked) document.getElementById('auto-center-toggle').checked = false;
+    updateMap();
+  };
+  document.getElementById('auto-center-toggle').onchange = (e) => {
+    if (e.target.checked) document.getElementById('fit-bounds-toggle').checked = false;
+  };
+
+  document.getElementById('heatmap-toggle').onchange  = (e) => { heatmapActive = e.target.checked; updateMap(); };
+  document.getElementById('points-toggle').onchange   = (e) => { pointsActive  = e.target.checked; updateMap(); };
   document.getElementById('polyline-toggle').onchange = (e) => { polylineActive = e.target.checked; updateMap(); };
   document.getElementById('route-time-gap').onchange  = debounce(updateMap, 500);
   document.getElementById('route-dist-gap').onchange  = debounce(updateMap, 500);
 
-  // Session filter toggle
-  document.getElementById('import-filter-toggle').onchange = (e) => {
-    const dd = document.getElementById('import-select-dropdown');
-    dd.disabled = !e.target.checked;
-    dd.style.opacity = e.target.checked ? '1' : '0.5';
-    if (!e.target.checked) { dd.value = ''; document.getElementById('session-select').value = ''; updateMap(); }
-  };
-  document.getElementById('import-select-dropdown').onchange = (e) => {
-    // Wenn Import gewählt: Session-Filter deaktivieren und umgekehrt
-    if (e.target.value) {
-      document.getElementById('session-filter-toggle').checked = false;
-      document.getElementById('session-select-dropdown').disabled = true;
-      document.getElementById('session-select-dropdown').style.opacity = '0.5';
+  // Hilfsfunktion: Dropdown aktivieren/deaktivieren
+  function setDropdown(id, active) {
+    const el = document.getElementById(id);
+    el.disabled = !active;
+    el.classList.toggle('fp-inactive', !active);
+  }
+
+  // Session-Filter Toggle
+  document.getElementById('session-filter-toggle').onchange = (e) => {
+    setDropdown('session-select-dropdown', e.target.checked);
+    if (e.target.checked) {
+      document.getElementById('import-filter-toggle').checked = false;
+      setDropdown('import-select-dropdown', false);
+      document.getElementById('import-select-dropdown').value = '';
+    } else {
       document.getElementById('session-select-dropdown').value = '';
     }
-    document.getElementById('session-select').value = e.target.value;
     updateMap();
   };
+  document.getElementById('session-select-dropdown').onchange = updateMap;
 
-  document.getElementById('session-filter-toggle').onchange = (e) => {
-    const dropdown = document.getElementById('session-select-dropdown');
-    dropdown.disabled = !e.target.checked;
-    dropdown.style.opacity = e.target.checked ? '1' : '0.5';
-    if (!e.target.checked) {
-      dropdown.value = '';
-      document.getElementById('session-select').value = '';
-      updateMap();
+  // Import-Filter Toggle
+  document.getElementById('import-filter-toggle').onchange = (e) => {
+    setDropdown('import-select-dropdown', e.target.checked);
+    if (e.target.checked) {
+      document.getElementById('session-filter-toggle').checked = false;
+      setDropdown('session-select-dropdown', false);
+      document.getElementById('session-select-dropdown').value = '';
     } else {
-      // Session aktiv → Import-Filter deaktivieren
-      document.getElementById('import-filter-toggle').checked = false;
-      const idd = document.getElementById('import-select-dropdown');
-      idd.disabled = true; idd.style.opacity = '0.5'; idd.value = '';
+      document.getElementById('import-select-dropdown').value = '';
     }
-  };
-
-  document.getElementById('session-select-dropdown').onchange = (e) => {
-    document.getElementById('session-select').value = e.target.value;
     updateMap();
   };
-
-  // Hidden select for updateMap() - sync with visible dropdown
-  if (!document.getElementById('session-select')) {
-    const hiddenSelect = document.createElement('select');
-    hiddenSelect.id = 'session-select';
-    hiddenSelect.style.display = 'none';
-
-    // Copy options from visible dropdown
-    const visibleDropdown = document.getElementById('session-select-dropdown');
-    Array.from(visibleDropdown.options).forEach(option => {
-      const newOption = document.createElement('option');
-      newOption.value = option.value;
-      newOption.text = option.text;
-      hiddenSelect.appendChild(newOption);
-    });
-
-    // Set default to empty (all sessions)
-    hiddenSelect.value = '';
-    document.body.appendChild(hiddenSelect);
-  }
+  document.getElementById('import-select-dropdown').onchange = updateMap;
 
   // Restore time range setting
   document.getElementById('time-range-select').value = TIME_RANGE;

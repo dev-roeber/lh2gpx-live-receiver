@@ -7,42 +7,48 @@
     <h2>GPS-Daten importieren</h2>
     <p class="page-desc">Importiere GPS-Tracks aus Google Maps Takeout, GPX, KML/KMZ, GeoJSON, CSV oder ZIP-Archiven.</p>
   </div>
-</div>
-
-{# ── Format-Info ─────────────────────────────────────────── #}
-<div class="format-grid">
-  <div class="format-card">
-    <span class="format-badge">JSON</span>
-    <p class="format-desc">Google Maps Takeout <code>Records.json</code> · Timeline-Objekte</p>
-  </div>
-  <div class="format-card">
-    <span class="format-badge">GPX</span>
-    <p class="format-desc">GPS Exchange Format · Tracks, Waypoints, Routes</p>
-  </div>
-  <div class="format-card">
-    <span class="format-badge">KML</span>
-    <p class="format-desc">Keyhole Markup Language · Placemarks, LineStrings</p>
-  </div>
-  <div class="format-card">
-    <span class="format-badge">KMZ</span>
-    <p class="format-desc">Komprimiertes KML-Archiv</p>
-  </div>
-  <div class="format-card">
-    <span class="format-badge">GeoJSON</span>
-    <p class="format-desc">Feature-Collections, Point- und LineString-Geometrien</p>
-  </div>
-  <div class="format-card">
-    <span class="format-badge">CSV</span>
-    <p class="format-desc">Spalten: <code>latitude</code>/<code>longitude</code>, <code>timestamp</code>, <code>accuracy</code></p>
-  </div>
-  <div class="format-card">
-    <span class="format-badge">ZIP</span>
-    <p class="format-desc">Archiv mit beliebig vielen der obigen Dateien · Google Takeout</p>
+  <div class="page-header-actions">
+    <a href="/dashboard/map" class="btn-pill secondary">Zur Karte</a>
+    <a href="/dashboard/points" class="btn-pill secondary">Punkte</a>
   </div>
 </div>
 
-{# ── Upload-Zone ─────────────────────────────────────────── #}
+{# ── Format-Grid ─────────────────────────────────────────── #}
+<div class="fmt-grid">
+  <div class="fmt-card">
+    <span class="fmt-badge">JSON</span>
+    <p class="fmt-desc">Google Maps Takeout · <code>Records.json</code> · Timeline 2024+</p>
+  </div>
+  <div class="fmt-card">
+    <span class="fmt-badge">GPX</span>
+    <p class="fmt-desc">GPS Exchange Format · Tracks, Waypoints, Routes</p>
+  </div>
+  <div class="fmt-card">
+    <span class="fmt-badge">KML</span>
+    <p class="fmt-desc">Keyhole Markup Language · Placemarks, LineStrings</p>
+  </div>
+  <div class="fmt-card">
+    <span class="fmt-badge">KMZ</span>
+    <p class="fmt-desc">Komprimiertes KML-Archiv</p>
+  </div>
+  <div class="fmt-card">
+    <span class="fmt-badge">GeoJSON</span>
+    <p class="fmt-desc">Feature-Collections, Point- und LineString-Geometrien</p>
+  </div>
+  <div class="fmt-card">
+    <span class="fmt-badge">CSV</span>
+    <p class="fmt-desc">Spalten: <code>latitude</code>/<code>longitude</code>, <code>timestamp</code></p>
+  </div>
+  <div class="fmt-card">
+    <span class="fmt-badge">ZIP</span>
+    <p class="fmt-desc">Archiv mit beliebig vielen der obigen Formate · Google Takeout</p>
+  </div>
+</div>
+
+{# ── Upload-Panel ─────────────────────────────────────────── #}
 <article class="panel import-panel">
+
+  {# Drop-Zone #}
   <div class="drop-zone" id="drop-zone">
     <div class="drop-icon">📂</div>
     <p class="drop-title">Datei hierher ziehen</p>
@@ -52,15 +58,17 @@
     <p class="drop-hint">.json · .gpx · .kml · .kmz · .geojson · .csv · .zip &nbsp;·&nbsp; max. 100 MB</p>
   </div>
 
+  {# Ausgewählte Datei #}
   <div id="file-selected" class="file-selected" style="display:none;">
     <span class="file-icon">📄</span>
     <div class="file-info">
       <strong id="file-name">—</strong>
       <span id="file-size" class="file-size-text">—</span>
     </div>
-    <button class="btn-pill secondary" id="clear-file">✕ Entfernen</button>
+    <button class="btn-pill secondary sm" id="clear-file">✕ Entfernen</button>
   </div>
 
+  {# Fortschrittsbalken #}
   <div id="progress-wrap" style="display:none;">
     <div class="progress-bar-track">
       <div class="progress-bar-fill" id="progress-fill"></div>
@@ -68,127 +76,175 @@
     <p id="progress-label" class="progress-label">Wird hochgeladen…</p>
   </div>
 
+  {# Status #}
   <div id="import-status" class="import-status" style="display:none;"></div>
 
+  {# Aktionen #}
   <div class="import-actions">
     <button class="btn-pill primary" id="import-btn" disabled>Importieren</button>
-    <a href="/dashboard/points" class="btn-pill secondary">Punkte ansehen</a>
-    <a href="/dashboard/map" class="btn-pill secondary">Zur Karte</a>
   </div>
 </article>
+
+{# ── Import-Verlauf ──────────────────────────────────────── #}
+{% if snapshot and snapshot.get('recentSessions') %}
+<article class="panel">
+  <div class="panel-header"><h3>Bisherige Importe</h3></div>
+  <div class="table-panel" style="overflow-x:auto;">
+    <table style="min-width:100%;border-collapse:separate;border-spacing:0;">
+      <thead>
+        <tr style="color:var(--text-2);font-size:0.78rem;font-weight:600;">
+          <th style="padding:10px 12px;text-align:left;border-bottom:1px solid var(--separator);">Dateiname</th>
+          <th style="padding:10px 12px;text-align:left;border-bottom:1px solid var(--separator);">Punkte</th>
+          <th style="padding:10px 12px;text-align:left;border-bottom:1px solid var(--separator);">Zeitraum</th>
+          <th style="padding:10px 12px;text-align:left;border-bottom:1px solid var(--separator);">Aktion</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in snapshot.get('recentSessions', []) %}
+        {% if s.get('source','').startswith('import:') %}
+        <tr style="border-bottom:1px solid var(--separator);">
+          <td style="padding:10px 12px;font-size:0.83rem;color:var(--text);">{{ s.source[7:] }}</td>
+          <td style="padding:10px 12px;font-size:0.83rem;color:var(--mint);font-weight:600;">{{ s.points_count }}</td>
+          <td style="padding:10px 12px;font-size:0.78rem;color:var(--text-3);">{{ s.first_point_ts_utc[:10] if s.first_point_ts_utc else '—' }}</td>
+          <td style="padding:10px 12px;">
+            <a href="/dashboard/map" class="btn-pill secondary sm" style="font-size:0.72rem;padding:4px 10px;">Karte</a>
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</article>
+{% endif %}
 
 {# ── Hinweise ─────────────────────────────────────────────── #}
 <article class="panel">
   <div class="panel-header"><h3>Hinweise</h3></div>
   <ul class="hint-list">
-    <li>Importierte Punkte erscheinen als eigene Session in der Punkteliste und auf der Karte.</li>
-    <li>Bereits vorhandene Punkte werden nicht dedupliziert — wiederholter Import derselben Datei erzeugt Duplikate.</li>
-    <li>Google Maps Takeout: Exportiere unter <em>Meine Aktivitäten → Standortverlauf</em>. Die Datei heißt <code>Records.json</code> oder liegt als ZIP vor.</li>
+    <li>Importierte Punkte erscheinen als eigene Import-Session in der Punkteliste und auf der Karte.</li>
+    <li>Bereits vorhandene Punkte werden <em>nicht</em> dedupliziert — wiederholter Import derselben Datei erzeugt Duplikate.</li>
+    <li>Google Maps Takeout: Exportiere unter <em>Meine Aktivitäten → Standortverlauf</em>. Die Datei heißt <code>Records.json</code> oder liegt als ZIP vor. Beide Formate (alt + Timeline 2024+) werden unterstützt.</li>
     <li>Zeitstempel ohne Zeitzone werden als UTC interpretiert.</li>
     <li>KML-LineStrings ohne Zeitstempel erhalten den Importzeitpunkt als Zeitstempel.</li>
+    <li>ZIP-Archive werden vollständig entpackt — alle enthaltenen GPS-Dateien werden importiert.</li>
   </ul>
 </article>
 
 <style>
-.format-grid {
+/* ── Format-Grid ─────────────────────────────────────── */
+.fmt-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 10px; margin-bottom: 20px;
 }
-.format-card {
+.fmt-card {
   background: var(--surface-1); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); padding: 14px 16px;
-  display: flex; flex-direction: column; gap: 6px;
+  border-radius: var(--radius-sm); padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 5px;
 }
-.format-badge {
+.fmt-badge {
   display: inline-block; background: var(--mint-dim); color: var(--mint);
   border: 1px solid var(--mint-border); border-radius: 6px;
-  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.05em;
   padding: 2px 8px; width: fit-content;
 }
-.format-desc { font-size: 0.78rem; color: var(--text-2); margin: 0; }
-.format-desc code { font-size: 0.72rem; color: var(--teal); }
+.fmt-desc { font-size: 0.75rem; color: var(--text-2); margin: 0; line-height: 1.4; }
+.fmt-desc code { font-size: 0.7rem; color: var(--teal); }
 
-.import-panel { padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+/* ── Import-Panel ────────────────────────────────────── */
+.import-panel { padding: 24px; display: flex; flex-direction: column; gap: 18px; }
 
 .drop-zone {
   border: 2px dashed var(--border); border-radius: var(--radius);
-  padding: 40px 24px; text-align: center;
+  padding: 44px 24px; text-align: center;
   display: flex; flex-direction: column; align-items: center; gap: 10px;
   transition: border-color 0.2s, background 0.2s; cursor: pointer;
 }
+.drop-zone:hover { border-color: var(--mint); }
 .drop-zone.drag-over { border-color: var(--mint); background: var(--mint-dim); }
-.drop-icon { font-size: 2.5rem; }
+.drop-icon { font-size: 2.4rem; }
 .drop-title { font-size: 1rem; font-weight: 600; color: var(--text); margin: 0; }
 .drop-sub { font-size: 0.8rem; color: var(--text-3); margin: 0; }
-.drop-hint { font-size: 0.72rem; color: var(--text-3); margin: 0; }
+.drop-hint { font-size: 0.7rem; color: var(--text-3); margin: 0; }
 
 .file-selected {
   display: flex; align-items: center; gap: 12px;
   background: var(--surface-2); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); padding: 14px 16px;
+  border-radius: var(--radius-sm); padding: 12px 16px;
 }
 .file-icon { font-size: 1.4rem; flex-shrink: 0; }
-.file-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.file-info strong { font-size: 0.88rem; color: var(--text); word-break: break-all; }
-.file-size-text { font-size: 0.75rem; color: var(--text-3); }
+.file-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.file-info strong { font-size: 0.85rem; color: var(--text); word-break: break-all; }
+.file-size-text { font-size: 0.72rem; color: var(--text-3); }
 
 .import-status {
   border-radius: var(--radius-sm); padding: 14px 18px;
-  font-size: 0.88rem; font-weight: 500;
+  font-size: 0.85rem; font-weight: 500; line-height: 1.5;
 }
-.import-status.loading { background: var(--blue-dim); border: 1px solid var(--blue-border); color: var(--blue); }
-.import-status.success { background: var(--mint-dim); border: 1px solid var(--mint-border); color: var(--mint); }
-.import-status.error   { background: var(--red-dim);  border: 1px solid var(--red-border);  color: var(--red); }
+.import-status.loading { background: var(--blue-dim);  border: 1px solid var(--blue-border);  color: var(--blue); }
+.import-status.success { background: var(--mint-dim);  border: 1px solid var(--mint-border);  color: var(--mint); }
+.import-status.error   { background: var(--red-dim);   border: 1px solid var(--red-border);   color: var(--red); }
 
 .progress-bar-track {
   height: 6px; background: var(--surface-3); border-radius: 999px; overflow: hidden;
 }
 .progress-bar-fill {
   height: 100%; width: 0%; background: var(--mint); border-radius: 999px;
-  transition: width 0.2s ease;
+  transition: width 0.25s ease;
 }
-.progress-label {
-  font-size: 0.75rem; color: var(--text-3); margin: 6px 0 0; text-align: center;
-}
+.progress-label { font-size: 0.72rem; color: var(--text-3); margin: 6px 0 0; text-align: center; }
 
-.import-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.import-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
-.hint-list { margin: 0; padding: 0 0 0 1.2rem; display: flex; flex-direction: column; gap: 8px; }
-.hint-list li { font-size: 0.83rem; color: var(--text-2); line-height: 1.5; }
-.hint-list li em { color: var(--text); font-style: normal; }
-.hint-list li code { font-size: 0.78rem; color: var(--teal); }
-
+/* ── Buttons ────────────────────────────────────────── */
 .btn-pill {
   display: inline-block; padding: 10px 22px; border-radius: 999px;
   font-size: 0.85rem; font-weight: 600; border: none; cursor: pointer;
   transition: opacity 0.15s; text-decoration: none; white-space: nowrap;
 }
+.btn-pill.sm { padding: 6px 14px; font-size: 0.78rem; }
 .btn-pill.primary { background: var(--mint); color: #000; }
 .btn-pill.secondary { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
 .btn-pill:hover:not(:disabled) { opacity: 0.75; text-decoration: none; }
 .btn-pill:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Hints ──────────────────────────────────────────── */
+.hint-list { margin: 0; padding: 0 0 0 1.2rem; display: flex; flex-direction: column; gap: 8px; }
+.hint-list li { font-size: 0.82rem; color: var(--text-2); line-height: 1.5; }
+.hint-list li em { color: var(--text); font-style: normal; font-weight: 500; }
+.hint-list li code { font-size: 0.76rem; color: var(--teal); }
+
+.page-header-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 </style>
 
 <script>
-const dropZone   = document.getElementById('drop-zone');
-const fileInput  = document.getElementById('file-input');
+const dropZone     = document.getElementById('drop-zone');
+const fileInput    = document.getElementById('file-input');
 const fileSelected = document.getElementById('file-selected');
-const fileName   = document.getElementById('file-name');
-const fileSize   = document.getElementById('file-size');
-const importBtn  = document.getElementById('import-btn');
-const statusBox  = document.getElementById('import-status');
-const clearBtn   = document.getElementById('clear-file');
+const fileName     = document.getElementById('file-name');
+const fileSize     = document.getElementById('file-size');
+const importBtn    = document.getElementById('import-btn');
+const statusBox    = document.getElementById('import-status');
+const clearBtn     = document.getElementById('clear-file');
+const progressWrap = document.getElementById('progress-wrap');
+const progressFill = document.getElementById('progress-fill');
+const progressLabel= document.getElementById('progress-label');
 
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 let selectedFile = null;
 
 function formatBytes(b) {
   if (b < 1024) return b + ' B';
-  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
-  return (b/1048576).toFixed(1) + ' MB';
+  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1048576).toFixed(1) + ' MB';
 }
 
 function setFile(file) {
+  if (file.size > MAX_UPLOAD_BYTES) {
+    showStatus('✗ Datei zu groß – maximal 100 MB erlaubt (diese Datei: ' + formatBytes(file.size) + ')', 'error');
+    return;
+  }
   selectedFile = file;
   fileName.textContent = file.name;
   fileSize.textContent = formatBytes(file.size);
@@ -198,41 +254,41 @@ function setFile(file) {
   statusBox.style.display = 'none';
 }
 
-function clearFile() {
+function clearFile(keepStatus = false) {
   selectedFile = null;
   fileInput.value = '';
   fileSelected.style.display = 'none';
   dropZone.style.display = 'flex';
   importBtn.disabled = true;
-  statusBox.style.display = 'none';
+  if (!keepStatus) statusBox.style.display = 'none';
 }
 
 function showStatus(msg, type) {
-  statusBox.textContent = msg;
+  statusBox.innerHTML = msg;
   statusBox.className = 'import-status ' + type;
   statusBox.style.display = 'block';
 }
-
-fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
-clearBtn.addEventListener('click', clearFile);
-dropZone.addEventListener('click', () => fileInput.click());
-
-dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-dropZone.addEventListener('drop', e => {
-  e.preventDefault(); dropZone.classList.remove('drag-over');
-  const f = e.dataTransfer.files[0];
-  if (f) setFile(f);
-});
-
-const progressWrap = document.getElementById('progress-wrap');
-const progressFill = document.getElementById('progress-fill');
-const progressLabel = document.getElementById('progress-label');
 
 function setProgress(pct, label) {
   progressFill.style.width = pct + '%';
   progressLabel.textContent = label;
 }
+
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
+clearBtn.addEventListener('click', () => clearFile());
+dropZone.addEventListener('click', () => fileInput.click());
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', e => {
+  // Nur entfernen wenn wirklich aus der Drop-Zone heraus (nicht bei Child-Elementen)
+  if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('drag-over');
+});
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) setFile(f);
+});
 
 importBtn.addEventListener('click', () => {
   if (!selectedFile) return;
@@ -248,12 +304,12 @@ importBtn.addEventListener('click', () => {
 
   xhr.upload.addEventListener('progress', e => {
     if (!e.lengthComputable) return;
-    const pct = Math.round((e.loaded / e.total) * 85);
+    const pct = Math.round((e.loaded / e.total) * 82);
     setProgress(pct, `Hochladen… ${formatBytes(e.loaded)} / ${formatBytes(e.total)}`);
   });
 
   xhr.upload.addEventListener('load', () => {
-    setProgress(90, 'Datei empfangen – wird verarbeitet…');
+    setProgress(88, 'Datei empfangen – wird analysiert und importiert…');
   });
 
   xhr.addEventListener('load', () => {
@@ -263,23 +319,24 @@ importBtn.addEventListener('click', () => {
     try { json = JSON.parse(xhr.responseText); } catch { json = {}; }
 
     if (xhr.status >= 200 && xhr.status < 300 && json.ok) {
+      const mapUrl = `/dashboard/map`;
       showStatus(
-        `✓ ${json.inserted} Punkte importiert` +
+        `✓ <strong>${json.inserted.toLocaleString('de-DE')} Punkte</strong> erfolgreich importiert` +
         (json.skipped > 0 ? ` · ${json.skipped} übersprungen` : '') +
-        ` · Session: ${json.session_id}`,
+        ` · Session <code>${json.session_id}</code>` +
+        `<br><a href="${mapUrl}" class="btn-pill primary sm" style="margin-top:10px;display:inline-block;">Auf Karte ansehen →</a>`,
         'success'
       );
-      clearFile();
+      clearFile(true); // Drop-Zone zurücksetzen, aber Status behalten
     } else {
-      // Detaillierte Fehlermeldung aus dem Server
       const detail = json.detail || json.message || null;
       let msg = '✗ Import fehlgeschlagen';
-      if (xhr.status === 413) msg = '✗ Datei zu groß (max. 100 MB)';
-      else if (xhr.status === 422 && detail) msg = `✗ Dateiinhalt ungültig: ${detail}`;
-      else if (xhr.status === 415) msg = '✗ Dateiformat nicht unterstützt';
-      else if (xhr.status === 503) msg = '✗ Datenbank nicht erreichbar – bitte neu laden';
-      else if (detail) msg = `✗ ${detail}`;
-      else if (xhr.status === 0) msg = '✗ Keine Verbindung zum Server';
+      if (xhr.status === 413)            msg = '✗ Datei zu groß (max. 100 MB)';
+      else if (xhr.status === 422)       msg = `✗ Dateiinhalt nicht erkannt oder ungültig${detail ? ': ' + detail : ''}`;
+      else if (xhr.status === 415)       msg = '✗ Dateiformat nicht unterstützt';
+      else if (xhr.status === 503)       msg = '✗ Datenbank nicht erreichbar – bitte Seite neu laden';
+      else if (xhr.status === 0)         msg = '✗ Keine Verbindung zum Server';
+      else if (detail)                   msg = `✗ ${detail}`;
       showStatus(msg, 'error');
       importBtn.disabled = false;
     }
