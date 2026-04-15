@@ -235,7 +235,12 @@ input, select {
   -webkit-overflow-scrolling: touch;
 }
 
-table { width: 100%; border-collapse: collapse; min-width: 900px; table-layout: auto; }
+table { width: 100%; border-collapse: collapse; table-layout: auto; }
+
+/* Tabellen nur auf Desktop mit min-width */
+@media (min-width: 1024px) {
+  table { min-width: 900px; }
+}
 th { background: var(--surface-muted); font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em; padding: 16px; text-align: left; position: sticky; top: 0; }
 td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.95rem; }
 
