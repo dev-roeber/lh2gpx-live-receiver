@@ -170,7 +170,7 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
 .tile-grid { display: grid; gap: 20px; }
 .tile-grid.six-up { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 
-@media (min-width: 1400px) {
+@media (min-width: 1440px) {
   .tile-grid.six-up { grid-template-columns: repeat(6, 1fr); }
 }
 
@@ -284,11 +284,11 @@ td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.
   .tile-grid.six-up { grid-template-columns: repeat(2, 1fr); }
 }
 
-@media (max-width: 767px) {
-  .page-shell { padding: 4px; }
+@media (max-width: 768px) {
+  .page-shell { padding: 12px; }
 
   .panel {
-    padding: 8px;
+    padding: 12px;
     border-radius: var(--radius-sm);
   }
 
@@ -299,7 +299,7 @@ td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.
 
 @media (max-width: 600px) {
   :root { --base-font-size: 16px; --sidebar-width: 85%; }
-  .page-shell { padding: 8px; }
+  .page-shell { padding: 12px; }
   .tile-grid.six-up { grid-template-columns: 1fr; }
   .content-grid.two-one { grid-template-columns: 1fr; }
 }
@@ -432,7 +432,7 @@ td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.
 }
 
 /* Mobile: Stacked layout with collapsible filters */
-@media (max-width: 767px) {
+@media (max-width: 768px) {
   .map-page-container {
     display: grid;
     grid-template-columns: 1fr;
@@ -446,7 +446,7 @@ td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.
     grid-template-columns: 1fr;
     gap: 8px;
     background: var(--surface-muted);
-    padding: 8px;
+    padding: 12px;
     border-radius: var(--radius-sm);
     border: 1px solid rgba(0,0,0,0.05);
     grid-column: 1;
@@ -475,21 +475,21 @@ td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.
 
   .map-container-wrapper {
     grid-column: 1;
-    padding: 8px;
+    padding: 12px;
     width: 100%;
     box-sizing: border-box;
   }
 
   .log-container-wrapper {
     grid-column: 1;
-    padding: 8px;
+    padding: 12px;
     width: 100%;
     box-sizing: border-box;
   }
 
   .map-stats-container {
     grid-column: 1;
-    padding: 8px;
+    padding: 12px;
     width: 100%;
     box-sizing: border-box;
   }
@@ -519,10 +519,10 @@ td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.
 
 /* Extra small mobile */
 @media (max-width: 600px) {
-  .page-shell { padding: 4px; }
+  .page-shell { padding: 12px; }
 
   .panel {
-    padding: 4px;
+    padding: 12px;
   }
 
   input, select {
@@ -535,7 +535,7 @@ td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.
   }
 
   .map-filter-panel {
-    padding: 4px;
+    padding: 12px;
     gap: 4px;
     border-radius: var(--radius-sm);
   }
@@ -543,7 +543,7 @@ td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.
   .map-container-wrapper,
   .log-container-wrapper,
   .map-stats-container {
-    padding: 4px;
+    padding: 12px;
   }
 
   .map-filter-toggle {
@@ -628,7 +628,7 @@ td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.
 .meta-list { display: grid; gap: 12px; }
 .meta-list > div { display: grid; grid-template-columns: 150px 1fr; gap: 16px; }
 .meta-list dt { font-weight: 600; color: var(--text-muted); font-size: 0.85rem; }
-.meta-list dd { font-family: "IBM Plex Mono", monospace; color: var(--text); overflow-x: auto; padding: 4px; }
+.meta-list dd { font-family: "IBM Plex Mono", monospace; color: var(--text); overflow-x: auto; padding: 12px; }
 
 .stack-list { display: grid; gap: 12px; }
 .list-card {
