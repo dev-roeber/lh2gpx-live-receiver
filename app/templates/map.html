@@ -7,6 +7,15 @@
     <h2>Interaktive Karte</h2>
   </div>
 </div>
+<div id="map-refresh-bar" style="display:flex;align-items:center;gap:12px;margin:-8px 0 14px 0;font-size:0.78rem;color:var(--text-3);flex-wrap:wrap;">
+  <span>Aktualisiert: <strong id="mbar-ago" style="color:var(--text-2);">—</strong></span>
+  <span style="color:var(--separator);">|</span>
+  <span>Nächste Aktualisierung: <strong id="mbar-next" style="color:var(--text-2);">—</strong></span>
+  <span style="color:var(--separator);">|</span>
+  <span id="mbar-progress-wrap" style="flex:1;min-width:80px;max-width:200px;height:3px;background:var(--surface-2);border-radius:999px;overflow:hidden;">
+    <span id="mbar-progress" style="display:block;height:100%;width:0%;background:var(--mint);border-radius:999px;transition:width 0.9s linear;"></span>
+  </span>
+</div>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
@@ -259,6 +268,9 @@
   let filtersExpanded = false;
   let lastLoadedPoints = [];
   let isManualRefresh = false;
+  let lastRefreshTime = null;   // ms timestamp des letzten erfolgreichen Updates
+  let nextRefreshTime = null;   // ms timestamp des nächsten geplanten Updates
+  let barTickTimer = null;
 
   // === DEBOUNCE (per-call timeout) ===
   function debounce(fn, ms) {
@@ -472,14 +484,17 @@
 
     updateMap();
     let updateInterval = setInterval(updateMap, POLLING_INTERVAL);
-    
+    barTickTimer = setInterval(tickRefreshBar, 1000);
+
     // Polling Interval Handler
     document.getElementById('polling-interval').onchange = (e) => {
       POLLING_INTERVAL = parseInt(e.target.value);
       localStorage.setItem('map-polling-interval', POLLING_INTERVAL);
       clearInterval(updateInterval);
       updateInterval = setInterval(updateMap, POLLING_INTERVAL);
-      console.log(`Polling interval changed to ${POLLING_INTERVAL}ms`);
+      // Nächstes Update neu berechnen
+      nextRefreshTime = Date.now() + POLLING_INTERVAL;
+      tickRefreshBar();
     };
   }
 
@@ -532,6 +547,9 @@
       lastApiStatus = 'online';
       overlay.style.display = 'none';
       isManualRefresh = false;
+      lastRefreshTime = Date.now();
+      nextRefreshTime = Date.now() + POLLING_INTERVAL;
+      tickRefreshBar();
       
       // === MAP UPDATE ===
       pathLayer.clearLayers();
@@ -731,6 +749,22 @@
     return `vor ${Math.floor(diffMs / 86400000)}d`;
   }
 
+  function tickRefreshBar() {
+    if (!lastRefreshTime) return;
+    const now = Date.now();
+    const agoSec = Math.round((now - lastRefreshTime) / 1000);
+    const remMs  = nextRefreshTime ? Math.max(0, nextRefreshTime - now) : null;
+    const remSec = remMs !== null ? Math.ceil(remMs / 1000) : null;
+
+    document.getElementById('mbar-ago').textContent  = agoSec === 0 ? 'gerade eben' : `vor ${agoSec}s`;
+    document.getElementById('mbar-next').textContent = remSec !== null
+      ? (remSec <= 0 ? 'jetzt…' : `in ${remSec}s`) : '—';
+
+    const pct = (remMs !== null && POLLING_INTERVAL > 0)
+      ? Math.max(0, Math.min(100, 100 - (remMs / POLLING_INTERVAL * 100))) : 0;
+    document.getElementById('mbar-progress').style.width = pct + '%';
+  }
+
   function filterLog() {
     const query = document.getElementById('log-search').value.toLowerCase();
     const rows = document.getElementById('live-log-body').querySelectorAll('tr');
@@ -750,6 +784,7 @@
 
   document.getElementById('refresh-map-btn').onclick = () => {
     isManualRefresh = true;
+    nextRefreshTime = Date.now() + POLLING_INTERVAL; // Timer-Reset nach manuellem Refresh
     document.getElementById('btn-text').style.display = 'none';
     document.getElementById('btn-spinner').style.display = 'inline';
     updateMap();
