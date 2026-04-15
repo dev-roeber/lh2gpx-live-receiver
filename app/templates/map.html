@@ -53,6 +53,8 @@
         <option value="30000">30s</option>
         <option value="60000">1min</option>
       </select>
+      <button id="fullscreen-btn" class="button-link secondary" title="Vollbild">⛶</button>
+      <button id="export-geojson-btn" class="button-link secondary" title="GeoJSON exportieren">💾</button>
       <button id="dark-mode-btn" class="button-link secondary" title="Dark Mode">🌙</button>
       <button id="refresh-map-btn" class="button-link primary">
         <span id="btn-text">Aktualisieren</span>
@@ -64,6 +66,45 @@
 
   <div id="map-container" style="height: 500px; border-radius: 12px; overflow: hidden;"></div>
   <p id="map-stats-text" class="eyebrow" style="margin-top: 15px; color: var(--text-muted);">Initialisiere Karte...</p>
+
+  <div class="tile-grid six-up" style="margin-top: 20px;">
+    <div class="tile" style="padding: 16px;">
+      <p class="tile-title">Punkte pro Min</p>
+      <div style="font-size: 1.8rem; font-weight: 700; color: var(--accent);">
+        <span id="stat-points-per-min">0</span>
+      </div>
+    </div>
+    <div class="tile" style="padding: 16px;">
+      <p class="tile-title">Ø Genauigkeit</p>
+      <div style="font-size: 1.8rem; font-weight: 700; color: #10b981;">
+        <span id="stat-avg-accuracy">-</span>
+      </div>
+    </div>
+    <div class="tile" style="padding: 16px;">
+      <p class="tile-title">Gesamt Punkte</p>
+      <div style="font-size: 1.8rem; font-weight: 700; color: #f59e0b;">
+        <span id="stat-total-points">0</span>
+      </div>
+    </div>
+    <div class="tile" style="padding: 16px;">
+      <p class="tile-title">Im Fenster</p>
+      <div style="font-size: 1.8rem; font-weight: 700; color: #8b5cf6;">
+        <span id="stat-visible-points">0</span>
+      </div>
+    </div>
+    <div class="tile" style="padding: 16px;">
+      <p class="tile-title">Session Länge</p>
+      <div style="font-size: 1.8rem; font-weight: 700; color: #06b6d4;">
+        <span id="stat-session-duration">-</span>
+      </div>
+    </div>
+    <div class="tile" style="padding: 16px;">
+      <p class="tile-title">Zoom Level</p>
+      <div style="font-size: 1.8rem; font-weight: 700; color: #ec4899;">
+        <span id="stat-zoom-level">-</span>
+      </div>
+    </div>
+  </div>
 </article>
 
 <article class="panel">
@@ -104,13 +145,17 @@
   const FILTER_DEBOUNCE = 300;
   const MAX_LOG_LINES = 1000;
   const CLUSTER_THRESHOLD = 50;
-  
+
   // === STATE ===
   let map, pathLayer, markerClusterGroup, knownPointIds = new Set();
   let darkMode = localStorage.getItem('map-dark-mode') === 'true' || false;
   let tileLayer;
   let filterTimeout;
   let lastApiStatus = 'loading';
+  let sessionStartTime = Date.now();
+  let lastPointCount = 0;
+  let lastUpdateTime = Date.now();
+  let allPoints = [];
 
   // === DEBOUNCE ===
   function debounce(fn, ms) {
@@ -118,6 +163,102 @@
       clearTimeout(filterTimeout);
       filterTimeout = setTimeout(() => fn.apply(this, args), ms);
     };
+  }
+
+  // === FULLSCREEN ===
+  function toggleFullscreen() {
+    const container = document.getElementById('map-container');
+    if (!document.fullscreenElement) {
+      container.requestFullscreen().catch(err => {
+        alert(`Fehler beim Vollbild: ${err.message}`);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  }
+
+  // === GEOJSON EXPORT ===
+  function exportGeoJSON() {
+    const rows = document.getElementById('live-log-body').querySelectorAll('tr');
+    const features = [];
+
+    rows.forEach(row => {
+      const lat = parseFloat(row.dataset.lat);
+      const lon = parseFloat(row.dataset.lon);
+      const time = row.dataset.time;
+      const acc = parseInt(row.dataset.accuracy);
+
+      if (!isNaN(lat) && !isNaN(lon)) {
+        features.push({
+          type: 'Feature',
+          geometry: {
+            type: 'Point',
+            coordinates: [lon, lat]
+          },
+          properties: {
+            timestamp: time,
+            accuracy_m: acc
+          }
+        });
+      }
+    });
+
+    const geojson = {
+      type: 'FeatureCollection',
+      features: features
+    };
+
+    const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `lh2gpx-${new Date().toISOString().split('T')[0]}.geojson`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // === STATISTICS ===
+  function updateStatistics(points, totalPoints) {
+    if (!points || points.length === 0) {
+      document.getElementById('stat-points-per-min').innerText = '0';
+      document.getElementById('stat-avg-accuracy').innerText = '-';
+      document.getElementById('stat-visible-points').innerText = '0';
+      document.getElementById('stat-total-points').innerText = totalPoints || '0';
+      return;
+    }
+
+    // Points per minute
+    const now = Date.now();
+    const elapsed = (now - sessionStartTime) / 60000; // minutes
+    const pointsDiff = points.length - lastPointCount;
+    const ppm = elapsed > 0 ? (points.length / elapsed).toFixed(1) : '0';
+    document.getElementById('stat-points-per-min').innerText = ppm;
+
+    // Average accuracy
+    const avgAcc = points.reduce((sum, p) => sum + (p.horizontal_accuracy_m || 0), 0) / points.length;
+    document.getElementById('stat-avg-accuracy').innerText = isFinite(avgAcc) ? avgAcc.toFixed(0) + 'm' : '-';
+
+    // Visible points
+    document.getElementById('stat-visible-points').innerText = points.length;
+
+    // Total points
+    document.getElementById('stat-total-points').innerText = totalPoints || points.length;
+
+    // Session duration
+    const durationMs = now - sessionStartTime;
+    const hours = Math.floor(durationMs / 3600000);
+    const minutes = Math.floor((durationMs % 3600000) / 60000);
+    document.getElementById('stat-session-duration').innerText = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+
+    // Zoom level
+    if (map) {
+      document.getElementById('stat-zoom-level').innerText = map.getZoom();
+    }
+
+    lastPointCount = points.length;
+    lastUpdateTime = now;
   }
 
   function initMap() {
@@ -207,6 +348,9 @@
         stats.innerText = "Keine Punkte im gewählten Zeitraum.";
       }
 
+      // === UPDATE STATS ===
+      updateStatistics(points, data.points.total);
+
       // === LOG UPDATE ===
       if (points && points.length > 0) {
         if (knownPointIds.size === 0) logBody.innerHTML = '';
@@ -226,14 +370,31 @@
             row.dataset.lat = p.latitude.toFixed(5);
             row.dataset.lon = p.longitude.toFixed(5);
             row.dataset.time = p.point_timestamp_local;
-            
+            row.dataset.accuracy = p.horizontal_accuracy_m;
+
             const ts = p.point_timestamp_utc.split('T');
+            const coordText = `${p.latitude.toFixed(5)}, ${p.longitude.toFixed(5)}`;
             row.innerHTML = `
               <td style="padding: 12px 16px; color: #94a3b8;">${ts[0]}</td>
               <td style="padding: 12px 16px; font-weight: 600;">${ts[1].substring(0, 8)}</td>
-              <td style="padding: 12px 16px; color: #3b82f6;">${p.latitude.toFixed(5)}, ${p.longitude.toFixed(5)}</td>
+              <td style="padding: 12px 16px; color: #3b82f6; cursor: pointer; user-select: none; border-radius: 4px;" title="Klicken zum Kopieren">${coordText}</td>
               <td style="padding: 12px 16px; color: #64748b;">${p.horizontal_accuracy_m}m</td>
             `;
+
+            // Copy-to-clipboard handler for coordinates
+            const coordCell = row.querySelector('td:nth-child(3)');
+            coordCell.onclick = (e) => {
+              e.stopPropagation();
+              navigator.clipboard.writeText(coordText).then(() => {
+                const origBg = coordCell.style.backgroundColor;
+                coordCell.style.backgroundColor = 'rgba(16, 185, 129, 0.3)';
+                coordCell.style.transition = 'background-color 0.2s';
+                setTimeout(() => {
+                  coordCell.style.backgroundColor = origBg;
+                }, 300);
+              });
+            };
+
             logBody.insertBefore(row, logBody.firstChild);
           }
         });
@@ -290,12 +451,15 @@
   document.getElementById('dark-mode-btn').onclick = () => {
     darkMode = !darkMode;
     localStorage.setItem('map-dark-mode', darkMode);
-    const newUrl = darkMode 
+    const newUrl = darkMode
       ? 'https://tiles.stadiamaps.com/tiles/stamen_tonerqant/{z}/{x}/{y}.png'
       : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
     map.removeLayer(tileLayer);
     tileLayer = L.tileLayer(newUrl, { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
   };
+
+  document.getElementById('fullscreen-btn').onclick = toggleFullscreen;
+  document.getElementById('export-geojson-btn').onclick = exportGeoJSON;
 
   document.addEventListener('DOMContentLoaded', initMap);
 </script>
