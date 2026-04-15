@@ -528,9 +528,15 @@ td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.
 
   /* Hide non-essential columns on mobile log */
   .log-col-mode,
-  .log-col-request-id {
+  .log-col-request-id,
+  .log-col-accuracy {
     display: none;
   }
+
+  /* Log table compact on mobile */
+  #live-log-body td { padding: 10px 6px !important; font-size: 0.8rem !important; }
+  #live-log-body td:first-child { white-space: nowrap; }
+  #live-log-body td:nth-child(2) { word-break: break-all; }
 }
 
 /* Extra small mobile */

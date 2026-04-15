@@ -123,7 +123,7 @@
         <tr style="color: #94a3b8; font-size: 0.8rem; font-weight: 600;">
           <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Uhrzeit</th>
           <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Koordinaten</th>
-          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Genauigkeit</th>
+          <th class="log-col-accuracy" style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Genauigkeit</th>
           <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Quelle</th>
           <th class="log-col-mode" style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Modus</th>
           <th class="log-col-request-id" style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Request ID</th>
@@ -458,7 +458,7 @@
             row.innerHTML = `
               <td style="padding: 14px 10px; color: #94a3b8; font-size: 0.9rem;"><span style="color: #64748b;">${relTime}</span> • ${ts[1].substring(0, 8)}</td>
               <td style="padding: 14px 10px; color: #3b82f6; cursor: pointer; user-select: none; border-radius: 4px; font-weight: 500;" title="Klicken zum Kopieren">${coordText}</td>
-              <td style="padding: 14px 10px; color: #10b981; font-weight: 500;">${p.horizontal_accuracy_m}m</td>
+              <td class="log-col-accuracy" style="padding: 14px 10px; color: #10b981; font-weight: 500;">${p.horizontal_accuracy_m}m</td>
               <td style="padding: 14px 10px; color: #f59e0b; font-size: 0.9rem;">${p.source || 'N/A'}</td>
               <td class="log-col-mode" style="padding: 14px 10px; color: #06b6d4; font-size: 0.85rem;">${p.capture_mode || 'N/A'}</td>
               <td class="log-col-request-id" style="padding: 14px 10px; color: #64748b; font-size: 0.8rem; font-family: monospace;" title="${p.request_id || 'N/A'}">${requestIdShort}</td>
