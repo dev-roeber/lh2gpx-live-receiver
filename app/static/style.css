@@ -560,3 +560,147 @@ td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.
     grid-template-columns: 1fr;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE COMPONENTS - Unified for all pages
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Page Header Component (used on 6+ pages) */
+.page-header {
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--surface-muted);
+  padding-bottom: 16px;
+}
+
+.page-header-copy { display: flex; flex-direction: column; gap: 8px; }
+.page-kicker { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; margin: 0; }
+.page-header h2 { font-size: 1.75rem; font-weight: 700; margin: 0; color: var(--text); }
+.page-desc { font-size: 0.95rem; color: var(--text-muted); margin: 0; }
+
+/* Metric Row Component (used on 4+ pages) */
+.metric-row {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.metric-card {
+  background: var(--surface);
+  padding: 16px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(0,0,0,0.05);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mc-label { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; }
+.mc-value { font-size: 1.5rem; font-weight: 700; color: var(--accent); }
+.mc-sub { font-size: 0.85rem; color: var(--text-muted); }
+
+/* Form Components (config.html) */
+.form-section {
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--surface-muted);
+  display: grid;
+  gap: 16px;
+}
+
+.form-section h4 { font-size: 1rem; font-weight: 600; margin: 0; color: var(--text); }
+
+.input-group { display: flex; flex-direction: column; gap: 6px; }
+.input-group label { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
+.input-group small { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+
+.input-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+
+.password-toggle { display: flex; gap: 8px; }
+.password-toggle input { flex: 1; }
+
+.settings-form { display: grid; gap: 16px; }
+
+/* Meta & Stack Lists */
+.meta-list { display: grid; gap: 12px; }
+.meta-list > div { display: grid; grid-template-columns: 150px 1fr; gap: 16px; }
+.meta-list dt { font-weight: 600; color: var(--text-muted); font-size: 0.85rem; }
+.meta-list dd { font-family: "IBM Plex Mono", monospace; color: var(--text); overflow-x: auto; padding: 4px; }
+
+.stack-list { display: grid; gap: 12px; }
+.list-card {
+  background: var(--surface);
+  padding: 16px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(0,0,0,0.05);
+  box-shadow: var(--shadow-sm);
+  display: grid;
+  gap: 8px;
+  text-decoration: none;
+  transition: background 0.2s;
+  cursor: pointer;
+}
+
+.list-card:hover { background: var(--surface-muted); }
+.list-card strong { color: var(--text); font-size: 0.95rem; }
+.list-card span { font-size: 0.85rem; color: var(--text-muted); line-height: 1.4; }
+.list-card.static { cursor: default; }
+
+/* Panel Footer (used on config.html) */
+.panel-footer { 
+  display: flex; 
+  gap: 12px; 
+  padding-top: 16px; 
+  border-top: 1px solid var(--surface-muted); 
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   UNIFIED RESPONSIVE ADJUSTMENTS - All Breakpoints
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Tablet: 601-768px */
+@media (max-width: 768px) {
+  .page-header { margin-bottom: 16px; padding-bottom: 12px; }
+  .page-kicker { font-size: 0.7rem; }
+  .page-header h2 { font-size: 1.5rem; }
+
+  .metric-row { gap: 16px; grid-template-columns: repeat(2, 1fr); }
+  .metric-card { padding: 12px; }
+  .mc-value { font-size: 1.25rem; }
+
+  .form-section { gap: 12px; padding-bottom: 16px; }
+  .form-section h4 { font-size: 0.95rem; }
+  .input-grid { grid-template-columns: 1fr; gap: 16px; }
+
+  .filters { gap: 16px; grid-template-columns: repeat(2, 1fr); }
+  .meta-list > div { grid-template-columns: 1fr; gap: 8px; }
+  .meta-list dt { font-size: 0.8rem; }
+
+  .list-card { padding: 12px; }
+  .bar-row { grid-template-columns: 100px 1fr 60px; gap: 12px; font-size: 0.85rem; }
+}
+
+/* Mobile: ≤600px */
+@media (max-width: 600px) {
+  .page-header { margin-bottom: 12px; padding-bottom: 8px; }
+  .page-header h2 { font-size: 1.25rem; }
+
+  .metric-row { gap: 12px; grid-template-columns: repeat(2, 1fr); }
+  .metric-card { padding: 10px; }
+  .mc-label { font-size: 0.7rem; }
+  .mc-value { font-size: 1.1rem; }
+
+  .form-section { padding-bottom: 12px; gap: 10px; }
+  .input-group small { font-size: 0.75rem; }
+
+  .filters { gap: 12px; grid-template-columns: 1fr; }
+  .meta-list { gap: 8px; }
+  .list-card { padding: 10px; gap: 6px; }
+  .list-card strong { font-size: 0.9rem; }
+  .list-card span { font-size: 0.8rem; }
+
+  .bar-row { grid-template-columns: 80px 1fr 50px; gap: 8px; font-size: 0.8rem; }
+}
