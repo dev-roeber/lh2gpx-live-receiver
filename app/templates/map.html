@@ -8,9 +8,11 @@
   </div>
 </div>
 
-{# ── Map Assets ── #}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
 
 <article class="panel">
   <div class="map-filter-panel">
@@ -32,33 +34,35 @@
         {% endfor %}
       </select>
     </div>
-    {# Checkbox für Auto-Zentrierung #}
     <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px; margin-left: 15px;">
       <input type="checkbox" id="auto-center-toggle" checked style="width: auto; cursor: pointer;">
       <label for="auto-center-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Auto-Zentrierung</label>
     </div>
-    <div class="filter-actions" style="align-self: flex-end; margin-left: auto;">
+    <div class="filter-actions" style="align-self: flex-end; margin-left: auto; display: flex; gap: 10px;">
+      <button id="dark-mode-btn" class="button-link secondary" title="Dark Mode">🌙</button>
       <button id="refresh-map-btn" class="button-link primary">
-        <span id="btn-text">Karte aktualisieren</span>
+        <span id="btn-text">Aktualisieren</span>
         <span id="btn-spinner" style="display: none;">⌛ Lade...</span>
       </button>
+      <span class="status-badge" id="api-status" style="padding: 5px 10px; font-size: 0.8rem;">● OFFLINE</span>
     </div>
   </div>
 
-  <div id="map-container"></div>
+  <div id="map-container" style="height: 500px; border-radius: 12px; overflow: hidden;"></div>
   <p id="map-stats-text" class="eyebrow" style="margin-top: 15px; color: var(--text-muted);">Initialisiere Karte...</p>
 </article>
 
-{# ── Live Log Panel ── #}
 <article class="panel">
   <div class="panel-header">
     <div>
       <p class="eyebrow">Echtzeit-Übertragung</p>
       <h3>Live-Punkt-Log</h3>
     </div>
-    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px;">
-      <label for="log-limit" style="margin: 0;">Anzeige:</label>
-      <input type="number" id="log-limit" value="50" min="1" max="1000" style="width: 100px; padding: 5px 10px;">
+    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px; flex-wrap: wrap;">
+      <label for="log-search" style="margin: 0;">Suche:</label>
+      <input type="text" id="log-search" placeholder="Koordinaten/Zeit..." style="padding: 5px 10px; width: 200px; border: 1px solid var(--text-muted); border-radius: 4px;">
+      <label for="log-limit" style="margin: 0;">Zeigen:</label>
+      <input type="number" id="log-limit" value="50" min="1" max="1000" style="width: 80px; padding: 5px 10px;">
       <span class="status-badge info" id="live-indicator">LIVE</span>
     </div>
   </div>
@@ -81,21 +85,43 @@
 </article>
 
 <script>
-  let map, pathLayer;
-  let knownPointIds = new Set();
+  // === CONFIG ===
+  const POLLING_INTERVAL = 15000;
+  const FILTER_DEBOUNCE = 300;
+  const MAX_LOG_LINES = 1000;
+  const CLUSTER_THRESHOLD = 50;
   
+  // === STATE ===
+  let map, pathLayer, markerClusterGroup, knownPointIds = new Set();
+  let darkMode = localStorage.getItem('map-dark-mode') === 'true' || false;
+  let tileLayer;
+  let filterTimeout;
+  let lastApiStatus = 'loading';
+
+  // === DEBOUNCE ===
+  function debounce(fn, ms) {
+    return function(...args) {
+      clearTimeout(filterTimeout);
+      filterTimeout = setTimeout(() => fn.apply(this, args), ms);
+    };
+  }
+
   function initMap() {
     map = L.map('map-container').setView([52.52, 13.405], 10);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { // Standard OSM Tiles
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map);
     
+    const osmUrl = darkMode 
+      ? 'https://tiles.stadiamaps.com/tiles/stamen_tonerqant/{z}/{x}/{y}.png'
+      : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    
+    tileLayer = L.tileLayer(osmUrl, { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
     pathLayer = L.featureGroup().addTo(map);
+    markerClusterGroup = L.markerClusterGroup().addTo(map);
     
-    setTimeout(() => { map.invalidateSize(); }, 600);
+    L.control.scale().addTo(map);
+    
+    setTimeout(() => map.invalidateSize(), 600);
     updateMap();
-    setInterval(updateMap, 5000); // Live Polling
+    setInterval(updateMap, POLLING_INTERVAL);
   }
 
   async function updateMap() {
@@ -104,10 +130,10 @@
     const stats = document.getElementById('map-stats-text');
     const logBody = document.getElementById('live-log-body');
     const logLimit = parseInt(document.getElementById('log-limit').value) || 50;
-    const liveIndicator = document.getElementById('live-indicator');
-    const autoCenter = document.getElementById('auto-center-toggle').checked; // Checkbox-Status auslesen
+    const autoCenter = document.getElementById('auto-center-toggle').checked;
+    const apiStatus = document.getElementById('api-status');
 
-    let url = `/api/points?page_size=${logLimit}`;
+    let url = `/api/points?page_size=2000`;
     if (sessionId) url += `&session_id=${sessionId}`;
     
     if (range !== 'all') {
@@ -117,88 +143,135 @@
     }
 
     try {
-      liveIndicator.style.opacity = '0.5'; // Lade-Indikator anzeigen
-      const res = await fetch(url, { credentials: 'same-origin' }); // Cookies für Auth mitliefern
+      apiStatus.textContent = '● LADEN...';
+      apiStatus.style.color = '#f59e0b';
+      const res = await fetch(url, { credentials: 'same-origin' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       
       const data = await res.json();
       const points = data.points.items;
+      lastApiStatus = 'online';
       
-      // 1. Karte aktualisieren
+      // === MAP UPDATE ===
       pathLayer.clearLayers();
+      markerClusterGroup.clearLayers();
+      
       if (points && points.length > 0) {
         const coords = points.map(p => [p.latitude, p.longitude]);
         L.polyline(coords, {color: '#3b82f6', weight: 5, opacity: 0.6}).addTo(pathLayer);
         
-        const last = points[0]; // Neueste Punkt ist index 0 wegen API-Sortierung
+        const last = points[0];
         L.circleMarker([last.latitude, last.longitude], {
           radius: 10, color: '#fff', fillColor: '#3b82f6', fillOpacity: 1, weight: 3
         }).addTo(pathLayer).bindPopup(`<b>Letzte Position</b><br>${last.point_timestamp_local}<br>Genauigkeit: ${last.horizontal_accuracy_m}m`);
         
-        // Nur zoomen/zentrieren, wenn Auto-Zentrierung aktiv ist
+        // === CLUSTERING ===
+        if (points.length > CLUSTER_THRESHOLD) {
+          points.forEach(p => {
+            const marker = L.circleMarker([p.latitude, p.longitude], {
+              radius: 5, color: '#3b82f6', fillOpacity: 0.7, weight: 1
+            });
+            markerClusterGroup.addLayer(marker);
+          });
+        }
+        
         if (autoCenter && pathLayer.getLayers().length > 0) {
           map.fitBounds(pathLayer.getBounds(), {padding: [40, 40]});
         }
-        // Anzeige der Gesamtanzahl der Punkte basierend auf den Filtern
         stats.innerText = `${data.points.total} Punkte gefunden (${points.length} angezeigt).`;
       } else {
-        stats.innerText = "Keine Punkte im gewählten Zeitraum oder für diese Session gefunden.";
+        stats.innerText = "Keine Punkte im gewählten Zeitraum.";
       }
 
-      // 2. Live Log aktualisieren
+      // === LOG UPDATE ===
       if (points && points.length > 0) {
-        if (knownPointIds.size === 0) logBody.innerHTML = ''; // Initial clear
-
-        points.forEach((p) => { // Iteriere über alle erhaltenen Punkte
+        if (knownPointIds.size === 0) logBody.innerHTML = '';
+        
+        points.forEach((p) => {
           if (!knownPointIds.has(p.id)) {
+            // Limit Size
+            if (knownPointIds.size >= MAX_LOG_LINES) {
+              const firstRow = logBody.lastChild;
+              if (firstRow) logBody.removeChild(firstRow);
+              knownPointIds.delete([...knownPointIds][0]);
+            }
+            
             knownPointIds.add(p.id);
             const row = document.createElement('tr');
             row.style.borderBottom = '1px solid #1e293b';
-            row.style.animation = 'fadeHighlight 2s ease-out';
+            row.dataset.lat = p.latitude.toFixed(5);
+            row.dataset.lon = p.longitude.toFixed(5);
+            row.dataset.time = p.point_timestamp_local;
             
             const ts = p.point_timestamp_utc.split('T');
-            const date = ts[0];
-            const time = ts[1].substring(0, 8);
-            
             row.innerHTML = `
-              <td style="padding: 12px 16px; color: #94a3b8;">${date}</td>
-              <td style="padding: 12px 16px; font-weight: 600;">${time}</td>
+              <td style="padding: 12px 16px; color: #94a3b8;">${ts[0]}</td>
+              <td style="padding: 12px 16px; font-weight: 600;">${ts[1].substring(0, 8)}</td>
               <td style="padding: 12px 16px; color: #3b82f6;">${p.latitude.toFixed(5)}, ${p.longitude.toFixed(5)}</td>
               <td style="padding: 12px 16px; color: #64748b;">${p.horizontal_accuracy_m}m</td>
             `;
-            logBody.insertBefore(row, logBody.firstChild); // Oben einfügen
+            logBody.insertBefore(row, logBody.firstChild);
           }
         });
-
-        // Limit im Log einhalten - remove excess from bottom
+        
+        filterLog();
         while (logBody.children.length > logLimit) {
           logBody.removeChild(logBody.lastChild);
         }
       }
-      liveIndicator.style.opacity = '1';
+      
+      apiStatus.textContent = '● ONLINE';
+      apiStatus.style.color = '#10b981';
     } catch (e) {
-      console.error("Live Update Error:", e);
-      stats.innerText = "Fehler beim Laden der Kartendaten oder Session abgelaufen.";
+      console.error("Error:", e);
+      stats.innerText = "Fehler beim Laden der Kartendaten.";
       stats.style.color = "var(--c-crit)";
-      liveIndicator.style.opacity = '1';
+      apiStatus.textContent = '● FEHLER';
+      apiStatus.style.color = '#ef4444';
+      lastApiStatus = 'offline';
     } finally {
       document.getElementById('btn-text').style.display = 'inline';
       document.getElementById('btn-spinner').style.display = 'none';
     }
   }
 
-  // Animation für neue Punkte
-  const style = document.createElement('style');
-  style.innerHTML = `
-    @keyframes fadeHighlight {
-      0% { background: rgba(59, 130, 246, 0.3); color: #fff; }
-      100% { background: transparent; }
-    }
-    #live-log-body tr:hover { background: #1e293b; }
-  `;
-  document.head.appendChild(style);
+  function filterLog() {
+    const query = document.getElementById('log-search').value.toLowerCase();
+    const rows = document.getElementById('live-log-body').querySelectorAll('tr');
+    
+    rows.forEach(row => {
+      if (!query) {
+        row.style.display = '';
+        return;
+      }
+      const lat = row.dataset.lat || '';
+      const lon = row.dataset.lon || '';
+      const time = row.dataset.time || '';
+      const match = lat.includes(query) || lon.includes(query) || time.includes(query);
+      row.style.display = match ? '' : 'none';
+    });
+  }
 
-  document.getElementById('refresh-map-btn').onclick = updateMap;
+  document.getElementById('refresh-map-btn').onclick = () => {
+    document.getElementById('btn-text').style.display = 'none';
+    document.getElementById('btn-spinner').style.display = 'inline';
+    updateMap();
+  };
+
+  document.getElementById('time-range-select').onchange = debounce(updateMap, FILTER_DEBOUNCE);
+  document.getElementById('session-select').onchange = debounce(updateMap, FILTER_DEBOUNCE);
+  document.getElementById('log-search').oninput = filterLog;
+
+  document.getElementById('dark-mode-btn').onclick = () => {
+    darkMode = !darkMode;
+    localStorage.setItem('map-dark-mode', darkMode);
+    const newUrl = darkMode 
+      ? 'https://tiles.stadiamaps.com/tiles/stamen_tonerqant/{z}/{x}/{y}.png'
+      : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    map.removeLayer(tileLayer);
+    tileLayer = L.tileLayer(newUrl, { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+  };
+
   document.addEventListener('DOMContentLoaded', initMap);
 </script>
 {% endblock %}
