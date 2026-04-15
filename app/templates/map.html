@@ -554,11 +554,23 @@
     updateMap();
   };
 
-  // Hidden select for updateMap()
+  // Hidden select for updateMap() - sync with visible dropdown
   if (!document.getElementById('session-select')) {
     const hiddenSelect = document.createElement('select');
     hiddenSelect.id = 'session-select';
     hiddenSelect.style.display = 'none';
+
+    // Copy options from visible dropdown
+    const visibleDropdown = document.getElementById('session-select-dropdown');
+    Array.from(visibleDropdown.options).forEach(option => {
+      const newOption = document.createElement('option');
+      newOption.value = option.value;
+      newOption.text = option.text;
+      hiddenSelect.appendChild(newOption);
+    });
+
+    // Set default to empty (all sessions)
+    hiddenSelect.value = '';
     document.body.appendChild(hiddenSelect);
   }
 
