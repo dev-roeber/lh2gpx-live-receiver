@@ -56,6 +56,10 @@
       <input type="checkbox" id="auto-center-toggle" checked style="width: auto; cursor: pointer;">
       <label for="auto-center-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Letzter Punkt folgen</label>
     </div>
+    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px; margin-left: 15px;">
+      <input type="checkbox" id="fit-bounds-toggle" style="width: auto; cursor: pointer;">
+      <label for="fit-bounds-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Gesamten Track anzeigen</label>
+    </div>
     <div class="filter-actions" style="align-self: flex-end; margin-left: auto; display: flex; gap: 10px; align-items: center;">
       <label for="polling-interval" style="margin: 0; font-size: 0.85rem;">Update:</label>
       <select id="polling-interval" style="padding: 5px 8px; border: 1px solid var(--text-muted); border-radius: 4px;">
@@ -336,7 +340,8 @@
 
     let url = `/api/points?page_size=${Math.min(logLimit * 2, 250)}`;
     if (sessionId) url += `&session_id=${sessionId}`;
-    
+    const fitBounds = document.getElementById('fit-bounds-toggle').checked;
+
     if (range !== 'all') {
       const mins = {
         '2m': 2, '5m': 5, '10m': 10, '15m': 15, '30m': 30, '45m': 45,
@@ -380,7 +385,11 @@
           });
         }
         
-        if (autoCenter) {
+        if (fitBounds && coords.length > 0) {
+          // Fit all points in view
+          const bounds = L.latLngBounds(coords);
+          map.fitBounds(bounds, {padding: [50, 50], animate: true});
+        } else if (autoCenter) {
           // Focus on latest point with zoom level 18
           map.setView([last.latitude, last.longitude], 18, {animate: true});
         }
@@ -518,6 +527,9 @@
 
   document.getElementById('fullscreen-btn').onclick = toggleFullscreen;
   document.getElementById('export-geojson-btn').onclick = exportGeoJSON;
+
+  // Fit bounds toggle
+  document.getElementById('fit-bounds-toggle').onchange = updateMap;
 
   // Session filter toggle
   document.getElementById('session-filter-toggle').onchange = (e) => {
