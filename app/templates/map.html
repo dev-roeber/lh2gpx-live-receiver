@@ -86,8 +86,47 @@
 
   <div id="map-container" style="height: 500px; border-radius: 12px; overflow: hidden;"></div>
   <p id="map-stats-text" class="eyebrow" style="margin-top: 15px; color: var(--text-muted);">Initialisiere Karte...</p>
+</article>
 
-  <div class="tile-grid six-up" style="margin-top: 20px;">
+<article class="panel">
+  <div class="panel-header">
+    <div>
+      <p class="eyebrow">Echtzeit-Übertragung</p>
+      <h3>Live-Punkt-Log</h3>
+    </div>
+    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px; flex-wrap: wrap;">
+      <label for="log-search" style="margin: 0;">Suche:</label>
+      <input type="text" id="log-search" placeholder="Koordinaten/Zeit..." style="padding: 5px 10px; width: 200px; border: 1px solid var(--text-muted); border-radius: 4px;">
+      <label for="log-limit" style="margin: 0;">Zeigen:</label>
+      <input type="number" id="log-limit" value="100" min="1" max="1000" style="width: 80px; padding: 5px 10px;">
+      <span class="status-badge info" id="live-indicator">LIVE</span>
+    </div>
+  </div>
+
+  <div class="table-panel" style="max-height: 750px; overflow-y: auto; background: #0f172a; border-radius: var(--radius-sm);">
+    <table style="min-width: 100%; border-collapse: separate; border-spacing: 0;">
+      <thead style="position: sticky; top: 0; z-index: 10; background: #1e293b;">
+        <tr style="color: #94a3b8; font-size: 0.8rem; font-weight: 600;">
+          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Uhrzeit (UTC)</th>
+          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Koordinaten</th>
+          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Genauigkeit</th>
+          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Quelle</th>
+          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Modus</th>
+          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Request ID</th>
+        </tr>
+      </thead>
+      <tbody id="live-log-body" style="font-family: 'IBM Plex Mono', monospace; font-size: 0.9rem; color: #e2e8f0;">
+        <tr><td colspan="6" style="text-align: center; padding: 60px; color: #64748b; font-size: 0.95rem;">Warte auf Daten-Ingest...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</article>
+
+<article class="panel">
+  <div class="panel-header">
+    <p class="eyebrow">Zusammenfassung</p>
+  </div>
+  <div class="tile-grid six-up">
     <div class="tile" style="padding: 16px;">
       <p class="tile-title">Punkte pro Min</p>
       <div style="font-size: 1.8rem; font-weight: 700; color: var(--accent);">
@@ -124,40 +163,6 @@
         <span id="stat-zoom-level">-</span>
       </div>
     </div>
-  </div>
-</article>
-
-<article class="panel">
-  <div class="panel-header">
-    <div>
-      <p class="eyebrow">Echtzeit-Übertragung</p>
-      <h3>Live-Punkt-Log</h3>
-    </div>
-    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px; flex-wrap: wrap;">
-      <label for="log-search" style="margin: 0;">Suche:</label>
-      <input type="text" id="log-search" placeholder="Koordinaten/Zeit..." style="padding: 5px 10px; width: 200px; border: 1px solid var(--text-muted); border-radius: 4px;">
-      <label for="log-limit" style="margin: 0;">Zeigen:</label>
-      <input type="number" id="log-limit" value="100" min="1" max="1000" style="width: 80px; padding: 5px 10px;">
-      <span class="status-badge info" id="live-indicator">LIVE</span>
-    </div>
-  </div>
-
-  <div class="table-panel" style="max-height: 750px; overflow-y: auto; background: #0f172a; border-radius: var(--radius-sm);">
-    <table style="min-width: 100%; border-collapse: separate; border-spacing: 0;">
-      <thead style="position: sticky; top: 0; z-index: 10; background: #1e293b;">
-        <tr style="color: #94a3b8; font-size: 0.8rem; font-weight: 600;">
-          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Uhrzeit (UTC)</th>
-          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Koordinaten</th>
-          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Genauigkeit</th>
-          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Quelle</th>
-          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Modus</th>
-          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Request ID</th>
-        </tr>
-      </thead>
-      <tbody id="live-log-body" style="font-family: 'IBM Plex Mono', monospace; font-size: 0.9rem; color: #e2e8f0;">
-        <tr><td colspan="6" style="text-align: center; padding: 60px; color: #64748b; font-size: 0.95rem;">Warte auf Daten-Ingest...</td></tr>
-      </tbody>
-    </table>
   </div>
 </article>
 
