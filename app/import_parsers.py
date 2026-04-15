@@ -37,24 +37,43 @@ def parse_file(filename: str, data: bytes) -> list[dict[str, Any]]:
 
 def _pt(lat: float, lon: float, ts: datetime, accuracy: float = 0.0, mode: str | None = None) -> dict[str, Any]:
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-        raise ValueError("Koordinaten außerhalb des gültigen Bereichs")
+        raise ValueError(f"Koordinaten außerhalb des gültigen Bereichs: {lat}, {lon}")
     return {"latitude": lat, "longitude": lon,
             "timestamp_utc": ts.astimezone(timezone.utc),
-            "accuracy_m": accuracy, "capture_mode": mode}
+            "accuracy_m": max(0.0, float(accuracy or 0)),
+            "capture_mode": mode}
 
 
 def _parse_ts(value: str) -> datetime:
-    """Parse ISO 8601 / RFC 3339 / epoch-ms strings."""
-    value = value.strip()
-    # Unix timestamp in ms (Google Maps uses this)
-    if value.lstrip("-").isdigit() and len(value) >= 10:
+    """Parse ISO 8601 / RFC 3339 / epoch-ms / epoch-s strings."""
+    value = value.strip().rstrip("Z")
+    # Unix timestamp in ms (Google Maps legacy)
+    if value.lstrip("+-").isdigit():
         ms = int(value)
-        sec = ms / 1000 if ms > 1e10 else ms
+        sec = ms / 1000 if abs(ms) > 1e10 else ms
         return datetime.fromtimestamp(sec, tz=timezone.utc)
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    # ISO mit oder ohne Z / Offset
+    for fmt in (
+        "%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%dT%H:%M:%S.%f",   "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",       "%Y-%m-%d",
+    ):
+        try:
+            dt = datetime.strptime(value, fmt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except ValueError:
+            continue
+    raise ValueError(f"Unbekanntes Zeitformat: {value!r}")
 
 
-# ── JSON (Google Maps Timeline Records.json) ─────────────────
+def _e7_to_deg(val: Any) -> float:
+    f = float(val)
+    return f / 1e7 if abs(f) > 180 else f
+
+
+# ── JSON (Google Maps Timeline, diverse Formate) ─────────────
 
 def _parse_json(data: bytes) -> list[dict[str, Any]]:
     try:
@@ -62,63 +81,119 @@ def _parse_json(data: bytes) -> list[dict[str, Any]]:
     except json.JSONDecodeError as e:
         raise ImportError(f"Ungültiges JSON: {e}")
 
-    # Google Takeout Records.json  {"locations": [...]}
-    locations = obj if isinstance(obj, list) else obj.get("locations", obj.get("timelineObjects", []))
-
     points: list[dict[str, Any]] = []
-    for loc in locations:
-        # --- Locations array format ---
-        if "latitudeE7" in loc:
+
+    # Root-Level: Liste oder Objekt mit locations / timelineObjects / features
+    if isinstance(obj, list):
+        locations = obj
+    elif isinstance(obj, dict):
+        locations = (obj.get("locations")
+                     or obj.get("timelineObjects")
+                     or obj.get("features")
+                     or [obj])  # einzelnes Objekt
+    else:
+        raise ImportError("JSON-Format nicht erkannt.")
+
+    for item in locations:
+        if not isinstance(item, dict):
+            continue
+
+        # ── Google Locations: latitudeE7/longitudeE7 oder latE7/lngE7 ──
+        lat_raw = item.get("latitudeE7") or item.get("latE7")
+        lon_raw = item.get("longitudeE7") or item.get("lngE7") or item.get("lonE7")
+        if lat_raw is not None and lon_raw is not None:
             try:
-                lat = loc["latitudeE7"] / 1e7
-                lon = loc["longitudeE7"] / 1e7
-                ts = _parse_ts(str(loc.get("timestamp") or loc.get("timestampMs", "")))
-                acc = float(loc.get("accuracy", 0))
+                lat = _e7_to_deg(lat_raw)
+                lon = _e7_to_deg(lon_raw)
+                ts_raw = (item.get("timestamp") or item.get("timestampMs")
+                          or item.get("time") or item.get("datetime") or "")
+                ts = _parse_ts(str(ts_raw)) if ts_raw else datetime.now(timezone.utc)
+                acc = float(item.get("accuracy") or item.get("horizontalAccuracy") or 0)
                 points.append(_pt(lat, lon, ts, acc, "google_timeline"))
             except Exception:
-                continue
-        # --- timelineObjects: placeVisit / activitySegment ---
-        elif "placeVisit" in loc:
-            loc2 = loc["placeVisit"].get("location", {})
+                pass
+            continue
+
+        # ── Google Timeline: lat/lon als float direkt ──
+        if "latitude" in item and "longitude" in item:
             try:
-                lat = loc2["latitudeE7"] / 1e7
-                lon = loc2["longitudeE7"] / 1e7
-                ts_raw = loc["placeVisit"].get("duration", {}).get("startTimestamp", "")
-                if not ts_raw:
-                    continue
-                ts = _parse_ts(ts_raw)
-                points.append(_pt(lat, lon, ts, 0, "place_visit"))
+                lat = _e7_to_deg(item["latitude"])
+                lon = _e7_to_deg(item["longitude"])
+                ts_raw = item.get("timestamp") or item.get("time") or item.get("datetime") or ""
+                ts = _parse_ts(str(ts_raw)) if ts_raw else datetime.now(timezone.utc)
+                acc = float(item.get("accuracy") or item.get("horizontalAccuracy") or 0)
+                points.append(_pt(lat, lon, ts, acc, "json_point"))
             except Exception:
-                continue
-        elif "activitySegment" in loc:
-            seg = loc["activitySegment"]
-            for key in ("startLocation", "endLocation"):
-                loc2 = seg.get(key, {})
-                if not loc2:
+                pass
+            continue
+
+        # ── timelineObjects: placeVisit ──
+        if "placeVisit" in item:
+            pv = item["placeVisit"]
+            loc = pv.get("location", {})
+            lat_raw = loc.get("latitudeE7") or loc.get("latE7")
+            lon_raw = loc.get("longitudeE7") or loc.get("lngE7") or loc.get("lonE7")
+            if lat_raw is None:
+                lat_raw = loc.get("latitude")
+                lon_raw = loc.get("longitude")
+            if lat_raw is not None and lon_raw is not None:
+                try:
+                    lat = _e7_to_deg(lat_raw)
+                    lon = _e7_to_deg(lon_raw)
+                    ts_raw = pv.get("duration", {}).get("startTimestamp", "")
+                    ts = _parse_ts(ts_raw) if ts_raw else datetime.now(timezone.utc)
+                    points.append(_pt(lat, lon, ts, 0, "place_visit"))
+                except Exception:
+                    pass
+            continue
+
+        # ── timelineObjects: activitySegment ──
+        if "activitySegment" in item:
+            seg = item["activitySegment"]
+            dur = seg.get("duration", {})
+            for loc_key, ts_key in (("startLocation", "startTimestamp"), ("endLocation", "endTimestamp")):
+                loc = seg.get(loc_key, {})
+                if not loc:
                     continue
                 try:
-                    lat = loc2.get("latitudeE7", loc2.get("latitude", None))
-                    lon = loc2.get("longitudeE7", loc2.get("longitude", None))
-                    if lat is None or lon is None:
+                    lat_raw = loc.get("latitudeE7") or loc.get("latE7") or loc.get("latitude")
+                    lon_raw = loc.get("longitudeE7") or loc.get("lngE7") or loc.get("lonE7") or loc.get("longitude")
+                    if lat_raw is None or lon_raw is None:
                         continue
-                    if abs(lat) > 90:
-                        lat /= 1e7
-                        lon /= 1e7
-                    ts_key = "startTimestamp" if key == "startLocation" else "endTimestamp"
-                    ts = _parse_ts(seg.get("duration", {}).get(ts_key, ""))
+                    lat = _e7_to_deg(lat_raw)
+                    lon = _e7_to_deg(lon_raw)
+                    ts_raw = dur.get(ts_key, "")
+                    ts = _parse_ts(ts_raw) if ts_raw else datetime.now(timezone.utc)
                     points.append(_pt(lat, lon, ts, 0, "activity_segment"))
                 except Exception:
-                    continue
+                    pass
+            continue
+
+        # ── GeoJSON Feature eingebettet in JSON ──
+        if item.get("type") == "Feature":
+            geom = item.get("geometry", {})
+            if geom.get("type") == "Point":
+                try:
+                    coords = geom["coordinates"]
+                    lon, lat = float(coords[0]), float(coords[1])
+                    props = item.get("properties", {}) or {}
+                    ts_raw = props.get("time") or props.get("timestamp") or ""
+                    ts = _parse_ts(str(ts_raw)) if ts_raw else datetime.now(timezone.utc)
+                    points.append(_pt(lat, lon, ts, float(props.get("accuracy", 0)), "geojson_feature"))
+                except Exception:
+                    pass
+            continue
 
     if not points:
-        raise ImportError("Keine GPS-Punkte im JSON gefunden.")
+        raise ImportError(
+            "Keine GPS-Punkte im JSON gefunden. "
+            "Unterstützt: Google Maps Records.json, Timeline-Objekte (placeVisit/activitySegment), "
+            "GeoJSON-Features sowie JSON-Arrays mit latitude/longitude oder latitudeE7/latE7."
+        )
     return points
 
 
 # ── GPX ──────────────────────────────────────────────────────
-
-_GPX_NS = {"gpx": "http://www.topografix.com/GPX/1/1",
-            "gpx10": "http://www.topografix.com/GPX/1/0"}
 
 def _parse_gpx(data: bytes) -> list[dict[str, Any]]:
     try:
@@ -126,6 +201,7 @@ def _parse_gpx(data: bytes) -> list[dict[str, Any]]:
     except ET.ParseError as e:
         raise ImportError(f"Ungültiges GPX-XML: {e}")
 
+    # Namespace aus Root-Tag extrahieren
     ns = root.tag.split("}")[0].lstrip("{") if "}" in root.tag else ""
     prefix = f"{{{ns}}}" if ns else ""
 
@@ -136,9 +212,11 @@ def _parse_gpx(data: bytes) -> list[dict[str, Any]]:
                 lat = float(el.attrib["lat"])
                 lon = float(el.attrib["lon"])
                 time_el = el.find(f"{prefix}time")
-                if time_el is None or not time_el.text:
-                    continue
-                ts = _parse_ts(time_el.text)
+                if time_el is None or not (time_el.text or "").strip():
+                    # Waypoints ohne Zeit: aktuellen Zeitstempel verwenden
+                    ts = datetime.now(timezone.utc)
+                else:
+                    ts = _parse_ts(time_el.text.strip())
                 hdop_el = el.find(f"{prefix}hdop")
                 acc = float(hdop_el.text) * 5 if hdop_el is not None and hdop_el.text else 0
                 points.append(_pt(lat, lon, ts, acc, "gpx"))
@@ -146,13 +224,14 @@ def _parse_gpx(data: bytes) -> list[dict[str, Any]]:
                 continue
 
     if not points:
-        raise ImportError("Keine Trackpunkte im GPX gefunden.")
+        raise ImportError(
+            "Keine Trackpunkte im GPX gefunden. "
+            "Erwartet werden <trkpt>, <wpt> oder <rtept> Elemente mit lat/lon-Attributen."
+        )
     return points
 
 
 # ── KML ──────────────────────────────────────────────────────
-
-_KML_NS = "http://www.opengis.net/kml/2.2"
 
 def _parse_kml(data: bytes) -> list[dict[str, Any]]:
     try:
@@ -162,34 +241,30 @@ def _parse_kml(data: bytes) -> list[dict[str, Any]]:
 
     ns = root.tag.split("}")[0].lstrip("{") if "}" in root.tag else ""
     prefix = f"{{{ns}}}" if ns else ""
-
-    points = []
     now = datetime.now(timezone.utc)
+    points = []
 
-    # Placemark Points
     for pm in root.iter(f"{prefix}Placemark"):
         pt_el = pm.find(f".//{prefix}Point/{prefix}coordinates")
-        if pt_el is None or not pt_el.text:
+        if pt_el is None or not (pt_el.text or "").strip():
             continue
         try:
             parts = pt_el.text.strip().split(",")
             lon, lat = float(parts[0]), float(parts[1])
-            ts_el = pm.find(f".//{prefix}when") or pm.find(f".//{prefix}TimeStamp/{prefix}when")
-            ts = _parse_ts(ts_el.text) if ts_el is not None and ts_el.text else now
+            ts_el = (pm.find(f".//{prefix}when")
+                     or pm.find(f".//{prefix}TimeStamp/{prefix}when"))
+            ts = _parse_ts(ts_el.text.strip()) if ts_el is not None and ts_el.text else now
             points.append(_pt(lat, lon, ts, 0, "kml_placemark"))
         except Exception:
             continue
 
-    # LineString / MultiGeometry coordinates
+    # LineString-Koordinaten
     for coord_el in root.iter(f"{prefix}coordinates"):
-        parent_tag = ""
-        # skip Point coords already handled above
-        text = coord_el.text or ""
-        tuples = [t.strip() for t in text.strip().split() if t.strip()]
-        if len(tuples) <= 1:
+        text = (coord_el.text or "").strip()
+        tuples = [t.strip() for t in text.split() if t.strip() and "," in t]
+        if len(tuples) < 2:
             continue
-        # No timestamps in LineString — use equidistant dummy timestamps
-        for i, t in enumerate(tuples):
+        for t in tuples:
             try:
                 parts = t.split(",")
                 lon, lat = float(parts[0]), float(parts[1])
@@ -223,40 +298,49 @@ def _parse_geojson(data: bytes) -> list[dict[str, Any]]:
     except json.JSONDecodeError as e:
         raise ImportError(f"Ungültiges GeoJSON: {e}")
 
-    features = []
-    if obj.get("type") == "FeatureCollection":
+    features: list[dict] = []
+    t = obj.get("type", "")
+    if t == "FeatureCollection":
         features = obj.get("features", [])
-    elif obj.get("type") == "Feature":
+    elif t == "Feature":
         features = [obj]
-    elif obj.get("type") == "Point":
+    elif t in ("Point", "LineString", "MultiLineString"):
         features = [{"type": "Feature", "geometry": obj, "properties": {}}]
+    else:
+        raise ImportError(f"GeoJSON type nicht erkannt: {t!r}")
 
-    points = []
     now = datetime.now(timezone.utc)
+    points = []
     for feat in features:
-        geom = feat.get("geometry", {})
-        if not geom:
-            continue
-        props = feat.get("properties", {}) or {}
-        ts_raw = props.get("time") or props.get("timestamp") or props.get("when") or ""
+        geom = feat.get("geometry") or {}
+        props = feat.get("properties") or {}
+        ts_raw = (props.get("time") or props.get("timestamp")
+                  or props.get("when") or props.get("datetime") or "")
         try:
             ts = _parse_ts(str(ts_raw)) if ts_raw else now
         except Exception:
             ts = now
+        acc = float(props.get("accuracy") or props.get("horizontal_accuracy") or 0)
 
-        if geom["type"] == "Point":
+        if geom.get("type") == "Point":
             try:
-                lon, lat = geom["coordinates"][0], geom["coordinates"][1]
-                points.append(_pt(lat, lon, ts, float(props.get("accuracy", 0)), "geojson"))
+                c = geom["coordinates"]
+                points.append(_pt(float(c[1]), float(c[0]), ts, acc, "geojson"))
             except Exception:
-                continue
-        elif geom["type"] in ("LineString", "MultiLineString"):
-            coords_list = geom["coordinates"] if geom["type"] == "LineString" else [c for sub in geom["coordinates"] for c in sub]
-            for c in coords_list:
+                pass
+        elif geom.get("type") == "LineString":
+            for c in geom.get("coordinates", []):
                 try:
-                    points.append(_pt(c[1], c[0], ts, 0, "geojson_line"))
+                    points.append(_pt(float(c[1]), float(c[0]), ts, 0, "geojson_line"))
                 except Exception:
-                    continue
+                    pass
+        elif geom.get("type") == "MultiLineString":
+            for segment in geom.get("coordinates", []):
+                for c in segment:
+                    try:
+                        points.append(_pt(float(c[1]), float(c[0]), ts, 0, "geojson_line"))
+                    except Exception:
+                        pass
 
     if not points:
         raise ImportError("Keine GPS-Punkte im GeoJSON gefunden.")
@@ -265,11 +349,11 @@ def _parse_geojson(data: bytes) -> list[dict[str, Any]]:
 
 # ── CSV ───────────────────────────────────────────────────────
 
-_LAT_COLS  = ("latitude", "lat", "breitengrad", "y")
-_LON_COLS  = ("longitude", "lon", "lng", "längengrad", "x")
-_TS_COLS   = ("timestamp", "time", "datetime", "date", "zeit", "zeitstempel",
-               "point_timestamp_utc", "point_timestamp_local")
-_ACC_COLS  = ("accuracy", "accuracy_m", "horizontal_accuracy_m", "genauigkeit")
+_LAT_COLS = ("latitude", "lat", "breitengrad", "y", "latitude_deg", "lat_deg")
+_LON_COLS = ("longitude", "lon", "lng", "längengrad", "x", "longitude_deg", "lon_deg", "long")
+_TS_COLS  = ("timestamp", "time", "datetime", "date", "zeit", "zeitstempel",
+              "point_timestamp_utc", "point_timestamp_local", "created_at", "recorded_at", "utc")
+_ACC_COLS = ("accuracy", "accuracy_m", "horizontal_accuracy_m", "genauigkeit", "hdop")
 
 def _col(header: list[str], candidates: tuple[str, ...]) -> int | None:
     h = [c.lower().strip() for c in header]
@@ -279,8 +363,22 @@ def _col(header: list[str], candidates: tuple[str, ...]) -> int | None:
     return None
 
 def _parse_csv(data: bytes) -> list[dict[str, Any]]:
-    text = data.decode("utf-8-sig", errors="replace")
-    dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
+    # Encoding-Erkennung: UTF-8-BOM, UTF-8, Latin-1
+    for enc in ("utf-8-sig", "utf-8", "latin-1"):
+        try:
+            text = data.decode(enc)
+            break
+        except Exception:
+            continue
+    else:
+        text = data.decode("utf-8", errors="replace")
+
+    sample = text[:8192]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+    except csv.Error:
+        dialect = csv.excel  # type: ignore[assignment]
+
     reader = csv.reader(io.StringIO(text), dialect)
     header = next(reader, None)
     if not header:
@@ -288,30 +386,37 @@ def _parse_csv(data: bytes) -> list[dict[str, Any]]:
 
     lat_i = _col(header, _LAT_COLS)
     lon_i = _col(header, _LON_COLS)
+    if lat_i is None or lon_i is None:
+        raise ImportError(
+            f"CSV: Keine Lat/Lon-Spalten erkannt. Gefundene Spalten: {header}. "
+            "Erwartet werden Spalten wie latitude/longitude, lat/lon oder y/x."
+        )
+
     ts_i  = _col(header, _TS_COLS)
     acc_i = _col(header, _ACC_COLS)
-
-    if lat_i is None or lon_i is None:
-        raise ImportError("CSV: Keine Lat/Lon-Spalten erkannt. Erwartet: latitude/longitude, lat/lon oder y/x.")
-
     now = datetime.now(timezone.utc)
     points = []
+
     for row in reader:
+        if not row or all(not c.strip() for c in row):
+            continue
         try:
-            lat = float(row[lat_i])
-            lon = float(row[lon_i])
-            ts  = _parse_ts(row[ts_i]) if ts_i is not None and row[ts_i].strip() else now
-            acc = float(row[acc_i]) if acc_i is not None and row[acc_i].strip() else 0.0
+            lat = float(row[lat_i].strip())
+            lon = float(row[lon_i].strip())
+            ts_val = row[ts_i].strip() if ts_i is not None and ts_i < len(row) else ""
+            ts = _parse_ts(ts_val) if ts_val else now
+            acc_val = row[acc_i].strip() if acc_i is not None and acc_i < len(row) else ""
+            acc = float(acc_val) if acc_val else 0.0
             points.append(_pt(lat, lon, ts, acc, "csv"))
         except Exception:
             continue
 
     if not points:
-        raise ImportError("CSV: Keine gültigen GPS-Punkte gefunden.")
+        raise ImportError("CSV: Keine gültigen GPS-Punkte gefunden (Koordinaten außerhalb des Bereichs oder ungültige Werte).")
     return points
 
 
-# ── ZIP (Google Takeout) ──────────────────────────────────────
+# ── ZIP (Google Takeout und andere Archive) ───────────────────
 
 _SUPPORTED_EXT = (".json", ".gpx", ".kml", ".geojson", ".csv")
 
@@ -321,25 +426,38 @@ def _parse_zip(data: bytes) -> list[dict[str, Any]]:
     except zipfile.BadZipFile:
         raise ImportError("ZIP-Datei konnte nicht geöffnet werden.")
 
-    names = [n for n in zf.namelist()
-             if any(n.lower().endswith(ext) for ext in _SUPPORTED_EXT)
-             and not n.startswith("__MACOSX")]
+    names = sorted(
+        [n for n in zf.namelist()
+         if any(n.lower().endswith(ext) for ext in _SUPPORTED_EXT)
+         and not n.startswith("__MACOSX")
+         and not n.split("/")[-1].startswith(".")],
+        key=lambda n: (
+            # Records.json und Semantic Location History zuerst
+            0 if "records" in n.lower() or "location" in n.lower() else
+            1 if n.lower().endswith(".gpx") else 2
+        )
+    )
 
     if not names:
-        raise ImportError("ZIP enthält keine unterstützten Dateien (.json, .gpx, .kml, .geojson, .csv).")
+        raise ImportError(
+            "ZIP enthält keine unterstützten Dateien "
+            f"({', '.join(_SUPPORTED_EXT)}). "
+            "Inhalt: " + ", ".join(zf.namelist()[:10])
+        )
 
     all_points: list[dict[str, Any]] = []
     errors: list[str] = []
     for name in names:
         try:
             file_data = zf.read(name)
-            all_points.extend(parse_file(name.split("/")[-1], file_data))
+            pts = parse_file(name.split("/")[-1], file_data)
+            all_points.extend(pts)
         except ImportError as e:
-            errors.append(f"{name}: {e}")
+            errors.append(f"{name.split('/')[-1]}: {e}")
         except Exception as e:
-            errors.append(f"{name}: {e}")
+            errors.append(f"{name.split('/')[-1]}: {type(e).__name__}: {e}")
 
     if not all_points:
-        detail = "; ".join(errors[:3]) if errors else "Keine verwertbaren GPS-Daten"
+        detail = "; ".join(errors[:5]) if errors else "Keine verwertbaren GPS-Daten"
         raise ImportError(f"ZIP: {detail}")
     return all_points
