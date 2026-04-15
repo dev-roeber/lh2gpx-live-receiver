@@ -3,42 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#667eea">
+  <meta name="theme-color" content="#000000">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>{{ page_title | default('LH2GPX Live Receiver') }}</title>
   <link rel="stylesheet" href="/static/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛰️</text></svg>">
   <script>
-    // Device Detection für Fallback
-    const isMobile = () => {
-      return window.innerWidth < 768 ||
-             /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    };
-
-    // Mobile Menu Toggle
     function toggleMobileMenu() {
       const sidebar = document.querySelector('.sidebar');
-      if (sidebar) {
-        sidebar.classList.toggle('open');
-      }
+      if (sidebar) sidebar.classList.toggle('open');
     }
-
-    // Close menu on link click
     document.addEventListener('DOMContentLoaded', () => {
       document.querySelectorAll('.sidebar-nav a').forEach(link => {
         link.addEventListener('click', () => {
           const sidebar = document.querySelector('.sidebar');
-          if (sidebar && window.innerWidth < 768) {
-            sidebar.classList.remove('open');
-          }
+          if (sidebar && window.innerWidth < 1024) sidebar.classList.remove('open');
         });
       });
-
-      // Close menu on outside click
       document.addEventListener('click', (e) => {
         const sidebar = document.querySelector('.sidebar');
-        const toggle = document.querySelector('.menu-toggle');
+        const toggle  = document.querySelector('.menu-toggle');
         if (sidebar && toggle && !sidebar.contains(e.target) && !toggle.contains(e.target)) {
           sidebar.classList.remove('open');
         }
@@ -49,24 +34,24 @@
 <body>
 
   <header class="global-header">
-    <button class="menu-toggle" onclick="toggleMobileMenu()" title="Navigation">☰</button>
+    <button class="menu-toggle" onclick="toggleMobileMenu()" title="Navigation" aria-label="Navigation öffnen">☰</button>
     <div class="gh-brand">
       <div class="gh-brand-mark">LL</div>
       <div class="gh-brand-name">LH2GPX Receiver</div>
     </div>
     <div class="gh-strip">
       <div class="gh-item">
-        <span class="gh-label">Host:</span>
+        <span class="gh-label">Host</span>
         <span class="gh-value">{{ config_summary.publicHostname }}</span>
       </div>
       <div class="gh-item">
-        <span class="gh-label">Status:</span>
+        <span class="gh-label">Status</span>
         <span class="gh-pill {{ 'ok' if snapshot.status.lastHttpStatus == 200 or snapshot.status.lastHttpStatus == 202 else 'warn' }}">
           {{ 'ONLINE' if snapshot.status.lastHttpStatus else 'WAITING' }}
         </span>
       </div>
       <div class="gh-item full-only">
-        <span class="gh-label">Uptime:</span>
+        <span class="gh-label">Uptime</span>
         <span class="gh-value">{{ format_duration(snapshot.system.uptimeSeconds) if snapshot.system else 'N/A' }}</span>
       </div>
     </div>
@@ -90,36 +75,35 @@
         </div>
         {% endfor %}
       </nav>
-      
+
       <hr class="sidebar-divider">
-      
+
       <div class="sidebar-api-links">
-        <h4 class="nav-group-label">System-APIs</h4>
+        <h4 class="nav-group-label">System</h4>
         <a href="/readyz" target="_blank">Readyz-Check</a>
-        <a href="/api/live-summary" target="_blank">Live Summary API</a>
+        <a href="/api/live-summary" target="_blank">Live Summary</a>
         <a href="/api/stats" target="_blank">Stats API</a>
       </div>
 
       <hr class="sidebar-divider">
 
       <div class="sidebar-api-links">
-        <a href="/logout" style="color: var(--text-muted); font-size: 0.8rem;">Abmelden</a>
+        <a href="/logout">Abmelden</a>
       </div>
     </aside>
 
     <main class="page-shell">
       {% block content %}{% endblock %}
-      
+
       <footer class="context-footer">
-        <div class="cf-item"><span class="cf-label">Region:</span> {{ config_summary.localTimezone }}</div>
-        <div class="cf-item"><span class="cf-label">Version:</span> {{ app_version }}</div>
-        <div class="cf-item"><span class="cf-label">Storage:</span> {{ 'Writable' if snapshot.storage.readiness.writable else 'ReadOnly' }}</div>
+        <div class="cf-item"><span class="cf-label">Region:</span>{{ config_summary.localTimezone }}</div>
+        <div class="cf-item"><span class="cf-label">Version:</span>{{ app_version }}</div>
+        <div class="cf-item"><span class="cf-label">Storage:</span>{{ 'Writable' if snapshot.storage.readiness.writable else 'ReadOnly' }}</div>
       </footer>
     </main>
   </div>
 
   <script>
-    // Automatisches Highlight der Navigation basierend auf URL falls nicht explizit gesetzt
     if (!document.querySelector('.sidebar-nav a.active')) {
       const currentPath = window.location.pathname;
       document.querySelectorAll('.sidebar-nav a').forEach(a => {
@@ -132,22 +116,12 @@
     if (new URLSearchParams(window.location.search).has('debug')) {
       window.addEventListener('load', () => {
         const docW = document.documentElement.clientWidth;
-        const offenders = [...document.querySelectorAll('*')].filter(el => {
-          const r = el.getBoundingClientRect();
-          return r.right > docW + 1;
-        });
+        const offenders = [...document.querySelectorAll('*')].filter(el => el.getBoundingClientRect().right > docW + 1);
         if (offenders.length > 0) {
           console.warn(`${offenders.length} Elemente ragen über Viewport raus (${docW}px)`);
-          console.table(offenders.map(el => ({
-            tag: el.tagName,
-            id: el.id,
-            class: (el.className || '').substring(0, 50),
-            width: Math.round(el.getBoundingClientRect().width)
-          })));
+          console.table(offenders.map(el => ({ tag: el.tagName, id: el.id, class: (el.className||'').substring(0,50), width: Math.round(el.getBoundingClientRect().width) })));
           offenders.forEach(el => el.style.outline = '2px solid red');
-        } else {
-          console.log('Kein Overflow erkannt');
-        }
+        } else { console.log('Kein Overflow erkannt'); }
       });
     }
   </script>
