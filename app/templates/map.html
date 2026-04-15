@@ -167,6 +167,53 @@
       <p id="map-stats-text" class="eyebrow" style="margin:0;color:var(--text-muted);">Initialisiere Karte…</p>
       <span id="map-points-badge" style="display:none;font-size:0.72rem;font-weight:600;color:var(--mint);background:var(--mint-dim);border:1px solid var(--mint-border);border-radius:999px;padding:2px 10px;"></span>
     </div>
+
+    {# Legende — Sektionen werden per JS ein-/ausgeblendet je nach aktivem Layer #}
+    <div id="map-legend" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--separator);display:flex;flex-wrap:wrap;gap:18px;font-size:0.78rem;color:var(--text-3);">
+
+      <div id="legend-points" style="display:none;min-width:110px;">
+        <div style="font-weight:600;color:var(--text-2);margin-bottom:6px;">Punkte</div>
+        <div style="display:flex;flex-direction:column;gap:5px;">
+          <div style="display:flex;align-items:center;gap:7px;">
+            <span style="width:14px;height:14px;border-radius:50%;background:#30D158;border:2px solid #fff;flex-shrink:0;display:inline-block;"></span>
+            <span>Letzter Punkt</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:7px;">
+            <span style="width:10px;height:10px;border-radius:50%;background:#0A84FF;opacity:0.8;flex-shrink:0;display:inline-block;"></span>
+            <span>GPS-Punkte</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="legend-lines" style="display:none;min-width:140px;">
+        <div style="font-weight:600;color:var(--text-2);margin-bottom:6px;">Routen-Segmente</div>
+        <div style="display:flex;flex-direction:column;gap:5px;">
+          <div style="display:flex;align-items:center;gap:7px;">
+            <span style="width:22px;height:3px;background:#0A84FF;border-radius:2px;flex-shrink:0;display:inline-block;"></span><span>Segment 1</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:7px;">
+            <span style="width:22px;height:3px;background:#30D158;border-radius:2px;flex-shrink:0;display:inline-block;"></span><span>Segment 2</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:7px;">
+            <span style="width:22px;height:3px;background:#FF9F0A;border-radius:2px;flex-shrink:0;display:inline-block;"></span><span>Segment 3</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:7px;">
+            <span style="width:22px;height:3px;background:#BF5AF2;border-radius:2px;flex-shrink:0;display:inline-block;"></span><span>Segment 4+</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="legend-heatmap" style="display:none;min-width:160px;">
+        <div style="font-weight:600;color:var(--text-2);margin-bottom:6px;">Heatmap — Dichte</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:0.72rem;color:var(--text-3);white-space:nowrap;">Selten</span>
+          <span style="flex:1;height:7px;border-radius:4px;background:linear-gradient(to right,#0A84FF,#30D158,#FF9F0A,#FF453A,#FFD60A);display:inline-block;"></span>
+          <span style="font-size:0.72rem;color:var(--text-3);white-space:nowrap;">Häufig</span>
+        </div>
+        <div style="margin-top:5px;color:var(--text-3);font-size:0.72rem;">Gewichtung: genauere Punkte (kleiner Radius) zählen stärker</div>
+      </div>
+
+    </div>
   </article>
 
   <article class="panel log-container-wrapper">
@@ -483,6 +530,7 @@
     });
     resizeObserver.observe(mapContainer);
 
+    updateLegend();
     updateMap();
     updateInterval = setInterval(updateMap, POLLING_INTERVAL);
     barTickTimer = setInterval(tickRefreshBar, 1000);
@@ -749,6 +797,15 @@
     return `vor ${Math.floor(diffMs / 86400000)}d`;
   }
 
+  function updateLegend() {
+    document.getElementById('legend-points').style.display  = pointsActive   ? '' : 'none';
+    document.getElementById('legend-lines').style.display   = polylineActive ? '' : 'none';
+    document.getElementById('legend-heatmap').style.display = heatmapActive  ? '' : 'none';
+    // Legende nur sichtbar wenn mindestens ein Layer aktiv
+    const anyActive = pointsActive || polylineActive || heatmapActive;
+    document.getElementById('map-legend').style.display = anyActive ? 'flex' : 'none';
+  }
+
   function tickRefreshBar() {
     if (!lastRefreshTime) return;
     const now = Date.now();
@@ -828,9 +885,9 @@
     if (e.target.checked) document.getElementById('fit-bounds-toggle').checked = false;
   };
 
-  document.getElementById('heatmap-toggle').onchange  = (e) => { heatmapActive = e.target.checked; updateMap(); };
-  document.getElementById('points-toggle').onchange   = (e) => { pointsActive  = e.target.checked; updateMap(); };
-  document.getElementById('polyline-toggle').onchange = (e) => { polylineActive = e.target.checked; updateMap(); };
+  document.getElementById('heatmap-toggle').onchange  = (e) => { heatmapActive = e.target.checked; updateLegend(); updateMap(); };
+  document.getElementById('points-toggle').onchange   = (e) => { pointsActive  = e.target.checked; updateLegend(); updateMap(); };
+  document.getElementById('polyline-toggle').onchange = (e) => { polylineActive = e.target.checked; updateLegend(); updateMap(); };
   document.getElementById('route-time-gap').onchange  = debounce(updateMap, 500);
   document.getElementById('route-dist-gap').onchange  = debounce(updateMap, 500);
 
