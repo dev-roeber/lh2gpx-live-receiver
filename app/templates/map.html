@@ -42,15 +42,14 @@
         <option value="all">Gesamt (Max. 2000 Punkte)</option>
       </select>
     </div>
-    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px;">
-      <input type="checkbox" id="session-filter-toggle" style="width: auto; cursor: pointer;">
-      <label for="session-filter-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Session:</label>
-      <select id="session-select" disabled style="flex: 1; opacity: 0.5;">
-        <option value="">Alle Sessions</option>
+    <div class="filter-group" style="width: 100%; flex-direction: column; gap: 8px;">
+      <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Sessions</label>
+      <div id="session-chips" style="display: flex; flex-wrap: wrap; gap: 8px;">
+        <button id="session-all-btn" class="session-chip active" data-session-id="" style="padding: 6px 12px; border: 2px solid var(--accent); background: var(--accent); color: white; border-radius: 20px; cursor: pointer; font-size: 0.85rem; font-weight: 500; transition: all 0.2s;">Alle</button>
         {% for session in sessions %}
-        <option value="{{ session.session_id }}">{{ short_id(session.session_id, 16) }} ({{ session.points_count }} Pkt.)</option>
+        <button class="session-chip" data-session-id="{{ session.session_id }}" style="padding: 6px 12px; border: 2px solid #e2e8f0; background: white; color: var(--text); border-radius: 20px; cursor: pointer; font-size: 0.85rem; font-weight: 500; transition: all 0.2s;" title="Punkte: {{ session.points_count }} | Genauigkeit: {{ "%.1f"|format(session.avg_accuracy_m) }}m">{{ short_id(session.session_id, 10) }} <span style="font-size: 0.75rem; color: var(--text-muted); margin-left: 4px;">({{ session.points_count }})</span></button>
         {% endfor %}
-      </select>
+      </div>
     </div>
     <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px; margin-left: 15px;">
       <input type="checkbox" id="auto-center-toggle" checked style="width: auto; cursor: pointer;">
@@ -471,7 +470,6 @@
   };
 
   document.getElementById('time-range-select').onchange = debounce(updateMap, FILTER_DEBOUNCE);
-  document.getElementById('session-select').onchange = debounce(updateMap, FILTER_DEBOUNCE);
   document.getElementById('log-search').oninput = filterLog;
 
   document.getElementById('dark-mode-btn').onclick = () => {
@@ -487,16 +485,32 @@
   document.getElementById('fullscreen-btn').onclick = toggleFullscreen;
   document.getElementById('export-geojson-btn').onclick = exportGeoJSON;
 
-  // Session filter toggle
-  document.getElementById('session-filter-toggle').onchange = (e) => {
-    const sessionSelect = document.getElementById('session-select');
-    sessionSelect.disabled = !e.target.checked;
-    sessionSelect.style.opacity = e.target.checked ? '1' : '0.5';
-    if (!e.target.checked) {
-      sessionSelect.value = '';
+  // Session chips
+  // Verstecktes Select für updateMap()
+  if (!document.getElementById('session-select')) {
+    const hiddenSelect = document.createElement('select');
+    hiddenSelect.id = 'session-select';
+    hiddenSelect.style.display = 'none';
+    document.body.appendChild(hiddenSelect);
+  }
+
+  document.querySelectorAll('.session-chip').forEach(btn => {
+    btn.onclick = (e) => {
+      e.preventDefault();
+      document.querySelectorAll('.session-chip').forEach(b => {
+        b.classList.remove('active');
+        b.style.background = 'white';
+        b.style.color = 'var(--text)';
+        b.style.borderColor = '#e2e8f0';
+      });
+      btn.classList.add('active');
+      btn.style.background = 'var(--accent)';
+      btn.style.color = 'white';
+      btn.style.borderColor = 'var(--accent)';
+      document.getElementById('session-select').value = btn.dataset.sessionId;
       updateMap();
-    }
-  };
+    };
+  });
 
   document.addEventListener('DOMContentLoaded', initMap);
 </script>
