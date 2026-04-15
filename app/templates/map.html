@@ -263,12 +263,12 @@
 
   function initMap() {
     map = L.map('map-container').setView([52.52, 13.405], 10);
-    
-    const osmUrl = darkMode 
-      ? 'https://tiles.stadiamaps.com/tiles/stamen_tonerqant/{z}/{x}/{y}.png'
+
+    const osmUrl = darkMode
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
       : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-    
-    tileLayer = L.tileLayer(osmUrl, { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+
+    tileLayer = L.tileLayer(osmUrl, { maxZoom: 19, attribution: '© OpenStreetMap & CartoDB' }).addTo(map);
     pathLayer = L.featureGroup().addTo(map);
     markerClusterGroup = L.markerClusterGroup().addTo(map);
     
@@ -452,10 +452,10 @@
     darkMode = !darkMode;
     localStorage.setItem('map-dark-mode', darkMode);
     const newUrl = darkMode
-      ? 'https://tiles.stadiamaps.com/tiles/stamen_tonerqant/{z}/{x}/{y}.png'
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
       : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
     map.removeLayer(tileLayer);
-    tileLayer = L.tileLayer(newUrl, { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+    tileLayer = L.tileLayer(newUrl, { maxZoom: 19, attribution: '© OpenStreetMap & CartoDB' }).addTo(map);
   };
 
   document.getElementById('fullscreen-btn').onclick = toggleFullscreen;
