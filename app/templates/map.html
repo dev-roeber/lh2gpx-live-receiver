@@ -14,7 +14,9 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
 
-<article class="panel">
+<div class="map-page-container">
+  <button id="map-filter-toggle-btn" class="map-filter-toggle" style="display: none;">Filteroptionen ▼</button>
+
   <div class="map-filter-panel">
     <div class="filter-group">
       <label for="time-range-select">Zeitraum</label>
@@ -52,17 +54,17 @@
         {% endfor %}
       </select>
     </div>
-    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px; margin-left: 15px;">
+    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px;">
       <input type="checkbox" id="auto-center-toggle" checked style="width: auto; cursor: pointer;">
       <label for="auto-center-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Letzter Punkt folgen</label>
     </div>
-    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px; margin-left: 15px;">
+    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px;">
       <input type="checkbox" id="fit-bounds-toggle" style="width: auto; cursor: pointer;">
       <label for="fit-bounds-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Gesamten Track anzeigen</label>
     </div>
-    <div class="filter-actions" style="align-self: flex-end; margin-left: auto; display: flex; gap: 10px; align-items: center;">
-      <label for="polling-interval" style="margin: 0; font-size: 0.85rem;">Update:</label>
-      <select id="polling-interval" style="padding: 5px 8px; border: 1px solid var(--text-muted); border-radius: 4px;">
+    <div class="filter-group">
+      <label for="polling-interval">Update-Intervall</label>
+      <select id="polling-interval">
         <option value="2000">2s</option>
         <option value="3000">3s</option>
         <option value="5000" selected>5s</option>
@@ -77,22 +79,30 @@
         <option value="180000">3min</option>
         <option value="300000">5min</option>
       </select>
-      <button id="fullscreen-btn" class="button-link secondary" title="Vollbild">⛶</button>
-      <button id="export-geojson-btn" class="button-link secondary" title="GeoJSON exportieren">💾</button>
-      <button id="dark-mode-btn" class="button-link secondary" title="Dark Mode">🌙</button>
-      <button id="refresh-map-btn" class="button-link primary">
+    </div>
+    <div class="filter-actions">
+      <button id="fullscreen-btn" class="button-link secondary" title="Vollbild" style="flex: 1;">⛶</button>
+      <button id="export-geojson-btn" class="button-link secondary" title="GeoJSON exportieren" style="flex: 1;">💾</button>
+      <button id="dark-mode-btn" class="button-link secondary" title="Dark Mode" style="flex: 1;">🌙</button>
+    </div>
+    <div class="filter-actions">
+      <button id="refresh-map-btn" class="button-link primary" style="flex: 1;">
         <span id="btn-text">Aktualisieren</span>
         <span id="btn-spinner" style="display: none;">⌛ Lade...</span>
       </button>
+    </div>
+    <div style="padding-top: 8px; border-top: 1px solid rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem;">
+      <span>API Status</span>
       <span class="status-badge" id="api-status" style="padding: 5px 10px; font-size: 0.8rem;">● OFFLINE</span>
     </div>
   </div>
 
-  <div id="map-container" style="height: 500px; border-radius: 12px; overflow: hidden;"></div>
-  <p id="map-stats-text" class="eyebrow" style="margin-top: 15px; color: var(--text-muted);">Initialisiere Karte...</p>
-</article>
+  <article class="panel map-container-wrapper">
+    <div id="map-container"></div>
+    <p id="map-stats-text" class="eyebrow" style="margin-top: 15px; color: var(--text-muted);">Initialisiere Karte...</p>
+  </article>
 
-<article class="panel">
+  <article class="panel log-container-wrapper">
   <div class="panel-header">
     <div>
       <p class="eyebrow">Echtzeit-Übertragung</p>
@@ -107,7 +117,7 @@
     </div>
   </div>
 
-  <div class="table-panel" style="max-height: 750px; overflow-y: auto; background: #0f172a; border-radius: var(--radius-sm);">
+  <div class="table-panel" style="overflow-y: auto; background: #0f172a; border-radius: var(--radius-sm);">
     <table style="min-width: 100%; border-collapse: separate; border-spacing: 0;">
       <thead style="position: sticky; top: 0; z-index: 10; background: #1e293b;">
         <tr style="color: #94a3b8; font-size: 0.8rem; font-weight: 600;">
@@ -115,8 +125,8 @@
           <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Koordinaten</th>
           <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Genauigkeit</th>
           <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Quelle</th>
-          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Modus</th>
-          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Request ID</th>
+          <th class="log-col-mode" style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Modus</th>
+          <th class="log-col-request-id" style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Request ID</th>
         </tr>
       </thead>
       <tbody id="live-log-body" style="font-family: 'IBM Plex Mono', monospace; font-size: 0.9rem; color: #e2e8f0;">
@@ -126,7 +136,7 @@
   </div>
 </article>
 
-<article class="panel">
+<article class="panel map-stats-container">
   <div class="panel-header">
     <p class="eyebrow">Zusammenfassung</p>
   </div>
@@ -169,10 +179,12 @@
     </div>
   </div>
 </article>
+</div>
 
 <script>
   // === CONFIG ===
   let POLLING_INTERVAL = parseInt(localStorage.getItem('map-polling-interval')) || 5000;
+  let TIME_RANGE = localStorage.getItem('map-time-range') || '1h';
   const FILTER_DEBOUNCE = 300;
   const MAX_LOG_LINES = 1000;
   const CLUSTER_THRESHOLD = 50;
@@ -184,6 +196,7 @@
   let filterTimeout;
   let lastApiStatus = 'loading';
   let sessionStartTime = Date.now();
+  let filtersExpanded = false;
 
   // === DEBOUNCE ===
   function debounce(fn, ms) {
@@ -437,8 +450,8 @@
               <td style="padding: 14px 10px; color: #3b82f6; cursor: pointer; user-select: none; border-radius: 4px; font-weight: 500;" title="Klicken zum Kopieren">${coordText}</td>
               <td style="padding: 14px 10px; color: #10b981; font-weight: 500;">${p.horizontal_accuracy_m}m</td>
               <td style="padding: 14px 10px; color: #f59e0b; font-size: 0.9rem;">${p.source || 'N/A'}</td>
-              <td style="padding: 14px 10px; color: #06b6d4; font-size: 0.85rem;">${p.capture_mode || 'N/A'}</td>
-              <td style="padding: 14px 10px; color: #64748b; font-size: 0.8rem; font-family: monospace;" title="${p.request_id || 'N/A'}">${requestIdShort}</td>
+              <td class="log-col-mode" style="padding: 14px 10px; color: #06b6d4; font-size: 0.85rem;">${p.capture_mode || 'N/A'}</td>
+              <td class="log-col-request-id" style="padding: 14px 10px; color: #64748b; font-size: 0.8rem; font-family: monospace;" title="${p.request_id || 'N/A'}">${requestIdShort}</td>
             `;
 
             // Copy-to-clipboard handler for coordinates
@@ -517,7 +530,11 @@
     updateMap();
   };
 
-  document.getElementById('time-range-select').onchange = debounce(updateMap, FILTER_DEBOUNCE);
+  document.getElementById('time-range-select').onchange = (e) => {
+    TIME_RANGE = e.target.value;
+    localStorage.setItem('map-time-range', TIME_RANGE);
+    debounce(updateMap, FILTER_DEBOUNCE)();
+  };
   document.getElementById('log-search').oninput = filterLog;
 
   document.getElementById('dark-mode-btn').onclick = () => {
@@ -573,6 +590,36 @@
     hiddenSelect.value = '';
     document.body.appendChild(hiddenSelect);
   }
+
+  // Restore time range setting
+  document.getElementById('time-range-select').value = TIME_RANGE;
+
+  // === MOBILE FILTER TOGGLE ===
+  function setupMobileFilterToggle() {
+    const toggleBtn = document.getElementById('map-filter-toggle-btn');
+    const filterPanel = document.querySelector('.map-filter-panel');
+    if (!toggleBtn || !filterPanel) return;
+
+    const isMobile = window.innerWidth <= 767;
+    if (isMobile) {
+      toggleBtn.style.display = 'block';
+      filterPanel.classList.add('collapsed');
+      filtersExpanded = false;
+    } else {
+      toggleBtn.style.display = 'none';
+      filterPanel.classList.remove('collapsed');
+      filtersExpanded = true;
+    }
+
+    toggleBtn.onclick = () => {
+      filtersExpanded = !filtersExpanded;
+      filterPanel.classList.toggle('collapsed');
+      toggleBtn.textContent = filtersExpanded ? 'Filteroptionen ▲' : 'Filteroptionen ▼';
+    };
+  }
+
+  setupMobileFilterToggle();
+  window.addEventListener('resize', setupMobileFilterToggle);
 
   document.addEventListener('DOMContentLoaded', initMap);
 </script>
