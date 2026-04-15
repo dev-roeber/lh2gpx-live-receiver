@@ -325,10 +325,20 @@
     tileLayer = L.tileLayer(osmUrl, { maxZoom: 19, attribution: '© OpenStreetMap & CartoDB' }).addTo(map);
     pathLayer = L.featureGroup().addTo(map);
     markerClusterGroup = L.markerClusterGroup().addTo(map);
-    
+
     L.control.scale().addTo(map);
-    
-    setTimeout(() => map.invalidateSize(), 600);
+
+    // Sofort Größe neu berechnen + ResizeObserver für dynamische Anpassungen
+    map.invalidateSize(false);
+
+    const mapContainer = document.getElementById('map-container');
+    const resizeObserver = new ResizeObserver(() => {
+      if (map) {
+        map.invalidateSize(false);
+      }
+    });
+    resizeObserver.observe(mapContainer);
+
     updateMap();
     let updateInterval = setInterval(updateMap, POLLING_INTERVAL);
     
