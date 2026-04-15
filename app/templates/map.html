@@ -43,7 +43,15 @@
       </select>
     </div>
     <div class="filter-group" style="width: 100%; flex-direction: column; gap: 8px;">
-      <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Sessions</label>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; margin: 0;">Sessions</label>
+        <select id="session-select-dropdown" style="padding: 5px 8px; border: 1px solid var(--text-muted); border-radius: 4px; font-size: 0.85rem;">
+          <option value="">Alle Sessions</option>
+          {% for session in sessions %}
+          <option value="{{ session.session_id }}">{{ session.first_point_ts_utc[:10] }} {{ session.first_point_ts_utc[11:16] }} - {{ session.last_point_ts_utc[11:16] }} ({{ session.points_count }})</option>
+          {% endfor %}
+        </select>
+      </div>
       <div id="session-chips" style="display: flex; flex-wrap: wrap; gap: 8px;">
         <button id="session-all-btn" class="session-chip active" data-session-id="" style="padding: 6px 12px; border: 2px solid var(--accent); background: var(--accent); color: white; border-radius: 20px; cursor: pointer; font-size: 0.85rem; font-weight: 500; transition: all 0.2s;">Alle</button>
         {% for session in sessions %}
@@ -498,7 +506,7 @@
   document.getElementById('fullscreen-btn').onclick = toggleFullscreen;
   document.getElementById('export-geojson-btn').onclick = exportGeoJSON;
 
-  // Session chips
+  // Session chips & dropdown sync
   // Verstecktes Select für updateMap()
   if (!document.getElementById('session-select')) {
     const hiddenSelect = document.createElement('select');
@@ -507,23 +515,39 @@
     document.body.appendChild(hiddenSelect);
   }
 
+  function selectSessionById(sessionId) {
+    // Update hidden select
+    document.getElementById('session-select').value = sessionId;
+    // Update dropdown
+    document.getElementById('session-select-dropdown').value = sessionId;
+    // Update chips
+    document.querySelectorAll('.session-chip').forEach(b => {
+      b.classList.remove('active');
+      b.style.background = 'white';
+      b.style.color = 'var(--text)';
+      b.style.borderColor = '#e2e8f0';
+    });
+    const activeChip = document.querySelector(`.session-chip[data-session-id="${sessionId}"]`);
+    if (activeChip) {
+      activeChip.classList.add('active');
+      activeChip.style.background = 'var(--accent)';
+      activeChip.style.color = 'white';
+      activeChip.style.borderColor = 'var(--accent)';
+    }
+    updateMap();
+  }
+
   document.querySelectorAll('.session-chip').forEach(btn => {
     btn.onclick = (e) => {
       e.preventDefault();
-      document.querySelectorAll('.session-chip').forEach(b => {
-        b.classList.remove('active');
-        b.style.background = 'white';
-        b.style.color = 'var(--text)';
-        b.style.borderColor = '#e2e8f0';
-      });
-      btn.classList.add('active');
-      btn.style.background = 'var(--accent)';
-      btn.style.color = 'white';
-      btn.style.borderColor = 'var(--accent)';
-      document.getElementById('session-select').value = btn.dataset.sessionId;
-      updateMap();
+      selectSessionById(btn.dataset.sessionId);
     };
   });
+
+  // Dropdown sync
+  document.getElementById('session-select-dropdown').onchange = (e) => {
+    selectSessionById(e.target.value);
+  };
 
   document.addEventListener('DOMContentLoaded', initMap);
 </script>
