@@ -800,6 +800,32 @@ class ReceiverStorage:
             except Exception:
                 skipped += 1
 
+        # 1) Duplikate innerhalb der Importdatei entfernen (gleicher Timestamp+Coords)
+        seen_keys: set[tuple] = set()
+        deduped: list = []
+        for r in point_rows:
+            key = (r[3], r[4], r[5])  # point_timestamp_utc, latitude, longitude
+            if key not in seen_keys:
+                seen_keys.add(key)
+                deduped.append(r)
+        skipped += len(point_rows) - len(deduped)
+        point_rows = deduped
+
+        # 2) Bereits in der DB vorhandene Punkte herausfiltern
+        if point_rows:
+            ts_values = list({r[3] for r in point_rows})
+            placeholders = ",".join("?" * len(ts_values))
+            with self._connect() as check_conn:
+                existing_rows = check_conn.execute(
+                    f"SELECT point_timestamp_utc, latitude, longitude FROM gps_points "
+                    f"WHERE point_timestamp_utc IN ({placeholders})",
+                    ts_values,
+                ).fetchall()
+            existing: set[tuple] = {(r[0], r[1], r[2]) for r in existing_rows}
+            before = len(point_rows)
+            point_rows = [r for r in point_rows if (r[3], r[4], r[5]) not in existing]
+            skipped += before - len(point_rows)
+
         inserted = len(point_rows)
         if point_rows:
             ts_list = [r[3] for r in point_rows]
