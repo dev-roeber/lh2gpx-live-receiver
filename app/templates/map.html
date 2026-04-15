@@ -395,8 +395,8 @@
       // === LOG UPDATE ===
       if (points && points.length > 0) {
         if (knownPointIds.size === 0) logBody.innerHTML = '';
-        
-        points.forEach((p) => {
+
+        points.reverse().forEach((p) => {
           if (!knownPointIds.has(p.id)) {
             // Limit Size
             if (knownPointIds.size >= MAX_LOG_LINES) {
