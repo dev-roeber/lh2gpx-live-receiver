@@ -285,7 +285,16 @@ td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.
 }
 
 @media (max-width: 767px) {
-  .page-shell { padding: 8px; }
+  .page-shell { padding: 4px; }
+
+  .panel {
+    padding: 8px;
+    border-radius: var(--radius-sm);
+  }
+
+  input, select {
+    padding: 8px 10px;
+  }
 }
 
 @media (max-width: 600px) {
@@ -427,18 +436,23 @@ td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.
   .map-page-container {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 12px;
+    gap: 8px;
+    width: 100%;
+    overflow-x: hidden;
   }
 
   .map-filter-panel {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 10px;
+    gap: 8px;
     background: var(--surface-muted);
-    padding: 12px;
-    border-radius: var(--radius);
+    padding: 8px;
+    border-radius: var(--radius-sm);
     border: 1px solid rgba(0,0,0,0.05);
     grid-column: 1;
+    width: 100%;
+    overflow-x: hidden;
+    box-sizing: border-box;
   }
 
   .map-filter-panel.collapsed {
@@ -461,22 +475,35 @@ td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.
 
   .map-container-wrapper {
     grid-column: 1;
+    padding: 8px;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .log-container-wrapper {
     grid-column: 1;
+    padding: 8px;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .map-stats-container {
     grid-column: 1;
+    padding: 8px;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   #map-container {
     height: 400px;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .table-panel {
     max-height: 500px;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .tile-grid.six-up {
@@ -492,17 +519,37 @@ td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.
 
 /* Extra small mobile */
 @media (max-width: 600px) {
-  .page-shell { padding: 8px; }
+  .page-shell { padding: 4px; }
+
+  .panel {
+    padding: 4px;
+  }
+
+  input, select {
+    padding: 6px 8px;
+    font-size: 0.9rem;
+  }
+
+  .map-page-container {
+    gap: 4px;
+  }
 
   .map-filter-panel {
-    padding: 8px;
-    gap: 8px;
+    padding: 4px;
+    gap: 4px;
+    border-radius: var(--radius-sm);
+  }
+
+  .map-container-wrapper,
+  .log-container-wrapper,
+  .map-stats-container {
+    padding: 4px;
   }
 
   .map-filter-toggle {
     padding: 6px 10px;
     font-size: 0.8rem;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
   }
 
   #map-container {
