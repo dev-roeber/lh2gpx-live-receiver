@@ -278,6 +278,7 @@ td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.
     left: 0;
     width: var(--sidebar-width);
     height: calc(100vh - var(--header-height));
+    overflow-y: auto;
     z-index: 1000;
     transform: translateX(-100%);
     transition: transform 0.3s ease;
@@ -349,7 +350,8 @@ td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.
     border-radius: var(--radius);
     border: 1px solid rgba(0,0,0,0.05);
     align-items: stretch;
-    height: fit-content;
+    max-height: calc(100vh - var(--header-height) - 48px);
+    overflow-y: auto;
     position: sticky;
     top: calc(var(--header-height) + 24px);
   }

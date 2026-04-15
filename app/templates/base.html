@@ -127,11 +127,8 @@
       });
     }
   </script>
-</body>
-</html>
-
   <script>
-    /* Overflow Debugging (nur wenn ?debug=overflow in URL) */
+    /* Overflow Debugging (nur wenn ?debug in URL) */
     if (new URLSearchParams(window.location.search).has('debug')) {
       window.addEventListener('load', () => {
         const docW = document.documentElement.clientWidth;
@@ -140,7 +137,7 @@
           return r.right > docW + 1;
         });
         if (offenders.length > 0) {
-          console.warn(`🚨 ${offenders.length} Elemente ragen über Viewport raus (${docW}px)`);
+          console.warn(`${offenders.length} Elemente ragen über Viewport raus (${docW}px)`);
           console.table(offenders.map(el => ({
             tag: el.tagName,
             id: el.id,
@@ -149,8 +146,10 @@
           })));
           offenders.forEach(el => el.style.outline = '2px solid red');
         } else {
-          console.log('✅ Kein Overflow erkannt');
+          console.log('Kein Overflow erkannt');
         }
       });
     }
   </script>
+</body>
+</html>
