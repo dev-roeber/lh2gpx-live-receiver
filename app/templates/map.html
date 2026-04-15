@@ -156,7 +156,7 @@
     const autoCenter = document.getElementById('auto-center-toggle').checked;
     const apiStatus = document.getElementById('api-status');
 
-    let url = `/api/points?page_size=2000`;
+    let url = `/api/points?page_size=${Math.min(logLimit * 2, 250)}`;
     if (sessionId) url += `&session_id=${sessionId}`;
     
     if (range !== 'all') {
@@ -239,6 +239,7 @@
         });
         
         filterLog();
+        // Keep logLimit rows visible, remove from bottom if too many
         while (logBody.children.length > logLimit) {
           logBody.removeChild(logBody.lastChild);
         }
