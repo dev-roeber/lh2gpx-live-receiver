@@ -377,8 +377,13 @@
         '2d': 2880, '3d': 4320, '5d': 7200, '7d': 10080, '14d': 20160, '30d': 43200
       }[effectiveRange];
       const fromDate = new Date(Date.now() - mins * 60000);
-      const berlinStr = fromDate.toLocaleString('sv-SE', { timeZone: 'Europe/Berlin' }); // "YYYY-MM-DD HH:MM:SS"
-      const [berlinDate, berlinTime] = berlinStr.split(' ');
+      const p = {};
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+      }).formatToParts(fromDate).forEach(({type, value}) => { p[type] = value; });
+      const berlinDate = `${p.year}-${p.month}-${p.day}`;
+      const berlinTime = `${p.hour === '24' ? '00' : p.hour}:${p.minute}:${p.second}`;
       url += `&date_from=${berlinDate}&time_from=${berlinTime}`;
     }
 
