@@ -112,6 +112,27 @@
       <label class="fp-layer-btn" title="Uhrzeit am Anfang und Ende jedes Routen-Segments einblenden">
         <input type="checkbox" id="labels-toggle"> Labels
       </label>
+      <label class="fp-layer-btn" title="Liniensegmente nach Geschwindigkeit einfärben: grün=Fuß, gelb=Rad, orange=Auto, rot=Bahn">
+        <input type="checkbox" id="speed-toggle"> Tempo
+      </label>
+      <label class="fp-layer-btn" title="Orte markieren wo du mindestens X Minuten geblieben bist">
+        <input type="checkbox" id="stops-toggle"> Stops
+      </label>
+      <label class="fp-layer-btn" title="Jeden Kalendertag in einer eigenen Farbe darstellen">
+        <input type="checkbox" id="daytrack-toggle"> Tage
+      </label>
+    </div>
+    <div id="stops-config" style="display:none;margin-top:6px;">
+      <div class="filter-group fp-row fp-numrow">
+        <label for="stop-min-duration" class="fp-num-label">Stop (min)</label>
+        <input type="number" id="stop-min-duration" min="1" max="120" class="fp-num-input">
+      </div>
+      <small style="color:var(--text-3);font-size:0.72rem;display:block;margin:2px 0 4px;">Mindest-Aufenthaltsdauer für einen Stop.</small>
+      <div class="filter-group fp-row fp-numrow">
+        <label for="stop-radius" class="fp-num-label">Radius (m)</label>
+        <input type="number" id="stop-radius" min="10" max="1000" class="fp-num-input">
+      </div>
+      <small style="color:var(--text-3);font-size:0.72rem;display:block;margin:2px 0 0;">Maximaler Bewegungsradius um als Stop zu gelten.</small>
     </div>
 
     <p class="fp-section-label">Routen-Segmentierung</p>
@@ -244,6 +265,35 @@
         </div>
       </div>
 
+      <div id="legend-speed" style="display:none;min-width:160px;">
+        <div style="font-weight:600;color:var(--text-2);margin-bottom:6px;">Tempo</div>
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          <div style="display:flex;align-items:center;gap:7px;"><span style="width:22px;height:3px;background:#30D158;border-radius:2px;display:inline-block;"></span><span>&lt; 5 km/h — Fuß</span></div>
+          <div style="display:flex;align-items:center;gap:7px;"><span style="width:22px;height:3px;background:#FFD60A;border-radius:2px;display:inline-block;"></span><span>5–20 km/h — Rad</span></div>
+          <div style="display:flex;align-items:center;gap:7px;"><span style="width:22px;height:3px;background:#FF9F0A;border-radius:2px;display:inline-block;"></span><span>20–80 km/h — Auto</span></div>
+          <div style="display:flex;align-items:center;gap:7px;"><span style="width:22px;height:3px;background:#FF453A;border-radius:2px;display:inline-block;"></span><span>&gt; 80 km/h — Bahn/Flug</span></div>
+        </div>
+      </div>
+
+      <div id="legend-stops" style="display:none;min-width:130px;">
+        <div style="font-weight:600;color:var(--text-2);margin-bottom:6px;">Stops</div>
+        <div style="display:flex;align-items:center;gap:7px;">
+          <span style="width:14px;height:14px;border-radius:50%;border:2px solid #BF5AF2;background:rgba(191,90,242,0.15);display:inline-block;flex-shrink:0;"></span>
+          <span>Aufenthaltsort (Violett) + Dauer</span>
+        </div>
+      </div>
+
+      <div id="legend-daytrack" style="display:none;min-width:130px;">
+        <div style="font-weight:600;color:var(--text-2);margin-bottom:6px;">Tages-Tracks</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;">
+          <span style="width:22px;height:3px;background:#0A84FF;border-radius:2px;display:inline-block;margin-top:6px;"></span>
+          <span style="width:22px;height:3px;background:#30D158;border-radius:2px;display:inline-block;margin-top:6px;"></span>
+          <span style="width:22px;height:3px;background:#FF9F0A;border-radius:2px;display:inline-block;margin-top:6px;"></span>
+          <span style="width:22px;height:3px;background:#BF5AF2;border-radius:2px;display:inline-block;margin-top:6px;"></span>
+          <span style="font-size:0.72rem;color:var(--text-3);">Jeder Tag = eigene Farbe + Datum-Label</span>
+        </div>
+      </div>
+
       <div id="legend-heatmap" style="display:none;min-width:160px;">
         <div style="font-weight:600;color:var(--text-2);margin-bottom:6px;">Heatmap — Dichte</div>
         <div style="display:flex;align-items:center;gap:8px;">
@@ -340,9 +390,11 @@
   // === CONFIG ===
   let POLLING_INTERVAL = parseInt(localStorage.getItem('map-polling-interval')) || 5000;
   let TIME_RANGE       = localStorage.getItem('map-time-range') || '1h';
-  let MAP_MAX_POINTS   = parseInt(localStorage.getItem('map-max-points'))   || 5000;
+  let MAP_MAX_POINTS   = parseInt(localStorage.getItem('map-max-points'))      || 5000;
   let ROUTE_TIME_GAP   = parseInt(localStorage.getItem('map-route-time-gap'))  || 5;
   let ROUTE_DIST_GAP   = parseInt(localStorage.getItem('map-route-dist-gap'))  || 300;
+  let STOP_MIN_DUR     = parseInt(localStorage.getItem('map-stop-min-dur'))    || 5;
+  let STOP_RADIUS_M    = parseInt(localStorage.getItem('map-stop-radius'))     || 100;
   const FILTER_DEBOUNCE = 300;
   const MAX_LOG_LINES = 1000;
   const CLUSTER_THRESHOLD = 50;
@@ -352,9 +404,12 @@
   let heatmapActive  = false;
   let pointsActive   = true;
   let polylineActive = true;
-  let accuracyActive = false;
-  let labelsActive   = false;
-  let accuracyLayer, labelsLayer;
+  let accuracyActive  = false;
+  let labelsActive    = false;
+  let speedActive     = false;
+  let stopsActive     = false;
+  let daytrackActive  = false;
+  let accuracyLayer, labelsLayer, speedLayer, stopsLayer, daytrackLayer;
   let darkMode = localStorage.getItem('map-dark-mode') === 'true' || false;
   let tileLayer;
   let lastApiStatus = 'loading';
@@ -543,8 +598,11 @@
     markerClusterGroup = L.markerClusterGroup().addTo(map);
     polylineLayer = L.featureGroup().addTo(map);
     pointsLayer = L.featureGroup().addTo(map);
-    accuracyLayer = L.featureGroup().addTo(map);
-    labelsLayer   = L.featureGroup().addTo(map);
+    accuracyLayer  = L.featureGroup().addTo(map);
+    labelsLayer    = L.featureGroup().addTo(map);
+    speedLayer     = L.featureGroup().addTo(map);
+    stopsLayer     = L.featureGroup().addTo(map);
+    daytrackLayer  = L.featureGroup().addTo(map);
     heatLayer = L.heatLayer([], {
       radius: 14, blur: 12, maxZoom: 19, minOpacity: 0.25, max: 1.0,
       gradient: {
@@ -580,9 +638,11 @@
     resizeObserver.observe(mapContainer);
 
     // Eingabefelder mit gespeicherten Werten befüllen
-    document.getElementById('map-max-points').value  = MAP_MAX_POINTS;
-    document.getElementById('route-time-gap').value  = ROUTE_TIME_GAP;
-    document.getElementById('route-dist-gap').value  = ROUTE_DIST_GAP;
+    document.getElementById('map-max-points').value    = MAP_MAX_POINTS;
+    document.getElementById('route-time-gap').value    = ROUTE_TIME_GAP;
+    document.getElementById('route-dist-gap').value    = ROUTE_DIST_GAP;
+    document.getElementById('stop-min-duration').value = STOP_MIN_DUR;
+    document.getElementById('stop-radius').value       = STOP_RADIUS_M;
     // Polling-Interval korrekt vorauswählen
     const piSel = document.getElementById('polling-interval');
     piSel.value = String(POLLING_INTERVAL);
@@ -617,6 +677,16 @@
       ROUTE_DIST_GAP = parseInt(e.target.value) || 300;
       localStorage.setItem('map-route-dist-gap', ROUTE_DIST_GAP);
       debounce(updateMap, 500)();
+    };
+    document.getElementById('stop-min-duration').onchange = (e) => {
+      STOP_MIN_DUR = parseInt(e.target.value) || 5;
+      localStorage.setItem('map-stop-min-dur', STOP_MIN_DUR);
+      if (stopsActive) debounce(updateMap, 500)();
+    };
+    document.getElementById('stop-radius').onchange = (e) => {
+      STOP_RADIUS_M = parseInt(e.target.value) || 100;
+      localStorage.setItem('map-stop-radius', STOP_RADIUS_M);
+      if (stopsActive) debounce(updateMap, 500)();
     };
   }
 
@@ -704,12 +774,24 @@
       markerClusterGroup.clearLayers();
       accuracyLayer.clearLayers();
       labelsLayer.clearLayers();
+      speedLayer.clearLayers();
+      stopsLayer.clearLayers();
+      daytrackLayer.clearLayers();
 
       if (points && points.length > 0) {
         const sorted = [...points].sort((a, b) =>
           new Date(a.point_timestamp_utc) - new Date(b.point_timestamp_utc)
         );
         const last = points[0]; // API liefert DESC
+
+        // Haversine-Distanz (Meter) — wird von mehreren Layern genutzt
+        function haversine(a, b) {
+          const R = 6371000, rad = Math.PI / 180;
+          const dLat = (b.latitude  - a.latitude)  * rad;
+          const dLon = (b.longitude - a.longitude) * rad;
+          const s = Math.sin(dLat/2)**2 + Math.cos(a.latitude*rad)*Math.cos(b.latitude*rad)*Math.sin(dLon/2)**2;
+          return 2 * R * Math.asin(Math.sqrt(s));
+        }
 
         // === PUNKTE-LAYER ===
         if (pointsActive) {
@@ -735,15 +817,6 @@
         if (polylineActive) {
           const timeGapMs  = (parseInt(document.getElementById('route-time-gap').value) || ROUTE_TIME_GAP) * 60000;
           const distGapM   =  parseInt(document.getElementById('route-dist-gap').value) || ROUTE_DIST_GAP;
-
-          // Haversine in Metern
-          function haversine(a, b) {
-            const R = 6371000, rad = Math.PI / 180;
-            const dLat = (b.latitude  - a.latitude)  * rad;
-            const dLon = (b.longitude - a.longitude) * rad;
-            const s = Math.sin(dLat/2)**2 + Math.cos(a.latitude*rad)*Math.cos(b.latitude*rad)*Math.sin(dLon/2)**2;
-            return 2 * R * Math.asin(Math.sqrt(s));
-          }
 
           // Segmente schneiden
           const segments = [];
@@ -799,6 +872,97 @@
                 fillOpacity: 0.06, weight: 1, opacity: 0.35
               }).addTo(accuracyLayer);
             }
+          });
+        }
+
+        // === GESCHWINDIGKEITS-LAYER ===
+        if (speedActive && sorted.length >= 2) {
+          function speedColor(kmh) {
+            if (kmh < 0)  return '#8E8E93';
+            if (kmh < 5)  return '#30D158'; // Fuß
+            if (kmh < 20) return '#FFD60A'; // Rad
+            if (kmh < 80) return '#FF9F0A'; // Auto
+            return '#FF453A';               // Bahn/Flug
+          }
+          // Bei >2000 Punkten jeden zweiten nehmen (Performance)
+          const sp = sorted.length > 2000 ? sorted.filter((_, i) => i % 2 === 0) : sorted;
+          for (let i = 1; i < sp.length; i++) {
+            const prev = sp[i-1], cur = sp[i];
+            const distM = haversine(prev, cur);
+            const tSec  = (new Date(cur.point_timestamp_utc) - new Date(prev.point_timestamp_utc)) / 1000;
+            const kmh   = tSec > 0 ? (distM / tSec) * 3.6 : -1;
+            // Teleporter-Sprünge ignorieren (>500 km/h)
+            if (kmh > 500) continue;
+            L.polyline([[prev.latitude, prev.longitude],[cur.latitude, cur.longitude]], {
+              color: speedColor(kmh), weight: 4, opacity: 0.85
+            }).bindPopup(`${kmh >= 0 ? kmh.toFixed(1) + ' km/h' : '?'}`).addTo(speedLayer);
+          }
+        }
+
+        // === STOP-ERKENNUNG ===
+        if (stopsActive) {
+          const minMs = STOP_MIN_DUR * 60000;
+          let i = 0;
+          while (i < sorted.length) {
+            const anchor = sorted[i];
+            let j = i + 1;
+            while (j < sorted.length && haversine(anchor, sorted[j]) <= STOP_RADIUS_M) j++;
+            const durMs = new Date(sorted[j-1].point_timestamp_utc) - new Date(anchor.point_timestamp_utc);
+            if (durMs >= minMs && j > i + 1) {
+              const midPt = sorted[Math.floor((i + j - 1) / 2)];
+              const durMin = Math.round(durMs / 60000);
+              const startT = anchor.point_timestamp_local?.slice(11,16) || '';
+              const endT   = sorted[j-1].point_timestamp_local?.slice(11,16) || '';
+              L.circle([midPt.latitude, midPt.longitude], {
+                radius: STOP_RADIUS_M, color: '#BF5AF2', fillColor: '#BF5AF2',
+                fillOpacity: 0.15, weight: 2, opacity: 0.6
+              }).addTo(stopsLayer);
+              L.marker([midPt.latitude, midPt.longitude], {
+                icon: L.divIcon({
+                  className: '',
+                  html: `<div style="background:#BF5AF2;color:#fff;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:6px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.5);">⏱ ${durMin}min</div>`,
+                  iconAnchor: [0, 0]
+                })
+              }).bindPopup(`<b>Stop</b><br>${startT} – ${endT}<br>${durMin} Minuten · ${j-i} Punkte`).addTo(stopsLayer);
+              i = j;
+            } else { i++; }
+          }
+        }
+
+        // === TAGES-TRACKS ===
+        if (daytrackActive) {
+          const dayPalette = ['#0A84FF','#30D158','#FF9F0A','#BF5AF2','#5AC8FA','#FF453A','#FFD60A','#FF6B6B','#4ECDC4','#95E77E'];
+          const byDay = {};
+          sorted.forEach(p => {
+            const day = (p.point_date_local || p.point_timestamp_utc || '').slice(0, 10);
+            if (!byDay[day]) byDay[day] = [];
+            byDay[day].push(p);
+          });
+          Object.entries(byDay).sort().forEach(([day, pts], idx) => {
+            const color = dayPalette[idx % dayPalette.length];
+            // Segmente innerhalb des Tages (gleiche Lückenlogik)
+            const tGapMs = ROUTE_TIME_GAP * 60000;
+            const segs = []; let seg = [pts[0]];
+            for (let k = 1; k < pts.length; k++) {
+              if (new Date(pts[k].point_timestamp_utc) - new Date(pts[k-1].point_timestamp_utc) > tGapMs) {
+                if (seg.length > 1) segs.push(seg); seg = [];
+              }
+              seg.push(pts[k]);
+            }
+            if (seg.length > 1) segs.push(seg);
+            segs.forEach(s => {
+              L.polyline(s.map(p => [p.latitude, p.longitude]), {
+                color, weight: 3, opacity: 0.8
+              }).bindPopup(`${day} · ${pts.length} Punkte`).addTo(daytrackLayer);
+            });
+            // Tages-Label am ersten Punkt
+            L.marker([pts[0].latitude, pts[0].longitude], {
+              icon: L.divIcon({
+                className: '',
+                html: `<span style="background:${color};color:#fff;font-size:0.65rem;font-weight:700;padding:1px 5px;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,0.4);">${day.slice(5)}</span>`,
+                iconAnchor: [0, 0]
+              }), interactive: false
+            }).addTo(daytrackLayer);
           });
         }
 
@@ -910,12 +1074,15 @@
   }
 
   function updateLegend() {
-    document.getElementById('legend-points').style.display   = pointsActive   ? '' : 'none';
-    document.getElementById('legend-lines').style.display    = polylineActive ? '' : 'none';
-    document.getElementById('legend-heatmap').style.display  = heatmapActive  ? '' : 'none';
-    document.getElementById('legend-accuracy').style.display = accuracyActive ? '' : 'none';
-    document.getElementById('legend-labels').style.display   = labelsActive   ? '' : 'none';
-    const anyActive = pointsActive || polylineActive || heatmapActive || accuracyActive || labelsActive;
+    document.getElementById('legend-points').style.display    = pointsActive   ? '' : 'none';
+    document.getElementById('legend-lines').style.display     = polylineActive ? '' : 'none';
+    document.getElementById('legend-heatmap').style.display   = heatmapActive  ? '' : 'none';
+    document.getElementById('legend-accuracy').style.display  = accuracyActive ? '' : 'none';
+    document.getElementById('legend-labels').style.display    = labelsActive   ? '' : 'none';
+    document.getElementById('legend-speed').style.display     = speedActive    ? '' : 'none';
+    document.getElementById('legend-stops').style.display     = stopsActive    ? '' : 'none';
+    document.getElementById('legend-daytrack').style.display  = daytrackActive ? '' : 'none';
+    const anyActive = pointsActive || polylineActive || heatmapActive || accuracyActive || labelsActive || speedActive || stopsActive || daytrackActive;
     document.getElementById('map-legend').style.display = anyActive ? 'flex' : 'none';
   }
 
@@ -1003,6 +1170,13 @@
   document.getElementById('polyline-toggle').onchange  = (e) => { polylineActive = e.target.checked; updateLegend(); updateMap(); };
   document.getElementById('accuracy-toggle').onchange  = (e) => { accuracyActive = e.target.checked; updateLegend(); updateMap(); };
   document.getElementById('labels-toggle').onchange    = (e) => { labelsActive   = e.target.checked; updateLegend(); updateMap(); };
+  document.getElementById('speed-toggle').onchange     = (e) => { speedActive    = e.target.checked; updateLegend(); updateMap(); };
+  document.getElementById('stops-toggle').onchange     = (e) => {
+    stopsActive = e.target.checked;
+    document.getElementById('stops-config').style.display = stopsActive ? '' : 'none';
+    updateLegend(); updateMap();
+  };
+  document.getElementById('daytrack-toggle').onchange  = (e) => { daytrackActive = e.target.checked; updateLegend(); updateMap(); };
   // route-time-gap + route-dist-gap: onchange wird in initMap() gesetzt (mit localStorage-Speicherung)
 
   // Hilfsfunktion: Dropdown aktivieren/deaktivieren
