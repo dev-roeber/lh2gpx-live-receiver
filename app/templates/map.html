@@ -271,6 +271,7 @@
   let lastRefreshTime = null;   // ms timestamp des letzten erfolgreichen Updates
   let nextRefreshTime = null;   // ms timestamp des nächsten geplanten Updates
   let barTickTimer = null;
+  let updateInterval = null;    // Modulebene: damit manueller Refresh den Timer zurücksetzen kann
 
   // === DEBOUNCE (per-call timeout) ===
   function debounce(fn, ms) {
@@ -483,7 +484,7 @@
     resizeObserver.observe(mapContainer);
 
     updateMap();
-    let updateInterval = setInterval(updateMap, POLLING_INTERVAL);
+    updateInterval = setInterval(updateMap, POLLING_INTERVAL);
     barTickTimer = setInterval(tickRefreshBar, 1000);
 
     // Polling Interval Handler
@@ -492,7 +493,6 @@
       localStorage.setItem('map-polling-interval', POLLING_INTERVAL);
       clearInterval(updateInterval);
       updateInterval = setInterval(updateMap, POLLING_INTERVAL);
-      // Nächstes Update neu berechnen
       nextRefreshTime = Date.now() + POLLING_INTERVAL;
       tickRefreshBar();
     };
@@ -784,7 +784,9 @@
 
   document.getElementById('refresh-map-btn').onclick = () => {
     isManualRefresh = true;
-    nextRefreshTime = Date.now() + POLLING_INTERVAL; // Timer-Reset nach manuellem Refresh
+    // Interval-Timer zurücksetzen damit Countdown nach manuellem Refresh korrekt ist
+    clearInterval(updateInterval);
+    updateInterval = setInterval(updateMap, POLLING_INTERVAL);
     document.getElementById('btn-text').style.display = 'none';
     document.getElementById('btn-spinner').style.display = 'inline';
     updateMap();
