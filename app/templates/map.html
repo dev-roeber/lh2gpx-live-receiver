@@ -10,11 +10,15 @@
 <div id="map-refresh-bar" style="display:flex;align-items:center;gap:12px;margin:-8px 0 14px 0;font-size:0.78rem;color:var(--text-3);flex-wrap:wrap;">
   <span>Aktualisiert: <strong id="mbar-ago" style="color:var(--text-2);">—</strong></span>
   <span style="color:var(--separator);">|</span>
-  <span>Nächste Aktualisierung: <strong id="mbar-next" style="color:var(--text-2);">—</strong></span>
+  <span>Nächste: <strong id="mbar-next" style="color:var(--text-2);">—</strong></span>
   <span style="color:var(--separator);">|</span>
-  <span id="mbar-progress-wrap" style="flex:1;min-width:80px;max-width:200px;height:3px;background:var(--surface-2);border-radius:999px;overflow:hidden;">
+  <span id="mbar-progress-wrap" style="min-width:60px;max-width:140px;height:3px;background:var(--surface-2);border-radius:999px;overflow:hidden;flex-shrink:0;">
     <span id="mbar-progress" style="display:block;height:100%;width:0%;background:var(--mint);border-radius:999px;transition:width 0.9s linear;"></span>
   </span>
+  <span style="color:var(--separator);">|</span>
+  <span>⬇ <strong id="mbar-mbps" style="color:var(--text-2);">—</strong> MB/s</span>
+  <span style="color:var(--separator);">|</span>
+  <span>Heute: <strong id="mbar-daily" style="color:var(--text-2);">—</strong></span>
 </div>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -712,16 +716,12 @@
     let url = `/api/points?page_size=${pageSize}`;
     if (sessionId) url += `&session_id=${sessionId}`;
 
-    // Bei fitBounds ignoriere Zeitraum-Filter und lade ALLES
-    const effectiveRange = fitBounds ? 'all' : range;
-
-    if (effectiveRange !== 'all') {
+    if (range !== 'all') {
       const mins = {
         '2m': 2, '5m': 5, '10m': 10, '15m': 15, '30m': 30, '45m': 45,
         '1h': 60, '2h': 120, '4h': 240, '6h': 360, '8h': 480, '12h': 720, '18h': 1080, '24h': 1440,
         '2d': 2880, '3d': 4320, '5d': 7200, '7d': 10080, '14d': 20160, '30d': 43200
-      }[effectiveRange];
-      // Voller UTC-ISO-Timestamp → Backend filtert korrekt auf point_timestamp_utc (nicht auf lokale Datum+Zeit getrennt)
+      }[range];
       const from = new Date(Date.now() - mins * 60000).toISOString();
       url += `&date_from=${encodeURIComponent(from)}`;
     }
@@ -732,10 +732,14 @@
       if (isManualRefresh) overlay.style.display = 'flex';
       const fetchStart = Date.now();
       const res = await fetch(url, { credentials: 'same-origin' });
-      const fetchMs = Date.now() - fetchStart;
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const data = await res.json();
+      const text = await res.text();
+      const fetchMs = Date.now() - fetchStart;
+      const data = JSON.parse(text);
+      // Traffic tracken
+      const fetchBytes = text.length;
+      const fetchMbps = fetchMs > 0 ? (fetchBytes / 1024 / 1024) / (fetchMs / 1000) : 0;
+      updateTraffic(fetchBytes, fetchMbps);
       const points = data.points.items;
       lastLoadedPoints = points || [];
       lastApiStatus = 'online';
@@ -1084,6 +1088,20 @@
     document.getElementById('legend-daytrack').style.display  = daytrackActive ? '' : 'none';
     const anyActive = pointsActive || polylineActive || heatmapActive || accuracyActive || labelsActive || speedActive || stopsActive || daytrackActive;
     document.getElementById('map-legend').style.display = anyActive ? 'flex' : 'none';
+  }
+
+  function updateTraffic(bytes, mbps) {
+    // MB/s anzeigen
+    document.getElementById('mbar-mbps').textContent = mbps.toFixed(2);
+    // Tages-Summe (localStorage, reset bei Datumsänderung)
+    const today = new Date().toISOString().slice(0, 10);
+    const storedDate  = localStorage.getItem('map-traffic-date');
+    let dailyBytes = storedDate === today ? (parseInt(localStorage.getItem('map-traffic-bytes')) || 0) : 0;
+    dailyBytes += bytes;
+    localStorage.setItem('map-traffic-date',  today);
+    localStorage.setItem('map-traffic-bytes', dailyBytes);
+    const mb = dailyBytes / 1024 / 1024;
+    document.getElementById('mbar-daily').textContent = mb >= 1 ? mb.toFixed(1) + ' MB' : (dailyBytes / 1024).toFixed(0) + ' KB';
   }
 
   function tickRefreshBar() {
