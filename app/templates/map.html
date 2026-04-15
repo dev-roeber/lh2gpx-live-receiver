@@ -38,7 +38,15 @@
       <input type="checkbox" id="auto-center-toggle" checked style="width: auto; cursor: pointer;">
       <label for="auto-center-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Auto-Zentrierung</label>
     </div>
-    <div class="filter-actions" style="align-self: flex-end; margin-left: auto; display: flex; gap: 10px;">
+    <div class="filter-actions" style="align-self: flex-end; margin-left: auto; display: flex; gap: 10px; align-items: center;">
+      <label for="polling-interval" style="margin: 0; font-size: 0.85rem;">Update:</label>
+      <select id="polling-interval" style="padding: 5px 8px; border: 1px solid var(--text-muted); border-radius: 4px;">
+        <option value="5000">5s</option>
+        <option value="10000">10s</option>
+        <option value="15000" selected>15s</option>
+        <option value="30000">30s</option>
+        <option value="60000">1min</option>
+      </select>
       <button id="dark-mode-btn" class="button-link secondary" title="Dark Mode">🌙</button>
       <button id="refresh-map-btn" class="button-link primary">
         <span id="btn-text">Aktualisieren</span>
@@ -86,7 +94,7 @@
 
 <script>
   // === CONFIG ===
-  const POLLING_INTERVAL = 15000;
+  let POLLING_INTERVAL = parseInt(localStorage.getItem('map-polling-interval')) || 15000;
   const FILTER_DEBOUNCE = 300;
   const MAX_LOG_LINES = 1000;
   const CLUSTER_THRESHOLD = 50;
@@ -121,7 +129,16 @@
     
     setTimeout(() => map.invalidateSize(), 600);
     updateMap();
-    setInterval(updateMap, POLLING_INTERVAL);
+    let updateInterval = setInterval(updateMap, POLLING_INTERVAL);
+    
+    // Polling Interval Handler
+    document.getElementById('polling-interval').onchange = (e) => {
+      POLLING_INTERVAL = parseInt(e.target.value);
+      localStorage.setItem('map-polling-interval', POLLING_INTERVAL);
+      clearInterval(updateInterval);
+      updateInterval = setInterval(updateMap, POLLING_INTERVAL);
+      console.log(`Polling interval changed to ${POLLING_INTERVAL}ms`);
+    };
   }
 
   async function updateMap() {
