@@ -67,6 +67,22 @@
       <input type="checkbox" id="heatmap-toggle" style="width: auto; cursor: pointer;">
       <label for="heatmap-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Heatmap</label>
     </div>
+    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px;">
+      <input type="checkbox" id="points-toggle" checked style="width: auto; cursor: pointer;">
+      <label for="points-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Punkte</label>
+    </div>
+    <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px;">
+      <input type="checkbox" id="polyline-toggle" checked style="width: auto; cursor: pointer;">
+      <label for="polyline-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Polylinien</label>
+    </div>
+    <div class="filter-group">
+      <label for="route-time-gap" title="Zeitlücke in Minuten, ab der eine neue Route beginnt">Routen-Zeitlücke (min)</label>
+      <input type="number" id="route-time-gap" value="5" min="1" max="120" style="width:70px;padding:4px 8px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.85rem;">
+    </div>
+    <div class="filter-group">
+      <label for="route-dist-gap" title="Distanzlücke in Metern, ab der eine neue Route beginnt">Routen-Distanzlücke (m)</label>
+      <input type="number" id="route-dist-gap" value="300" min="10" max="5000" style="width:70px;padding:4px 8px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.85rem;">
+    </div>
     <div class="filter-group">
       <label for="polling-interval">Update-Intervall</label>
       <select id="polling-interval">
@@ -195,8 +211,10 @@
   const CLUSTER_THRESHOLD = 50;
 
   // === STATE ===
-  let map, pathLayer, markerClusterGroup, heatLayer, knownPointIds = new Set();
+  let map, pathLayer, markerClusterGroup, heatLayer, pointsLayer, polylineLayer, knownPointIds = new Set();
   let heatmapActive = false;
+  let pointsActive = true;
+  let polylineActive = true;
   let darkMode = localStorage.getItem('map-dark-mode') === 'true' || false;
   let tileLayer;
   let filterTimeout;
@@ -395,6 +413,8 @@
     tileLayer = L.tileLayer(osmUrl, { maxZoom: 19, attribution: '© OpenStreetMap & CartoDB' }).addTo(map);
     pathLayer = L.featureGroup().addTo(map);
     markerClusterGroup = L.markerClusterGroup().addTo(map);
+    polylineLayer = L.featureGroup().addTo(map);
+    pointsLayer = L.featureGroup().addTo(map);
     heatLayer = L.heatLayer([], { radius: 20, blur: 25, maxZoom: 17, max: 1.0,
       gradient: { 0.2: '#0A84FF', 0.5: '#FF9F0A', 0.8: '#FF453A', 1.0: '#FFD60A' }
     });
@@ -476,31 +496,84 @@
         if (map.hasLayer(heatLayer)) map.removeLayer(heatLayer);
       }
       
+      // === PUNKTE & POLYLINIEN ===
+      pointsLayer.clearLayers();
+      polylineLayer.clearLayers();
+      markerClusterGroup.clearLayers();
+
       if (points && points.length > 0) {
-        const coords = points.map(p => [p.latitude, p.longitude]);
-        L.polyline(coords, {color: '#0A84FF', weight: 5, opacity: 0.6}).addTo(pathLayer);
-        
-        const last = points[0];
-        L.circleMarker([last.latitude, last.longitude], {
-          radius: 10, color: '#fff', fillColor: '#0A84FF', fillOpacity: 1, weight: 3
-        }).addTo(pathLayer).bindPopup(`<b>Letzte Position</b><br>${last.point_timestamp_local}<br>Genauigkeit: ${last.horizontal_accuracy_m}m`);
-        
-        // === CLUSTERING ===
-        if (points.length > CLUSTER_THRESHOLD) {
-          points.forEach(p => {
-            const marker = L.circleMarker([p.latitude, p.longitude], {
-              radius: 5, color: '#0A84FF', fillOpacity: 0.7, weight: 1
-            });
-            markerClusterGroup.addLayer(marker);
+        const sorted = [...points].sort((a, b) =>
+          new Date(a.point_timestamp_utc) - new Date(b.point_timestamp_utc)
+        );
+        const last = points[0]; // API liefert DESC
+
+        // === PUNKTE-LAYER ===
+        if (pointsActive) {
+          sorted.forEach((p, i) => {
+            const isLast = p === last;
+            const marker = L.circleMarker([p.latitude, p.longitude], isLast
+              ? { radius: 9, color: '#fff', fillColor: '#30D158', fillOpacity: 1, weight: 2.5 }
+              : { radius: 4, color: 'transparent', fillColor: '#0A84FF', fillOpacity: 0.75, weight: 0 }
+            ).bindPopup(
+              `<b>${isLast ? 'Letzte Position' : 'GPS-Punkt'}</b><br>` +
+              `${p.point_timestamp_local || p.point_timestamp_utc}<br>` +
+              `±${Math.round(p.horizontal_accuracy_m)}m &nbsp; ${p.source || ''}`
+            );
+            if (sorted.length > CLUSTER_THRESHOLD && !isLast) {
+              markerClusterGroup.addLayer(marker);
+            } else {
+              marker.addTo(pointsLayer);
+            }
           });
         }
-        
-        if (fitBounds && coords.length > 0) {
-          // Fit all points in view
-          const bounds = L.latLngBounds(coords);
-          map.fitBounds(bounds, {padding: [50, 50], animate: true});
+
+        // === POLYLINIEN-LAYER (Routen-Segmentierung) ===
+        if (polylineActive) {
+          const timeGapMs  = (parseInt(document.getElementById('route-time-gap').value)  || 5)   * 60000;
+          const distGapM   =  parseInt(document.getElementById('route-dist-gap').value)  || 300;
+
+          // Haversine in Metern
+          function haversine(a, b) {
+            const R = 6371000, rad = Math.PI / 180;
+            const dLat = (b.latitude  - a.latitude)  * rad;
+            const dLon = (b.longitude - a.longitude) * rad;
+            const s = Math.sin(dLat/2)**2 + Math.cos(a.latitude*rad)*Math.cos(b.latitude*rad)*Math.sin(dLon/2)**2;
+            return 2 * R * Math.asin(Math.sqrt(s));
+          }
+
+          // Segmente schneiden
+          const segments = [];
+          let seg = [sorted[0]];
+          for (let i = 1; i < sorted.length; i++) {
+            const prev = sorted[i-1], cur = sorted[i];
+            const tGap = new Date(cur.point_timestamp_utc) - new Date(prev.point_timestamp_utc);
+            const dGap = haversine(prev, cur);
+            if (tGap > timeGapMs || dGap > distGapM) {
+              if (seg.length > 1) segments.push(seg);
+              seg = [];
+            }
+            seg.push(cur);
+          }
+          if (seg.length > 1) segments.push(seg);
+
+          // Farben nach Segment-Index durchrotieren
+          const palette = ['#0A84FF','#30D158','#FF9F0A','#BF5AF2','#5AC8FA','#FF453A'];
+          segments.forEach((s, i) => {
+            const coords = s.map(p => [p.latitude, p.longitude]);
+            L.polyline(coords, {
+              color: palette[i % palette.length], weight: 4, opacity: 0.75
+            }).bindPopup(
+              `Route ${i+1} · ${s.length} Punkte<br>` +
+              `${s[0].point_timestamp_local?.slice(11,16) || ''} – ${s[s.length-1].point_timestamp_local?.slice(11,16) || ''}`
+            ).addTo(polylineLayer);
+          });
+        }
+
+        // === BOUNDS / AUTOCENTRE ===
+        const allCoords = sorted.map(p => [p.latitude, p.longitude]);
+        if (fitBounds && allCoords.length > 0) {
+          map.fitBounds(L.latLngBounds(allCoords), {padding: [50, 50], animate: true});
         } else if (autoCenter) {
-          // Focus on latest point with zoom level 18
           map.setView([last.latitude, last.longitude], 18, {animate: true});
         }
         stats.innerText = `${data.points.total} Punkte gefunden (${points.length} angezeigt).`;
@@ -644,10 +717,11 @@
 
   // Fit bounds toggle
   document.getElementById('fit-bounds-toggle').onchange = updateMap;
-  document.getElementById('heatmap-toggle').onchange = (e) => {
-    heatmapActive = e.target.checked;
-    updateMap();
-  };
+  document.getElementById('heatmap-toggle').onchange = (e) => { heatmapActive = e.target.checked; updateMap(); };
+  document.getElementById('points-toggle').onchange  = (e) => { pointsActive   = e.target.checked; updateMap(); };
+  document.getElementById('polyline-toggle').onchange = (e) => { polylineActive = e.target.checked; updateMap(); };
+  document.getElementById('route-time-gap').onchange  = debounce(updateMap, 500);
+  document.getElementById('route-dist-gap').onchange  = debounce(updateMap, 500);
 
   // Session filter toggle
   document.getElementById('session-filter-toggle').onchange = (e) => {
