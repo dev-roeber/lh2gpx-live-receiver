@@ -308,3 +308,64 @@ td { padding: 16px; border-bottom: 1px solid var(--surface-muted); font-size: 0.
   border: 1px solid rgba(0,0,0,0.05);
   align-items: flex-end;
 }
+/* Mobile Responsive Fixes for Map */
+@media (max-width: 768px) {
+  .map-filter-panel {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .filter-group {
+    width: 100%;
+  }
+
+  .filter-actions {
+    width: 100% !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .filter-actions button,
+  .filter-actions select {
+    width: 100%;
+  }
+
+  #map-container {
+    height: 300px !important;
+  }
+
+  .table-panel {
+    max-height: 250px !important;
+    font-size: 0.75rem !important;
+  }
+
+  .table-panel td {
+    padding: 8px 10px !important;
+  }
+
+  .panel-header {
+    flex-direction: column;
+  }
+
+  .panel-header .filter-group {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  #map-container {
+    height: 250px !important;
+  }
+
+  .table-panel {
+    max-height: 200px !important;
+  }
+
+  .page-header h2 {
+    font-size: 1.2rem;
+  }
+
+  .status-badge {
+    font-size: 0.7rem !important;
+  }
+}
