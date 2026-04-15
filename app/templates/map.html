@@ -154,18 +154,20 @@
     </div>
   </div>
 
-  <div class="table-panel" style="max-height: 400px; overflow-y: auto; background: #0f172a; border-radius: var(--radius-sm);">
+  <div class="table-panel" style="max-height: 750px; overflow-y: auto; background: #0f172a; border-radius: var(--radius-sm);">
     <table style="min-width: 100%; border-collapse: separate; border-spacing: 0;">
       <thead style="position: sticky; top: 0; z-index: 10; background: #1e293b;">
-        <tr style="color: #94a3b8; font-size: 0.75rem;">
-          <th style="background: #1e293b; border-bottom: 1px solid #334155;">Datum</th>
-          <th style="background: #1e293b; border-bottom: 1px solid #334155;">Uhrzeit</th>
-          <th style="background: #1e293b; border-bottom: 1px solid #334155;">Geodaten (Lat, Lon)</th>
-          <th style="background: #1e293b; border-bottom: 1px solid #334155;">Genauigkeit</th>
+        <tr style="color: #94a3b8; font-size: 0.8rem; font-weight: 600;">
+          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Uhrzeit (UTC)</th>
+          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Koordinaten</th>
+          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Genauigkeit</th>
+          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Quelle</th>
+          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Modus</th>
+          <th style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 8px; text-align: left;">Request ID</th>
         </tr>
       </thead>
-      <tbody id="live-log-body" style="font-family: 'IBM Plex Mono', monospace; font-size: 0.85rem; color: #e2e8f0;">
-        <tr><td colspan="4" style="text-align: center; padding: 40px; color: #64748b;">Warte auf Daten-Ingest...</td></tr>
+      <tbody id="live-log-body" style="font-family: 'IBM Plex Mono', monospace; font-size: 0.9rem; color: #e2e8f0;">
+        <tr><td colspan="6" style="text-align: center; padding: 60px; color: #64748b; font-size: 0.95rem;">Warte auf Daten-Ingest...</td></tr>
       </tbody>
     </table>
   </div>
@@ -420,15 +422,19 @@
 
             const ts = p.point_timestamp_utc.split('T');
             const coordText = `${p.latitude.toFixed(5)}, ${p.longitude.toFixed(5)}`;
+            const requestIdShort = (p.request_id || 'N/A').substring(0, 12);
+
             row.innerHTML = `
-              <td style="padding: 12px 16px; color: #94a3b8;">${ts[0]}</td>
-              <td style="padding: 12px 16px; font-weight: 600;">${ts[1].substring(0, 8)}</td>
-              <td style="padding: 12px 16px; color: #3b82f6; cursor: pointer; user-select: none; border-radius: 4px;" title="Klicken zum Kopieren">${coordText}</td>
-              <td style="padding: 12px 16px; color: #64748b;">${p.horizontal_accuracy_m}m</td>
+              <td style="padding: 14px 10px; color: #94a3b8; font-size: 0.9rem;">${ts[1].substring(0, 8)}</td>
+              <td style="padding: 14px 10px; color: #3b82f6; cursor: pointer; user-select: none; border-radius: 4px; font-weight: 500;" title="Klicken zum Kopieren">${coordText}</td>
+              <td style="padding: 14px 10px; color: #10b981; font-weight: 500;">${p.horizontal_accuracy_m}m</td>
+              <td style="padding: 14px 10px; color: #f59e0b; font-size: 0.9rem;">${p.source || 'N/A'}</td>
+              <td style="padding: 14px 10px; color: #06b6d4; font-size: 0.85rem;">${p.capture_mode || 'N/A'}</td>
+              <td style="padding: 14px 10px; color: #64748b; font-size: 0.8rem; font-family: monospace;" title="${p.request_id || 'N/A'}">${requestIdShort}</td>
             `;
 
             // Copy-to-clipboard handler for coordinates
-            const coordCell = row.querySelector('td:nth-child(3)');
+            const coordCell = row.querySelector('td:nth-child(2)');
             coordCell.onclick = (e) => {
               e.stopPropagation();
               navigator.clipboard.writeText(coordText).then(() => {
