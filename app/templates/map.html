@@ -19,9 +19,15 @@
     <div class="filter-group">
       <label for="time-range-select">Zeitraum</label>
       <select id="time-range-select">
+        <option value="5m">Letzte 5 Min.</option>
         <option value="15m">Letzte 15 Min.</option>
-        <option value="1h">Letzte 1 Std.</option>
-        <option value="24h" selected>Letzte 24 Std.</option>
+        <option value="30m">Letzte 30 Min.</option>
+        <option value="1h" selected>Letzte 1 Std.</option>
+        <option value="3h">Letzte 3 Std.</option>
+        <option value="6h">Letzte 6 Std.</option>
+        <option value="12h">Letzte 12 Std.</option>
+        <option value="24h">Letzte 24 Std.</option>
+        <option value="7d">Letzte 7 Tage</option>
         <option value="all">Gesamt (Max. 2000 Punkte)</option>
       </select>
     </div>
@@ -154,7 +160,7 @@
     if (sessionId) url += `&session_id=${sessionId}`;
     
     if (range !== 'all') {
-      const mins = { '15m': 15, '1h': 60, '24h': 1440 }[range];
+      const mins = { '5m': 5, '15m': 15, '30m': 30, '1h': 60, '3h': 180, '6h': 360, '12h': 720, '24h': 1440, '7d': 10080 }[range];
       const from = new Date(Date.now() - mins * 60000).toISOString();
       url += `&date_from=${from.split('T')[0]}&time_from=${from.split('T')[1].substring(0, 8)}`;
     }
