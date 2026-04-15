@@ -8,21 +8,17 @@
   </div>
 </div>
 
-<!-- Assets -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet-heat@0.2.0/dist/leaflet-heat.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
-<script src="https://unpkg.com/leaflet-heat@0.2.0/dist/leaflet-heat.js"></script>
-<script src="/static/js/map-controller.js"></script>
 
 <article class="panel">
   <div class="map-filter-panel">
     <div class="filter-group">
       <label for="time-range-select">Zeitraum</label>
-      <select id="time-range-select" aria-label="Zeitraum wählen">
+      <select id="time-range-select">
         <option value="5m">Letzte 5 Min.</option>
         <option value="15m">Letzte 15 Min.</option>
         <option value="30m">Letzte 30 Min.</option>
@@ -35,33 +31,29 @@
         <option value="all">Gesamt (Max. 2000 Punkte)</option>
       </select>
     </div>
-
     <div class="filter-group">
       <label for="session-select">Session</label>
-      <select id="session-select" aria-label="Session wählen">
+      <select id="session-select">
         <option value="">Alle Sessions</option>
         {% for session in sessions %}
         <option value="{{ session.session_id }}">{{ short_id(session.session_id, 16) }} ({{ session.points_count }} Pkt.)</option>
         {% endfor %}
       </select>
     </div>
-
     <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px; margin-left: 15px;">
-      <input type="checkbox" id="auto-center-toggle" checked style="width: auto; cursor: pointer;" aria-label="Letztem Punkt folgen">
+      <input type="checkbox" id="auto-center-toggle" checked style="width: auto; cursor: pointer;">
       <label for="auto-center-toggle" style="margin: 0; cursor: pointer; white-space: nowrap;">Letzter Punkt folgen</label>
     </div>
-
     <div class="filter-actions" style="align-self: flex-end; margin-left: auto; display: flex; gap: 10px; align-items: center;">
       <label for="polling-interval" style="margin: 0; font-size: 0.85rem;">Update:</label>
-      <select id="polling-interval" aria-label="Update-Interval" style="padding: 5px 8px; border: 1px solid var(--text-muted); border-radius: 4px;">
+      <select id="polling-interval" style="padding: 5px 8px; border: 1px solid var(--text-muted); border-radius: 4px;">
         <option value="5000" selected>5s</option>
         <option value="10000">10s</option>
         <option value="15000">15s</option>
         <option value="30000">30s</option>
         <option value="60000">1min</option>
       </select>
-      <button id="dark-mode-btn" class="button-link secondary" title="Dark Mode" aria-label="Dark Mode Toggle">🌙</button>
-      <button id="fullscreen-btn" class="button-link secondary" title="Fullscreen" aria-label="Fullscreen">⛶</button>
+      <button id="dark-mode-btn" class="button-link secondary" title="Dark Mode">🌙</button>
       <button id="refresh-map-btn" class="button-link primary">
         <span id="btn-text">Aktualisieren</span>
         <span id="btn-spinner" style="display: none;">⌛ Lade...</span>
@@ -82,10 +74,9 @@
     </div>
     <div class="filter-group" style="flex-direction: row; align-items: center; gap: 10px; flex-wrap: wrap;">
       <label for="log-search" style="margin: 0;">Suche:</label>
-      <input type="text" id="log-search" placeholder="Koordinaten/Zeit..." aria-label="Log durchsuchen" style="padding: 5px 10px; width: 200px; border: 1px solid var(--text-muted); border-radius: 4px;">
-      <button id="export-geojson" class="button-link secondary" title="GeoJSON Export" style="padding: 5px 10px; font-size: 0.8rem;">📥 GeoJSON</button>
+      <input type="text" id="log-search" placeholder="Koordinaten/Zeit..." style="padding: 5px 10px; width: 200px; border: 1px solid var(--text-muted); border-radius: 4px;">
       <label for="log-limit" style="margin: 0;">Zeigen:</label>
-      <input type="number" id="log-limit" value="100" min="1" max="1000" aria-label="Log Zeilen Limit" style="width: 80px; padding: 5px 10px;">
+      <input type="number" id="log-limit" value="100" min="1" max="1000" style="width: 80px; padding: 5px 10px;">
       <span class="status-badge info" id="live-indicator">LIVE</span>
     </div>
   </div>
@@ -108,48 +99,204 @@
 </article>
 
 <script>
-  document.addEventListener('DOMContentLoaded', initMap);
+  // === CONFIG ===
+  let POLLING_INTERVAL = parseInt(localStorage.getItem('map-polling-interval')) || 5000;
+  const FILTER_DEBOUNCE = 300;
+  const MAX_LOG_LINES = 1000;
+  const CLUSTER_THRESHOLD = 50;
+  
+  // === STATE ===
+  let map, pathLayer, markerClusterGroup, knownPointIds = new Set();
+  let darkMode = localStorage.getItem('map-dark-mode') === 'true' || false;
+  let tileLayer;
+  let filterTimeout;
+  let lastApiStatus = 'loading';
 
-  // Keyboard Shortcuts
-  document.addEventListener('keydown', (e) => {
-    if (e.code === 'KeyR' && !e.ctrlKey) document.getElementById('refresh-map-btn').click();
-    if (e.code === 'KeyE' && !e.ctrlKey) document.getElementById('export-geojson').click();
-    if (e.code === 'KeyF' && !e.ctrlKey) document.getElementById('fullscreen-btn').click();
-  });
+  // === DEBOUNCE ===
+  function debounce(fn, ms) {
+    return function(...args) {
+      clearTimeout(filterTimeout);
+      filterTimeout = setTimeout(() => fn.apply(this, args), ms);
+    };
+  }
 
-  // Fullscreen Toggle
-  document.getElementById('fullscreen-btn').onclick = () => {
-    const container = document.getElementById('map-container');
-    if (!document.fullscreenElement) {
-      container.requestFullscreen().catch(err => console.log(err));
-    } else {
-      document.exitFullscreen();
+  function initMap() {
+    map = L.map('map-container').setView([52.52, 13.405], 10);
+    
+    const osmUrl = darkMode 
+      ? 'https://tiles.stadiamaps.com/tiles/stamen_tonerqant/{z}/{x}/{y}.png'
+      : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    
+    tileLayer = L.tileLayer(osmUrl, { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+    pathLayer = L.featureGroup().addTo(map);
+    markerClusterGroup = L.markerClusterGroup().addTo(map);
+    
+    L.control.scale().addTo(map);
+    
+    setTimeout(() => map.invalidateSize(), 600);
+    updateMap();
+    let updateInterval = setInterval(updateMap, POLLING_INTERVAL);
+    
+    // Polling Interval Handler
+    document.getElementById('polling-interval').onchange = (e) => {
+      POLLING_INTERVAL = parseInt(e.target.value);
+      localStorage.setItem('map-polling-interval', POLLING_INTERVAL);
+      clearInterval(updateInterval);
+      updateInterval = setInterval(updateMap, POLLING_INTERVAL);
+      console.log(`Polling interval changed to ${POLLING_INTERVAL}ms`);
+    };
+  }
+
+  async function updateMap() {
+    const range = document.getElementById('time-range-select').value;
+    const sessionId = document.getElementById('session-select').value;
+    const stats = document.getElementById('map-stats-text');
+    const logBody = document.getElementById('live-log-body');
+    const logLimit = parseInt(document.getElementById('log-limit').value) || 50;
+    const autoCenter = document.getElementById('auto-center-toggle').checked;
+    const apiStatus = document.getElementById('api-status');
+
+    let url = `/api/points?page_size=${Math.min(logLimit * 2, 250)}`;
+    if (sessionId) url += `&session_id=${sessionId}`;
+    
+    if (range !== 'all') {
+      const mins = { '5m': 5, '15m': 15, '30m': 30, '1h': 60, '3h': 180, '6h': 360, '12h': 720, '24h': 1440, '7d': 10080 }[range];
+      const from = new Date(Date.now() - mins * 60000).toISOString();
+      url += `&date_from=${from.split('T')[0]}&time_from=${from.split('T')[1].substring(0, 8)}`;
     }
-  };
 
-  // GeoJSON Export
-  document.getElementById('export-geojson').onclick = () => {
-    const rows = document.querySelectorAll('#live-log-body tr');
-    const features = [];
-    rows.forEach(row => {
-      const lat = parseFloat(row.dataset.lat);
-      const lon = parseFloat(row.dataset.lon);
-      if (!isNaN(lat) && !isNaN(lon)) {
-        features.push({
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [lon, lat] },
-          properties: { time: row.dataset.time, accuracy: row.cells[3].textContent }
-        });
+    try {
+      apiStatus.textContent = '● LADEN...';
+      apiStatus.style.color = '#f59e0b';
+      const res = await fetch(url, { credentials: 'same-origin' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      
+      const data = await res.json();
+      const points = data.points.items;
+      lastApiStatus = 'online';
+      
+      // === MAP UPDATE ===
+      pathLayer.clearLayers();
+      markerClusterGroup.clearLayers();
+      
+      if (points && points.length > 0) {
+        const coords = points.map(p => [p.latitude, p.longitude]);
+        L.polyline(coords, {color: '#3b82f6', weight: 5, opacity: 0.6}).addTo(pathLayer);
+        
+        const last = points[0];
+        L.circleMarker([last.latitude, last.longitude], {
+          radius: 10, color: '#fff', fillColor: '#3b82f6', fillOpacity: 1, weight: 3
+        }).addTo(pathLayer).bindPopup(`<b>Letzte Position</b><br>${last.point_timestamp_local}<br>Genauigkeit: ${last.horizontal_accuracy_m}m`);
+        
+        // === CLUSTERING ===
+        if (points.length > CLUSTER_THRESHOLD) {
+          points.forEach(p => {
+            const marker = L.circleMarker([p.latitude, p.longitude], {
+              radius: 5, color: '#3b82f6', fillOpacity: 0.7, weight: 1
+            });
+            markerClusterGroup.addLayer(marker);
+          });
+        }
+        
+        if (autoCenter) {
+          // Focus on latest point with zoom level 18
+          map.setView([last.latitude, last.longitude], 18, {animate: true});
+        }
+        stats.innerText = `${data.points.total} Punkte gefunden (${points.length} angezeigt).`;
+      } else {
+        stats.innerText = "Keine Punkte im gewählten Zeitraum.";
       }
-    });
 
-    const geojson = { type: 'FeatureCollection', features };
-    const blob = new Blob([JSON.stringify(geojson)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `track-${new Date().toISOString().split('T')[0]}.geojson`;
-    a.click();
+      // === LOG UPDATE ===
+      if (points && points.length > 0) {
+        if (knownPointIds.size === 0) logBody.innerHTML = '';
+        
+        points.forEach((p) => {
+          if (!knownPointIds.has(p.id)) {
+            // Limit Size
+            if (knownPointIds.size >= MAX_LOG_LINES) {
+              const firstRow = logBody.lastChild;
+              if (firstRow) logBody.removeChild(firstRow);
+              knownPointIds.delete([...knownPointIds][0]);
+            }
+            
+            knownPointIds.add(p.id);
+            const row = document.createElement('tr');
+            row.style.borderBottom = '1px solid #1e293b';
+            row.dataset.lat = p.latitude.toFixed(5);
+            row.dataset.lon = p.longitude.toFixed(5);
+            row.dataset.time = p.point_timestamp_local;
+            
+            const ts = p.point_timestamp_utc.split('T');
+            row.innerHTML = `
+              <td style="padding: 12px 16px; color: #94a3b8;">${ts[0]}</td>
+              <td style="padding: 12px 16px; font-weight: 600;">${ts[1].substring(0, 8)}</td>
+              <td style="padding: 12px 16px; color: #3b82f6;">${p.latitude.toFixed(5)}, ${p.longitude.toFixed(5)}</td>
+              <td style="padding: 12px 16px; color: #64748b;">${p.horizontal_accuracy_m}m</td>
+            `;
+            logBody.insertBefore(row, logBody.firstChild);
+          }
+        });
+        
+        filterLog();
+        // Keep logLimit rows visible, remove from bottom if too many
+        while (logBody.children.length > logLimit) {
+          logBody.removeChild(logBody.lastChild);
+        }
+      }
+      
+      apiStatus.textContent = '● ONLINE';
+      apiStatus.style.color = '#10b981';
+    } catch (e) {
+      console.error("Error:", e);
+      stats.innerText = "Fehler beim Laden der Kartendaten.";
+      stats.style.color = "var(--c-crit)";
+      apiStatus.textContent = '● FEHLER';
+      apiStatus.style.color = '#ef4444';
+      lastApiStatus = 'offline';
+    } finally {
+      document.getElementById('btn-text').style.display = 'inline';
+      document.getElementById('btn-spinner').style.display = 'none';
+    }
+  }
+
+  function filterLog() {
+    const query = document.getElementById('log-search').value.toLowerCase();
+    const rows = document.getElementById('live-log-body').querySelectorAll('tr');
+    
+    rows.forEach(row => {
+      if (!query) {
+        row.style.display = '';
+        return;
+      }
+      const lat = row.dataset.lat || '';
+      const lon = row.dataset.lon || '';
+      const time = row.dataset.time || '';
+      const match = lat.includes(query) || lon.includes(query) || time.includes(query);
+      row.style.display = match ? '' : 'none';
+    });
+  }
+
+  document.getElementById('refresh-map-btn').onclick = () => {
+    document.getElementById('btn-text').style.display = 'none';
+    document.getElementById('btn-spinner').style.display = 'inline';
+    updateMap();
   };
+
+  document.getElementById('time-range-select').onchange = debounce(updateMap, FILTER_DEBOUNCE);
+  document.getElementById('session-select').onchange = debounce(updateMap, FILTER_DEBOUNCE);
+  document.getElementById('log-search').oninput = filterLog;
+
+  document.getElementById('dark-mode-btn').onclick = () => {
+    darkMode = !darkMode;
+    localStorage.setItem('map-dark-mode', darkMode);
+    const newUrl = darkMode 
+      ? 'https://tiles.stadiamaps.com/tiles/stamen_tonerqant/{z}/{x}/{y}.png'
+      : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    map.removeLayer(tileLayer);
+    tileLayer = L.tileLayer(newUrl, { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+  };
+
+  document.addEventListener('DOMContentLoaded', initMap);
 </script>
 {% endblock %}

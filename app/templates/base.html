@@ -9,7 +9,6 @@
   <title>{{ page_title | default('LH2GPX Live Receiver') }}</title>
   <link rel="stylesheet" href="/static/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛰️</text></svg>">
-  <link rel="manifest" href="/static/manifest.json">
   <script>
     // Device Detection für Fallback
     const isMobile = () => {
@@ -45,11 +44,6 @@
         }
       });
     });
-  </script>
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/static/js/service-worker.js').catch(() => {});
-    }
   </script>
 </head>
 <body>
