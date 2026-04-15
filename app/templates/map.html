@@ -450,13 +450,13 @@
             row.dataset.time = p.point_timestamp_local;
             row.dataset.accuracy = p.horizontal_accuracy_m;
 
-            const ts = p.point_timestamp_local.split('T');
             const coordText = `${p.latitude.toFixed(5)}, ${p.longitude.toFixed(5)}`;
             const requestIdShort = (p.request_id || 'N/A').substring(0, 12);
             const relTime = getRelativeTime(p.point_timestamp_local);
+            const berlinTime = new Date(p.point_timestamp_local).toLocaleTimeString('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
             row.innerHTML = `
-              <td style="padding: 14px 10px; color: #94a3b8; font-size: 0.9rem;"><span style="color: #64748b;">${relTime}</span> • ${ts[1].substring(0, 8)}</td>
+              <td style="padding: 14px 10px; color: #94a3b8; font-size: 0.9rem;"><span style="color: #64748b;">${relTime}</span> • ${berlinTime}</td>
               <td style="padding: 14px 10px; color: #3b82f6; cursor: pointer; user-select: none; border-radius: 4px; font-weight: 500;" title="Klicken zum Kopieren">${coordText}</td>
               <td class="log-col-accuracy" style="padding: 14px 10px; color: #10b981; font-weight: 500;">${p.horizontal_accuracy_m}m</td>
               <td style="padding: 14px 10px; color: #f59e0b; font-size: 0.9rem;">${p.source || 'N/A'}</td>
