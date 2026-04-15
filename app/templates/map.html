@@ -19,15 +19,26 @@
     <div class="filter-group">
       <label for="time-range-select">Zeitraum</label>
       <select id="time-range-select">
+        <option value="2m">Letzte 2 Min.</option>
         <option value="5m">Letzte 5 Min.</option>
+        <option value="10m">Letzte 10 Min.</option>
         <option value="15m">Letzte 15 Min.</option>
         <option value="30m">Letzte 30 Min.</option>
+        <option value="45m">Letzte 45 Min.</option>
         <option value="1h" selected>Letzte 1 Std.</option>
-        <option value="3h">Letzte 3 Std.</option>
+        <option value="2h">Letzte 2 Std.</option>
+        <option value="4h">Letzte 4 Std.</option>
         <option value="6h">Letzte 6 Std.</option>
+        <option value="8h">Letzte 8 Std.</option>
         <option value="12h">Letzte 12 Std.</option>
+        <option value="18h">Letzte 18 Std.</option>
         <option value="24h">Letzte 24 Std.</option>
+        <option value="2d">Letzte 2 Tage</option>
+        <option value="3d">Letzte 3 Tage</option>
+        <option value="5d">Letzte 5 Tage</option>
         <option value="7d">Letzte 7 Tage</option>
+        <option value="14d">Letzte 14 Tage</option>
+        <option value="30d">Letzte 30 Tage</option>
         <option value="all">Gesamt (Max. 2000 Punkte)</option>
       </select>
     </div>
@@ -312,7 +323,11 @@
     if (sessionId) url += `&session_id=${sessionId}`;
     
     if (range !== 'all') {
-      const mins = { '5m': 5, '15m': 15, '30m': 30, '1h': 60, '3h': 180, '6h': 360, '12h': 720, '24h': 1440, '7d': 10080 }[range];
+      const mins = {
+        '2m': 2, '5m': 5, '10m': 10, '15m': 15, '30m': 30, '45m': 45,
+        '1h': 60, '2h': 120, '4h': 240, '6h': 360, '8h': 480, '12h': 720, '18h': 1080, '24h': 1440,
+        '2d': 2880, '3d': 4320, '5d': 7200, '7d': 10080, '14d': 20160, '30d': 43200
+      }[range];
       const from = new Date(Date.now() - mins * 60000).toISOString();
       url += `&date_from=${from.split('T')[0]}&time_from=${from.split('T')[1].substring(0, 8)}`;
     }
