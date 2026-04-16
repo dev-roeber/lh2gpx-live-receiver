@@ -1202,6 +1202,21 @@ class ReceiverStorage:
             connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             return count
 
+    def vacuum(self) -> dict[str, Any]:
+        """VACUUM: gibt ungenutzten Speicher dauerhaft frei (nicht nur WAL-Checkpoint)."""
+        self._require_ready()
+        size_before = self.sqlite_path.stat().st_size if self.sqlite_path.exists() else 0
+        # VACUUM muss außerhalb einer Transaktion laufen → isolation_level=None
+        with self._lock:
+            conn = sqlite3.connect(str(self.sqlite_path), check_same_thread=False, isolation_level=None)
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("VACUUM")
+            finally:
+                conn.close()
+        size_after = self.sqlite_path.stat().st_size if self.sqlite_path.exists() else 0
+        return {"size_before": size_before, "size_after": size_after, "freed_bytes": size_before - size_after}
+
     def get_session(self, session_id: str) -> dict[str, Any] | None:
         self._require_ready()
         with self._connect() as connection:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -106,6 +107,34 @@ class SimpleRateLimiter:
 
 _POINTS_CACHE: dict[str, tuple[float, str, bytes]] = {}  # key → (ts, etag, body)
 _POINTS_CACHE_TTL = 2.0  # Sekunden
+
+_import_tasks: dict[str, dict] = {}  # task_id → {status, ...}
+
+
+async def _run_import_task(task_id: str, filename: str, data: bytes, storage: "ReceiverStorage") -> None:
+    try:
+        _import_tasks[task_id]["status"] = "parsing"
+        points = await asyncio.to_thread(parse_import_file, filename, data)
+        _import_tasks[task_id].update({"status": "inserting", "total": len(points)})
+        import_id = str(uuid4())
+        session_id = f"import-{import_id[:8]}"
+        result = await asyncio.to_thread(
+            lambda: storage.import_points(
+                points, source=f"import:{filename}", session_id=session_id, request_id=import_id
+            )
+        )
+        _import_tasks[task_id] = {
+            "status": "done", "filename": filename,
+            "inserted": result["inserted"], "skipped": result["skipped"],
+            "session_id": session_id,
+        }
+    except GpsImportError as e:
+        _import_tasks[task_id] = {"status": "error", "error": str(e), "filename": filename}
+    except Exception as e:
+        _import_tasks[task_id] = {"status": "error", "error": f"Interner Fehler: {type(e).__name__}: {e}", "filename": filename}
+    finally:
+        await asyncio.sleep(300)  # 5 min vorhalten, dann bereinigen
+        _import_tasks.pop(task_id, None)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -707,25 +736,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if len(data) > MAX_BYTES:
             raise HTTPException(status_code=413, detail="Datei zu groß (max. 100 MB).")
         filename = file.filename or "upload"
-        try:
-            points = parse_import_file(filename, data)
-        except GpsImportError as e:
-            raise HTTPException(status_code=422, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Parser-Fehler: {e}")
+        task_id = str(uuid4())
+        _import_tasks[task_id] = {"status": "queued", "filename": filename}
+        asyncio.create_task(_run_import_task(task_id, filename, data, _storage(request)))
+        return JSONResponse({"ok": True, "task_id": task_id})
 
-        import_id = str(uuid4())
-        session_id = f"import-{import_id[:8]}"
-        source = f"import:{filename}"
+    @app.get("/api/import/status/{task_id}", dependencies=[Depends(_require_admin_access)])
+    async def api_import_status(task_id: str) -> JSONResponse:
+        task = _import_tasks.get(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task nicht gefunden oder abgelaufen.")
+        return JSONResponse(task)
+
+    @app.post("/api/storage/vacuum", dependencies=[Depends(_require_admin_access)])
+    async def api_storage_vacuum(request: Request) -> JSONResponse:
         try:
-            result = _storage(request).import_points(
-                points, source=source, session_id=session_id, request_id=import_id
-            )
+            result = await asyncio.to_thread(_storage(request).vacuum)
         except StorageError as e:
             raise HTTPException(status_code=503, detail=str(e))
-        return JSONResponse({"ok": True, "inserted": result["inserted"],
-                             "skipped": result["skipped"], "session_id": session_id,
-                             "filename": filename})
+        return JSONResponse({"ok": True, **result})
 
     @app.get("/dashboard/live-status", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
     async def dashboard_live_status(request: Request) -> HTMLResponse:

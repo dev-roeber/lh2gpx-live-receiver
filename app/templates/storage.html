@@ -63,8 +63,12 @@
   <article class="panel">
     <div class="panel-header">
       <div><p class="eyebrow">Dateistand</p><h3>Storage-Dateien</h3></div>
-      <button onclick="location.reload()" class="button-link secondary" style="white-space:nowrap;">↻ Aktualisieren</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button id="vacuum-btn" class="button-link secondary" style="white-space:nowrap;" onclick="runVacuum()">🗜 VACUUM</button>
+        <button onclick="location.reload()" class="button-link secondary" style="white-space:nowrap;">↻ Aktualisieren</button>
+      </div>
     </div>
+    <div id="vacuum-status" style="display:none;font-size:0.82rem;padding:6px 0;"></div>
     <dl class="meta-list">
       <div><dt>SQLite-Pfad</dt><dd>{{ snapshot.storage.sqlitePath }}</dd></div>
       <div><dt>SQLite Groesse</dt><dd>{{ format_bytes(snapshot.storage.sqliteFile.sizeBytes) }}</dd></div>
@@ -98,4 +102,35 @@
   </article>
 
 </div>
+<script>
+async function runVacuum() {
+  const btn = document.getElementById('vacuum-btn');
+  const statusEl = document.getElementById('vacuum-status');
+  btn.disabled = true;
+  btn.textContent = '⌛ Läuft…';
+  statusEl.style.display = 'block';
+  statusEl.style.color = 'var(--text-3)';
+  statusEl.textContent = 'VACUUM wird ausgeführt – kann bei großen Datenbanken etwas dauern…';
+  try {
+    const res = await fetch('/api/storage/vacuum', { method: 'POST', credentials: 'same-origin' });
+    const json = await res.json();
+    if (res.ok && json.ok) {
+      const freed = json.freed_bytes;
+      const fmt = b => b >= 1048576 ? (b/1048576).toFixed(1)+' MB' : b >= 1024 ? (b/1024).toFixed(0)+' KB' : b+' B';
+      statusEl.style.color = 'var(--mint)';
+      statusEl.textContent = freed > 0
+        ? `✓ ${fmt(freed)} freigegeben (${fmt(json.size_before)} → ${fmt(json.size_after)})`
+        : `✓ VACUUM abgeschlossen – kein Speicher freizugeben`;
+    } else {
+      statusEl.style.color = 'var(--red, #ef4444)';
+      statusEl.textContent = '✗ ' + (json.detail || 'Fehler beim VACUUM');
+    }
+  } catch {
+    statusEl.style.color = 'var(--red, #ef4444)';
+    statusEl.textContent = '✗ Netzwerkfehler';
+  }
+  btn.disabled = false;
+  btn.textContent = '🗜 VACUUM';
+}
+</script>
 {% endblock %}

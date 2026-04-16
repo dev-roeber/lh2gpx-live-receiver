@@ -346,34 +346,25 @@ importBtn.addEventListener('click', () => {
   });
 
   xhr.upload.addEventListener('load', () => {
-    setProgress(88, 'Datei empfangen – wird analysiert und importiert…');
+    setProgress(88, 'Datei empfangen – Task gestartet…');
   });
 
   xhr.addEventListener('load', () => {
-    setProgress(100, 'Fertig.');
-    progressWrap.style.display = 'none';
     let json;
     try { json = JSON.parse(xhr.responseText); } catch { json = {}; }
 
-    if (xhr.status >= 200 && xhr.status < 300 && json.ok) {
-      const mapUrl = `/dashboard/map`;
-      showStatus(
-        `✓ <strong>${json.inserted.toLocaleString('de-DE')} Punkte</strong> erfolgreich importiert` +
-        (json.skipped > 0 ? ` · ${json.skipped} übersprungen` : '') +
-        ` · Session <code>${json.session_id}</code>` +
-        `<br><a href="${mapUrl}" class="btn-pill primary sm" style="margin-top:10px;display:inline-block;">Auf Karte ansehen →</a>`,
-        'success'
-      );
-      clearFile(true); // Drop-Zone zurücksetzen, aber Status behalten
+    if (xhr.status >= 200 && xhr.status < 300 && json.ok && json.task_id) {
+      pollImportStatus(json.task_id);
     } else {
+      progressWrap.style.display = 'none';
       const detail = json.detail || json.message || null;
       let msg = '✗ Import fehlgeschlagen';
-      if (xhr.status === 413)            msg = '✗ Datei zu groß (max. 100 MB)';
-      else if (xhr.status === 422)       msg = `✗ Dateiinhalt nicht erkannt oder ungültig${detail ? ': ' + detail : ''}`;
-      else if (xhr.status === 415)       msg = '✗ Dateiformat nicht unterstützt';
-      else if (xhr.status === 503)       msg = '✗ Datenbank nicht erreichbar – bitte Seite neu laden';
-      else if (xhr.status === 0)         msg = '✗ Keine Verbindung zum Server';
-      else if (detail)                   msg = `✗ ${detail}`;
+      if (xhr.status === 413)      msg = '✗ Datei zu groß (max. 100 MB)';
+      else if (xhr.status === 422) msg = `✗ Dateiinhalt nicht erkannt${detail ? ': ' + detail : ''}`;
+      else if (xhr.status === 415) msg = '✗ Dateiformat nicht unterstützt';
+      else if (xhr.status === 503) msg = '✗ Datenbank nicht erreichbar';
+      else if (xhr.status === 0)   msg = '✗ Keine Verbindung zum Server';
+      else if (detail)             msg = `✗ ${detail}`;
       showStatus(msg, 'error');
       importBtn.disabled = false;
     }
@@ -395,6 +386,45 @@ importBtn.addEventListener('click', () => {
   xhr.open('POST', '/api/import');
   xhr.send(form);
 });
+
+// === Import-Fortschritt pollen ===
+async function pollImportStatus(taskId) {
+  const PHASES = { queued: [90, 'In Warteschlange…'], parsing: [92, 'Datei wird geparst…'], inserting: null, done: [100, 'Fertig.'], error: [100, 'Fehler.'] };
+  let dots = 0;
+  const timer = setInterval(async () => {
+    try {
+      const res = await fetch(`/api/import/status/${taskId}`, { credentials: 'same-origin' });
+      if (!res.ok) { clearInterval(timer); return; }
+      const t = await res.json();
+
+      if (t.status === 'inserting') {
+        const total = t.total ? t.total.toLocaleString('de-DE') : '…';
+        dots = (dots + 1) % 4;
+        setProgress(94, `In Datenbank einfügen – ${total} Punkte${'.'.repeat(dots)}`);
+      } else if (PHASES[t.status]) {
+        setProgress(...PHASES[t.status]);
+      }
+
+      if (t.status === 'done') {
+        clearInterval(timer);
+        progressWrap.style.display = 'none';
+        showStatus(
+          `✓ <strong>${t.inserted.toLocaleString('de-DE')} Punkte</strong> erfolgreich importiert` +
+          (t.skipped > 0 ? ` · ${t.skipped.toLocaleString('de-DE')} übersprungen` : '') +
+          ` · Session <code>${t.session_id}</code>` +
+          `<br><a href="/dashboard/map" class="btn-pill primary sm" style="margin-top:10px;display:inline-block;">Auf Karte ansehen →</a>`,
+          'success'
+        );
+        clearFile(true);
+      } else if (t.status === 'error') {
+        clearInterval(timer);
+        progressWrap.style.display = 'none';
+        showStatus(`✗ ${t.error || 'Import fehlgeschlagen'}`, 'error');
+        importBtn.disabled = false;
+      }
+    } catch { clearInterval(timer); }
+  }, 600);
+}
 
 // === Import-Session löschen ===
 async function deleteSession(sessionId, btn) {
