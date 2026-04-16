@@ -277,6 +277,8 @@ class ReceiverStorage:
 
     def get_stats(self) -> dict[str, Any]:
         self._require_ready()
+        since_24h = isoformat_utc(datetime.now(timezone.utc) - timedelta(hours=24))
+        since_7d = isoformat_utc(datetime.now(timezone.utc) - timedelta(days=7))
         with self._connect() as connection:
             totals = connection.execute(
                 """
@@ -284,7 +286,6 @@ class ReceiverStorage:
                     COUNT(*) AS total_requests,
                     SUM(CASE WHEN ingest_status = 'accepted' THEN 1 ELSE 0 END) AS accepted_requests,
                     SUM(CASE WHEN ingest_status != 'accepted' THEN 1 ELSE 0 END) AS failed_requests,
-                    SUM(points_count) AS total_points,
                     MAX(CASE WHEN ingest_status = 'accepted' THEN received_at_utc END) AS last_success_at,
                     MAX(CASE WHEN ingest_status != 'accepted' THEN received_at_utc END) AS last_failure_at,
                     COUNT(DISTINCT CASE WHEN ingest_status = 'accepted' THEN session_id END) AS total_sessions
@@ -292,20 +293,27 @@ class ReceiverStorage:
                 """
             ).fetchone()
 
-            since_24h = isoformat_utc(datetime.now(timezone.utc) - timedelta(hours=24))
-            since_7d = isoformat_utc(datetime.now(timezone.utc) - timedelta(days=7))
+            # Echte Punkt-Anzahl direkt aus gps_points (kein denormalisierter Cache)
+            gps_counts = connection.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_points,
+                    SUM(CASE WHEN point_timestamp_utc >= ? THEN 1 ELSE 0 END) AS points_24h,
+                    SUM(CASE WHEN point_timestamp_utc >= ? THEN 1 ELSE 0 END) AS points_7d
+                FROM gps_points
+                """,
+                (since_24h, since_7d),
+            ).fetchone()
 
             period_rows = connection.execute(
                 """
                 SELECT
-                    SUM(CASE WHEN received_at_utc >= ? THEN points_count ELSE 0 END) AS points_24h,
-                    SUM(CASE WHEN received_at_utc >= ? THEN points_count ELSE 0 END) AS points_7d,
                     SUM(CASE WHEN received_at_utc >= ? THEN 1 ELSE 0 END) AS requests_24h,
                     SUM(CASE WHEN received_at_utc >= ? THEN 1 ELSE 0 END) AS requests_7d
                 FROM ingest_requests
                 WHERE ingest_status = 'accepted'
                 """,
-                (since_24h, since_7d, since_24h, since_7d),
+                (since_24h, since_7d),
             ).fetchone()
 
             points_per_day = [
@@ -345,8 +353,15 @@ class ReceiverStorage:
                 "writable": readiness.writable,
                 "message": readiness.message,
             },
-            "totals": dict(totals),
-            "periods": dict(period_rows),
+            "totals": {
+                **dict(totals),
+                "total_points": int(gps_counts["total_points"] or 0),
+            },
+            "periods": {
+                **dict(period_rows),
+                "points_24h": int(gps_counts["points_24h"] or 0),
+                "points_7d": int(gps_counts["points_7d"] or 0),
+            },
             "pointsPerDay": points_per_day,
             "pointsPerSession": points_per_session,
         }
@@ -365,7 +380,6 @@ class ReceiverStorage:
                     COUNT(*) AS total_requests,
                     SUM(CASE WHEN ingest_status = 'accepted' THEN 1 ELSE 0 END) AS accepted_requests,
                     SUM(CASE WHEN ingest_status != 'accepted' THEN 1 ELSE 0 END) AS failed_requests,
-                    SUM(points_count) AS total_points,
                     COUNT(DISTINCT CASE WHEN ingest_status = 'accepted' THEN session_id END) AS total_sessions,
                     MAX(CASE WHEN ingest_status = 'accepted' THEN received_at_utc END) AS last_success_at,
                     MAX(CASE WHEN ingest_status != 'accepted' THEN received_at_utc END) AS last_failure_at
@@ -373,19 +387,29 @@ class ReceiverStorage:
                 """
             ).fetchone()
 
+            # Echte Punkt-Anzahl direkt aus gps_points (nicht aus denormalisiertem points_count)
+            gps_counts = connection.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_points,
+                    SUM(CASE WHEN point_timestamp_utc >= ? THEN 1 ELSE 0 END) AS points_24h,
+                    SUM(CASE WHEN point_timestamp_utc >= ? THEN 1 ELSE 0 END) AS points_7d
+                FROM gps_points
+                """,
+                (since_24h, since_7d),
+            ).fetchone()
+
             periods = connection.execute(
                 """
                 SELECT
                     SUM(CASE WHEN received_at_utc >= ? THEN 1 ELSE 0 END) AS requests_24h,
                     SUM(CASE WHEN received_at_utc >= ? THEN 1 ELSE 0 END) AS requests_7d,
-                    SUM(CASE WHEN ingest_status = 'accepted' AND received_at_utc >= ? THEN points_count ELSE 0 END) AS points_24h,
-                    SUM(CASE WHEN ingest_status = 'accepted' AND received_at_utc >= ? THEN points_count ELSE 0 END) AS points_7d,
                     SUM(CASE WHEN ingest_status = 'accepted' AND substr(received_at_utc, 1, 10) = ? THEN 1 ELSE 0 END) AS requests_today,
                     SUM(CASE WHEN ingest_status = 'accepted' AND session_id IS NOT NULL AND received_at_utc >= ? THEN 1 ELSE 0 END) AS session_events_24h,
                     SUM(CASE WHEN ingest_status = 'accepted' AND session_id IS NOT NULL AND received_at_utc >= ? THEN 1 ELSE 0 END) AS session_events_7d
                 FROM ingest_requests
                 """,
-                (since_24h, since_7d, since_24h, since_7d, today_local, since_24h, since_7d),
+                (since_24h, since_7d, today_local, since_24h, since_7d),
             ).fetchone()
 
             points_today = connection.execute(
@@ -714,7 +738,7 @@ class ReceiverStorage:
                 "totalRequests": total_requests,
                 "acceptedRequests": accepted_requests,
                 "failedRequests": failed_requests,
-                "totalPoints": int(totals["total_points"] or 0),
+                "totalPoints": int(gps_counts["total_points"] or 0),
                 "totalSessions": int(totals["total_sessions"] or 0),
                 "lastSuccessAt": totals["last_success_at"],
                 "lastFailureAt": totals["last_failure_at"],
@@ -725,8 +749,8 @@ class ReceiverStorage:
                 "requests24h": int(periods["requests_24h"] or 0),
                 "requests7d": int(periods["requests_7d"] or 0),
                 "requestsToday": int(periods["requests_today"] or 0),
-                "points24h": int(periods["points_24h"] or 0),
-                "points7d": int(periods["points_7d"] or 0),
+                "points24h": int(gps_counts["points_24h"] or 0),
+                "points7d": int(gps_counts["points_7d"] or 0),
                 "pointsToday": int(points_today["points_today"] or 0),
                 "sessions24h": int(session_counts["sessions_24h"] or 0),
                 "sessions7d": int(session_counts["sessions_7d"] or 0),
