@@ -104,6 +104,10 @@ class SimpleRateLimiter:
         return True
 
 
+_POINTS_CACHE: dict[str, tuple[float, str, bytes]] = {}  # key → (ts, etag, body)
+_POINTS_CACHE_TTL = 2.0  # Sekunden
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved_settings = settings or Settings.from_env()
     _configure_logging(resolved_settings.log_level)
@@ -437,7 +441,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 media_type=media_type,
                 headers={"Content-Disposition": f'attachment; filename="gps-points.{extension}"'},
             )
-        return {"requestId": request.state.request_id, "points": _storage(request).list_points(filters)}
+
+        # Cache-Key = normalisierter Query-String (ohne requestId)
+        cache_key = str(request.url.query)
+        now = time.time()
+        cached = _POINTS_CACHE.get(cache_key)
+
+        if cached and (now - cached[0]) < _POINTS_CACHE_TTL:
+            _, etag, body = cached
+        else:
+            result = {"requestId": request.state.request_id, "points": _storage(request).list_points(filters)}
+            body = json.dumps(result, separators=(",", ":")).encode()
+            etag = hashlib.md5(body, usedforsecurity=False).hexdigest()
+            _POINTS_CACHE[cache_key] = (now, etag, body)
+            # Cache begrenzen: bei >200 Einträgen alle abgelaufenen entfernen
+            if len(_POINTS_CACHE) > 200:
+                cutoff = now - _POINTS_CACHE_TTL
+                for k in [k for k, v in _POINTS_CACHE.items() if v[0] < cutoff]:
+                    del _POINTS_CACHE[k]
+
+        if request.headers.get("if-none-match") == f'"{etag}"':
+            return Response(status_code=304, headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"})
+
+        return Response(
+            content=body,
+            media_type="application/json",
+            headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"},
+        )
 
     @app.get("/api/points/{point_id}", dependencies=[Depends(_require_admin_access)])
     async def api_point_detail(request: Request, point_id: int) -> dict[str, Any]:

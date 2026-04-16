@@ -430,6 +430,7 @@
   let barTickTimer = null;
   let updateInterval = null;    // Modulebene: damit manueller Refresh den Timer zurücksetzen kann
   let currentFetchController = null;  // AbortController für laufenden Fetch
+  let lastETag = null;                // ETag der letzten Antwort (für 304-Check)
 
   // === FILTER-PANEL TOGGLE (Desktop) ===
   function toggleFilterPanel(show) {
@@ -766,8 +767,24 @@
       if (currentFetchController) currentFetchController.abort();
       currentFetchController = new AbortController();
       const fetchStart = Date.now();
-      const res = await fetch(url, { credentials: 'same-origin', signal: currentFetchController.signal });
+      const headers = lastETag && !isManualRefresh ? { 'If-None-Match': lastETag } : {};
+      const res = await fetch(url, { credentials: 'same-origin', signal: currentFetchController.signal, headers });
+
+      // 304 Not Modified: Daten unverändert → kein Re-Render nötig
+      if (res.status === 304) {
+        const fetchMs = Date.now() - fetchStart;
+        overlay.style.display = 'none';
+        apiStatus.textContent = '● ONLINE';
+        apiStatus.style.color = 'var(--mint)';
+        document.getElementById('api-info-ms').textContent = `${fetchMs} ms (cached)`;
+        lastRefreshTime = Date.now();
+        nextRefreshTime = Date.now() + POLLING_INTERVAL;
+        isManualRefresh = false;
+        return;
+      }
+
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      lastETag = res.headers.get('etag') || null;
       const text = await res.text();
       const fetchMs = Date.now() - fetchStart;
       const data = JSON.parse(text);
@@ -1256,6 +1273,7 @@
 
   document.getElementById('refresh-map-btn').onclick = () => {
     isManualRefresh = true;
+    lastETag = null; // Manueller Refresh: Cache ignorieren, immer neu laden
     // Interval-Timer zurücksetzen damit Countdown nach manuellem Refresh korrekt ist
     clearInterval(updateInterval);
     updateInterval = setInterval(updateMap, POLLING_INTERVAL);
@@ -1267,6 +1285,7 @@
   document.getElementById('time-range-select').onchange = (e) => {
     TIME_RANGE = e.target.value;
     localStorage.setItem('map-time-range', TIME_RANGE);
+    lastETag = null; // Neue URL → alten ETag verwerfen
     debounce(updateMap, FILTER_DEBOUNCE)();
   };
   document.getElementById('log-search').oninput = filterLog;
