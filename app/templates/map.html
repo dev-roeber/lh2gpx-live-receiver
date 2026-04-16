@@ -837,25 +837,52 @@
           return 2 * R * Math.asin(Math.sqrt(s));
         }
 
+        // === CHAIKIN-GLÄTTUNG (reduziert GPS-Rauschen optisch) ===
+        function chaikin(coords, iterations = 2) {
+          let pts = coords;
+          for (let it = 0; it < iterations; it++) {
+            const out = [pts[0]];
+            for (let i = 0; i < pts.length - 1; i++) {
+              const [x0, y0] = pts[i], [x1, y1] = pts[i+1];
+              out.push([x0*0.75 + x1*0.25, y0*0.75 + y1*0.25]);
+              out.push([x0*0.25 + x1*0.75, y0*0.25 + y1*0.75]);
+            }
+            out.push(pts[pts.length - 1]);
+            pts = out;
+          }
+          return pts;
+        }
+
         // === PUNKTE-LAYER ===
         if (pointsActive) {
           sorted.forEach((p) => {
             const isLast = p === last;
-            // Ältere Punkte transparenter (Zeitverlauf visuell spürbar)
             const idx = sorted.indexOf(p);
             const ageFade = Math.max(0.35, 1 - (sorted.length - 1 - idx) / Math.max(sorted.length, 1) * 0.65);
-            const marker = L.circleMarker([p.latitude, p.longitude], isLast
-              ? { radius: 8, color: '#fff', weight: 2, fillColor: '#30D158', fillOpacity: 1, renderer: canvasRenderer }
-              : { radius: 3.5, color: '#1a5fa8', weight: 0.5, fillColor: '#0A84FF', fillOpacity: ageFade * 0.8, renderer: canvasRenderer }
-            ).bindPopup(
-              `<b>${isLast ? '📍 Letzte Position' : 'GPS-Punkt'}</b><br>` +
-              `${p.point_timestamp_local || p.point_timestamp_utc}<br>` +
-              `±${Math.round(p.horizontal_accuracy_m)}m &nbsp; ${p.source || ''}`
-            );
-            if (sorted.length > CLUSTER_THRESHOLD && !isLast) {
-              markerClusterGroup.addLayer(marker);
+            if (isLast) {
+              // Sonar-Ping: divIcon mit CSS-Pulsanimation
+              const icon = L.divIcon({
+                className: '',
+                html: `<div class="sonar-wrap">
+                  <div class="sonar-ring"></div>
+                  <div class="sonar-ring sonar-ring-2"></div>
+                  <div class="sonar-dot"></div>
+                </div>`,
+                iconSize: [24, 24],
+                iconAnchor: [12, 12]
+              });
+              L.marker([p.latitude, p.longitude], { icon, zIndexOffset: 1000 })
+                .bindPopup(`<b>📍 Letzte Position</b><br>${p.point_timestamp_local || p.point_timestamp_utc}<br>±${Math.round(p.horizontal_accuracy_m)}m &nbsp; ${p.source || ''}`)
+                .addTo(pointsLayer);
             } else {
-              marker.addTo(pointsLayer);
+              const marker = L.circleMarker([p.latitude, p.longitude], {
+                radius: 3.5, color: '#1a5fa8', weight: 0.5,
+                fillColor: '#0A84FF', fillOpacity: ageFade * 0.8, renderer: canvasRenderer
+              }).bindPopup(
+                `<b>GPS-Punkt</b><br>${p.point_timestamp_local || p.point_timestamp_utc}<br>±${Math.round(p.horizontal_accuracy_m)}m &nbsp; ${p.source || ''}`
+              );
+              if (sorted.length > CLUSTER_THRESHOLD) markerClusterGroup.addLayer(marker);
+              else marker.addTo(pointsLayer);
             }
           });
         }
@@ -883,9 +910,13 @@
           const palette = ['#0A84FF','#30D158','#FF9F0A','#BF5AF2','#5AC8FA','#FF453A'];
           segments.forEach((s, i) => {
             const color = palette[i % palette.length];
-            const coords = s.map(p => [p.latitude, p.longitude]);
-            L.polyline(coords, { color: 'rgba(0,0,0,0.18)', weight: 4, opacity: 1, renderer: canvasRenderer, interactive: false }).addTo(polylineLayer);
-            L.polyline(coords, { color, weight: 2, opacity: 0.85, renderer: canvasRenderer }).bindPopup(
+            const rawCoords = s.map(p => [p.latitude, p.longitude]);
+            // Chaikin nur bei kurzen Segmenten sinnvoll (Performance)
+            const coords = rawCoords.length <= 800 ? chaikin(rawCoords, 2) : rawCoords;
+            // Neon-Glow: 3 gestapelte Polylines (Halo → Kern → Linie)
+            L.polyline(coords, { color, weight: 9,   opacity: 0.12, lineCap: 'round', lineJoin: 'round', renderer: canvasRenderer, interactive: false }).addTo(polylineLayer);
+            L.polyline(coords, { color, weight: 4,   opacity: 0.30, lineCap: 'round', lineJoin: 'round', renderer: canvasRenderer, interactive: false }).addTo(polylineLayer);
+            L.polyline(coords, { color, weight: 1.8, opacity: 0.92, lineCap: 'round', lineJoin: 'round', renderer: canvasRenderer }).bindPopup(
               `Route ${i+1} · ${s.length} Punkte<br>` +
               `${s[0].point_timestamp_local?.slice(11,16) || ''} – ${s[s.length-1].point_timestamp_local?.slice(11,16) || ''}`
             ).addTo(polylineLayer);
