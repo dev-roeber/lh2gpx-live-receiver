@@ -847,6 +847,59 @@ label {
   max-height: none !important;
 }
 
+/* ── Map Layer Control (floating, oben rechts auf der Karte) ── */
+#map-layer-ctrl {
+  position: absolute;
+  top: 18px;
+  right: 10px;
+  z-index: 450;
+  font-family: inherit;
+}
+
+#mlc-btn {
+  display: block;
+  background: var(--surface-1);
+  border: 2px solid rgba(0,0,0,0.2);
+  border-radius: 4px;
+  padding: 5px 9px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-2);
+  cursor: pointer;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.3);
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+  transition: background 0.12s;
+}
+#mlc-btn:hover { background: var(--surface-2); }
+
+#mlc-panel {
+  display: none;
+  margin-top: 4px;
+  background: var(--surface-1);
+  border: 2px solid rgba(0,0,0,0.2);
+  border-radius: 4px;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.3);
+  padding: 8px 10px;
+  min-width: 130px;
+}
+#map-layer-ctrl.mlc-open #mlc-panel { display: block; }
+
+.mlc-row { margin-bottom: 3px; }
+.mlc-row:last-child { margin-bottom: 0; }
+.mlc-lbl {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.78rem;
+  color: var(--text-2);
+  cursor: pointer;
+  padding: 2px 0;
+  user-select: none;
+}
+.mlc-lbl:hover { color: var(--text); }
+.mlc-lbl input[type="checkbox"] { cursor: pointer; }
+
 /* ── Map Page Layout ──────────────────────────────────────── */
 .map-page-container {
   display: grid;
@@ -1049,20 +1102,6 @@ label {
 }
 .fp-dropdown.fp-inactive { opacity: 0.45; }
 
-.fp-layer-row {
-  display: flex; gap: 6px; flex-wrap: wrap;
-}
-.fp-layer-btn {
-  display: flex; align-items: center; gap: 5px;
-  padding: 5px 10px; border-radius: 999px;
-  border: 1px solid var(--border); background: var(--surface-2);
-  font-size: 0.78rem; cursor: pointer; white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s;
-}
-.fp-layer-btn:has(input:checked) {
-  background: var(--mint-dim); border-color: var(--mint-border); color: var(--mint);
-}
-.fp-layer-btn input { cursor: pointer; }
 
 .fp-numrow { gap: 8px; }
 .fp-num-label { font-size: 0.78rem; color: var(--text-2); white-space: nowrap; min-width: 72px; }

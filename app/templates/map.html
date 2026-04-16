@@ -103,50 +103,6 @@
       <small style="color:var(--text-3);font-size:0.72rem;padding-left:20px;">Zoom wird so gewählt, dass alle geladenen Punkte sichtbar sind. Überschreibt Zeitraum-Filter (lädt alles).</small>
     </div>
 
-    <p class="fp-section-label">Layer</p>
-    <small style="color:var(--text-3);font-size:0.72rem;display:block;margin:-4px 0 6px 0;">Welche Darstellungen auf der Karte aktiv sind.</small>
-    <div class="fp-layer-row">
-      <label class="fp-layer-btn" title="Dichteverteilung aller Punkte als Wärmebild">
-        <input type="checkbox" id="heatmap-toggle"> Heatmap
-      </label>
-      <label class="fp-layer-btn" title="Jeden GPS-Punkt als Kreis anzeigen">
-        <input type="checkbox" id="points-toggle" checked> Punkte
-      </label>
-      <label class="fp-layer-btn" title="Bewegungspfad als farbige Linie pro Segment">
-        <input type="checkbox" id="polyline-toggle" checked> Linien
-      </label>
-      <label class="fp-layer-btn" title="Genauigkeitsradius als transparenter Kreis um jeden Punkt (max. 300 Punkte)">
-        <input type="checkbox" id="accuracy-toggle"> Radius
-      </label>
-      <label class="fp-layer-btn" title="Uhrzeit am Anfang und Ende jedes Routen-Segments einblenden">
-        <input type="checkbox" id="labels-toggle"> Labels
-      </label>
-      <label class="fp-layer-btn" title="Liniensegmente nach Geschwindigkeit einfärben: grün=Fuß, gelb=Rad, orange=Auto, rot=Bahn">
-        <input type="checkbox" id="speed-toggle"> Tempo
-      </label>
-      <label class="fp-layer-btn" title="Orte markieren wo du mindestens X Minuten geblieben bist">
-        <input type="checkbox" id="stops-toggle"> Stops
-      </label>
-      <label class="fp-layer-btn" title="Jeden Kalendertag in einer eigenen Farbe darstellen">
-        <input type="checkbox" id="daytrack-toggle"> Tage
-      </label>
-      <label class="fp-layer-btn" title="GPS-Punkte an Straßen anpassen via OSRM (max. 10 Segmente, benötigt Internet)">
-        <input type="checkbox" id="snap-toggle"> Snap
-      </label>
-    </div>
-    <div id="stops-config" style="display:none;margin-top:6px;">
-      <div class="filter-group fp-row fp-numrow">
-        <label for="stop-min-duration" class="fp-num-label">Stop (min)</label>
-        <input type="number" id="stop-min-duration" min="1" max="120" class="fp-num-input">
-      </div>
-      <small style="color:var(--text-3);font-size:0.72rem;display:block;margin:2px 0 4px;">Mindest-Aufenthaltsdauer für einen Stop.</small>
-      <div class="filter-group fp-row fp-numrow">
-        <label for="stop-radius" class="fp-num-label">Radius (m)</label>
-        <input type="number" id="stop-radius" min="10" max="1000" class="fp-num-input">
-      </div>
-      <small style="color:var(--text-3);font-size:0.72rem;display:block;margin:2px 0 0;">Maximaler Bewegungsradius um als Stop zu gelten.</small>
-    </div>
-
     <p class="fp-section-label">Routen-Segmentierung</p>
     <small style="color:var(--text-3);font-size:0.72rem;display:block;margin:-4px 0 6px 0;">Ab wann eine neue Route beginnt (Lücke im Track).</small>
     <div class="filter-group fp-row fp-numrow">
@@ -218,6 +174,34 @@
       <div id="map-loading-overlay" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.35);z-index:500;display:none;align-items:center;justify-content:center;border-radius:var(--radius-sm,8px);">
         <div style="background:var(--surface-1,#1c1c1e);border:1px solid var(--border);border-radius:12px;padding:16px 24px;font-size:0.85rem;color:var(--text-2);display:flex;align-items:center;gap:10px;">
           <span style="animation:spin 1s linear infinite;display:inline-block;">⟳</span> Kartendaten werden geladen…
+        </div>
+      </div>
+
+      {# Layer-Control — floating auf der Karte (oben rechts) #}
+      <div id="map-layer-ctrl">
+        <button id="mlc-btn" title="Layer ein-/ausblenden" onclick="document.getElementById('map-layer-ctrl').classList.toggle('mlc-open')">⊞ Layer</button>
+        <div id="mlc-panel">
+          <div class="mlc-row"><label class="mlc-lbl" title="Dichteverteilung aller Punkte als Wärmebild"><input type="checkbox" id="heatmap-toggle"> Heatmap</label></div>
+          <div class="mlc-row"><label class="mlc-lbl" title="Jeden GPS-Punkt als Kreis anzeigen"><input type="checkbox" id="points-toggle" checked> Punkte</label></div>
+          <div class="mlc-row"><label class="mlc-lbl" title="Bewegungspfad als farbige Linie pro Segment"><input type="checkbox" id="polyline-toggle" checked> Linien</label></div>
+          <div class="mlc-row"><label class="mlc-lbl" title="Genauigkeitsradius als transparenter Kreis um jeden Punkt (max. 300 Pkt.)"><input type="checkbox" id="accuracy-toggle"> Radius</label></div>
+          <div class="mlc-row"><label class="mlc-lbl" title="Uhrzeit am Anfang und Ende jedes Routen-Segments"><input type="checkbox" id="labels-toggle"> Labels</label></div>
+          <div class="mlc-row"><label class="mlc-lbl" title="Liniensegmente nach Geschwindigkeit einfärben"><input type="checkbox" id="speed-toggle"> Tempo</label></div>
+          <div class="mlc-row">
+            <label class="mlc-lbl" title="Orte markieren wo du mindestens X Minuten geblieben bist"><input type="checkbox" id="stops-toggle"> Stops</label>
+            <div id="stops-config" style="display:none;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                <label style="font-size:0.72rem;color:var(--text-3);flex:1;">Min. (min)</label>
+                <input type="number" id="stop-min-duration" min="1" max="120" class="fp-num-input" style="width:52px;">
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <label style="font-size:0.72rem;color:var(--text-3);flex:1;">Radius (m)</label>
+                <input type="number" id="stop-radius" min="10" max="1000" class="fp-num-input" style="width:52px;">
+              </div>
+            </div>
+          </div>
+          <div class="mlc-row"><label class="mlc-lbl" title="Jeden Kalendertag in einer eigenen Farbe darstellen"><input type="checkbox" id="daytrack-toggle"> Tage</label></div>
+          <div class="mlc-row"><label class="mlc-lbl" title="GPS-Punkte an Straßen anpassen via OSRM"><input type="checkbox" id="snap-toggle"> Snap</label></div>
         </div>
       </div>
     </div>
@@ -465,6 +449,12 @@
   document.addEventListener('DOMContentLoaded', () => {
     const wasOpen = localStorage.getItem('map-fp-hidden') !== '1';
     toggleFilterPanel(wasOpen);
+  });
+
+  // Layer-Control: außerhalb klicken → schließen
+  document.addEventListener('click', (e) => {
+    const ctrl = document.getElementById('map-layer-ctrl');
+    if (ctrl && !ctrl.contains(e.target)) ctrl.classList.remove('mlc-open');
   });
 
   // === DEBOUNCE (per-call timeout) ===
