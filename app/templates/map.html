@@ -405,7 +405,8 @@
   </div>
 </article>
 </div>
-<button id="fp-show-btn" title="Menü einblenden" onclick="toggleFilterPanel(true)">Filter ▶</button>
+<button id="fp-show-btn" title="Filter ein-/ausblenden" onclick="toggleFilterPanel(this.dataset.open!=='1')">☰ Filter</button>
+<div id="fp-backdrop" onclick="toggleFilterPanel(false)"></div>
 
 <script>
   // === CONFIG ===
@@ -444,22 +445,27 @@
   let nextRefreshTime = null;   // ms timestamp des nächsten geplanten Updates
   let barTickTimer = null;
   let updateInterval = null;    // Modulebene: damit manueller Refresh den Timer zurücksetzen kann
+  let currentFetchController = null;  // AbortController für laufenden Fetch
 
   // === FILTER-PANEL TOGGLE (Desktop) ===
   function toggleFilterPanel(show) {
-    const container = document.querySelector('.map-page-container');
-    if (show) {
-      container.classList.remove('fp-hidden');
-    } else {
-      container.classList.add('fp-hidden');
+    const fp  = document.querySelector('.map-filter-panel');
+    const btn = document.getElementById('fp-show-btn');
+    const bd  = document.getElementById('fp-backdrop');
+    fp.classList.toggle('fp-open', show);
+    if (bd) bd.classList.toggle('fp-open', show);
+    if (btn) {
+      btn.dataset.open = show ? '1' : '0';
+      btn.innerHTML = show ? '✕ Filter' : '☰ Filter';
     }
     localStorage.setItem('map-fp-hidden', show ? '0' : '1');
-    if (map) setTimeout(() => map.invalidateSize(false), 50);
+    if (map) setTimeout(() => map.invalidateSize(false), 250);
   }
-  // Zustand wiederherstellen
-  if (localStorage.getItem('map-fp-hidden') === '1') {
-    document.querySelector('.map-page-container').classList.add('fp-hidden');
-  }
+  // Zustand wiederherstellen (Standard: geschlossen → maximale Kartenfläche)
+  document.addEventListener('DOMContentLoaded', () => {
+    const wasOpen = localStorage.getItem('map-fp-hidden') !== '1';
+    toggleFilterPanel(wasOpen);
+  });
 
   // === DEBOUNCE (per-call timeout) ===
   function debounce(fn, ms) {
@@ -767,8 +773,10 @@
       apiStatus.textContent = '● LADEN';
       apiStatus.style.color = 'var(--orange)';
       if (isManualRefresh) overlay.style.display = 'flex';
+      if (currentFetchController) currentFetchController.abort();
+      currentFetchController = new AbortController();
       const fetchStart = Date.now();
-      const res = await fetch(url, { credentials: 'same-origin' });
+      const res = await fetch(url, { credentials: 'same-origin', signal: currentFetchController.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const text = await res.text();
       const fetchMs = Date.now() - fetchStart;
@@ -883,9 +891,8 @@
           segments.forEach((s, i) => {
             const color = palette[i % palette.length];
             const coords = s.map(p => [p.latitude, p.longitude]);
-            // Border-Effekt: dunkle Outline darunter, helle Linie oben
-            L.polyline(coords, { color: 'rgba(0,0,0,0.25)', weight: 6, opacity: 1, renderer: canvasRenderer, interactive: false }).addTo(polylineLayer);
-            L.polyline(coords, { color, weight: 3.5, opacity: 0.9, renderer: canvasRenderer }).bindPopup(
+            L.polyline(coords, { color: 'rgba(0,0,0,0.18)', weight: 4, opacity: 1, renderer: canvasRenderer, interactive: false }).addTo(polylineLayer);
+            L.polyline(coords, { color, weight: 2, opacity: 0.85, renderer: canvasRenderer }).bindPopup(
               `Route ${i+1} · ${s.length} Punkte<br>` +
               `${s[0].point_timestamp_local?.slice(11,16) || ''} – ${s[s.length-1].point_timestamp_local?.slice(11,16) || ''}`
             ).addTo(polylineLayer);
@@ -950,8 +957,8 @@
           }
           groups.forEach(g => {
             const avgKmh = g.count > 0 ? (g.kmhSum / g.count).toFixed(1) : '?';
-            L.polyline(g.coords, { color: 'rgba(0,0,0,0.2)', weight: 6, opacity: 1, renderer: canvasRenderer, interactive: false }).addTo(speedLayer);
-            L.polyline(g.coords, { color: g.color, weight: 3.5, opacity: 0.9, renderer: canvasRenderer })
+            L.polyline(g.coords, { color: 'rgba(0,0,0,0.15)', weight: 4, opacity: 1, renderer: canvasRenderer, interactive: false }).addTo(speedLayer);
+            L.polyline(g.coords, { color: g.color, weight: 2, opacity: 0.85, renderer: canvasRenderer })
               .bindPopup(`Ø ${avgKmh} km/h`).addTo(speedLayer);
           });
         }
@@ -1107,6 +1114,7 @@
       apiStatus.textContent = '● ONLINE';
       apiStatus.style.color = 'var(--mint)';
     } catch (e) {
+      if (e.name === 'AbortError') return; // Abgebrochener Fetch — kein Fehler anzeigen
       console.error('Map update error:', e);
       overlay.style.display = 'none';
       stats.innerText = 'Fehler beim Laden der Kartendaten.';
