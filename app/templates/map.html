@@ -38,33 +38,6 @@
         onclick="toggleFilterPanel(false)">◀</button>
     </div>
 
-    <p class="fp-section-label">Zeitraum</p>
-    <div class="filter-group">
-      <select id="time-range-select">
-        <option value="2m">Letzte 2 Min.</option>
-        <option value="5m">Letzte 5 Min.</option>
-        <option value="10m">Letzte 10 Min.</option>
-        <option value="15m">Letzte 15 Min.</option>
-        <option value="30m">Letzte 30 Min.</option>
-        <option value="45m">Letzte 45 Min.</option>
-        <option value="1h" selected>Letzte 1 Std.</option>
-        <option value="2h">Letzte 2 Std.</option>
-        <option value="4h">Letzte 4 Std.</option>
-        <option value="6h">Letzte 6 Std.</option>
-        <option value="8h">Letzte 8 Std.</option>
-        <option value="12h">Letzte 12 Std.</option>
-        <option value="18h">Letzte 18 Std.</option>
-        <option value="24h">Letzte 24 Std.</option>
-        <option value="2d">Letzte 2 Tage</option>
-        <option value="3d">Letzte 3 Tage</option>
-        <option value="5d">Letzte 5 Tage</option>
-        <option value="7d">Letzte 7 Tage</option>
-        <option value="14d">Letzte 14 Tage</option>
-        <option value="30d">Letzte 30 Tage</option>
-        <option value="all">Gesamt</option>
-      </select>
-    </div>
-
     <p class="fp-section-label">Session / Import</p>
     <div class="filter-group fp-row">
       <input type="checkbox" id="session-filter-toggle">
@@ -87,22 +60,6 @@
       </select>
     </div>
 
-    <p class="fp-section-label">Navigation</p>
-    <div class="filter-group fp-row" style="align-items:flex-start;flex-direction:column;gap:2px;">
-      <div style="display:flex;align-items:center;gap:6px;">
-        <input type="checkbox" id="auto-center-toggle" checked>
-        <label for="auto-center-toggle" class="fp-check-label">Letzter Punkt folgen</label>
-      </div>
-      <small style="color:var(--text-3);font-size:0.72rem;padding-left:20px;">Karte springt automatisch zum neuesten GPS-Punkt.</small>
-    </div>
-    <div class="filter-group fp-row" style="align-items:flex-start;flex-direction:column;gap:2px;">
-      <div style="display:flex;align-items:center;gap:6px;">
-        <input type="checkbox" id="fit-bounds-toggle">
-        <label for="fit-bounds-toggle" class="fp-check-label">Gesamten Track anzeigen</label>
-      </div>
-      <small style="color:var(--text-3);font-size:0.72rem;padding-left:20px;">Zoom wird so gewählt, dass alle geladenen Punkte sichtbar sind. Überschreibt Zeitraum-Filter (lädt alles).</small>
-    </div>
-
     <p class="fp-section-label">Routen-Segmentierung</p>
     <small style="color:var(--text-3);font-size:0.72rem;display:block;margin:-4px 0 6px 0;">Ab wann eine neue Route beginnt (Lücke im Track).</small>
     <div class="filter-group fp-row fp-numrow">
@@ -122,37 +79,10 @@
       <input type="number" id="map-max-points" min="1" class="fp-num-input">
     </div>
     <small style="color:var(--text-3);font-size:0.72rem;margin:-2px 0 6px 0;display:block;">Mehr Punkte = mehr Detail, aber langsamer.</small>
-    <div class="filter-group">
-      <label for="polling-interval">Auto-Aktualisierung</label>
-      <select id="polling-interval">
-        <option value="2000">2s</option>
-        <option value="3000">3s</option>
-        <option value="5000">5s</option>
-        <option value="10000">10s</option>
-        <option value="15000">15s</option>
-        <option value="20000">20s</option>
-        <option value="30000">30s</option>
-        <option value="45000">45s</option>
-        <option value="60000">1min</option>
-        <option value="90000">1.5min</option>
-        <option value="120000">2min</option>
-        <option value="180000">3min</option>
-        <option value="300000">5min</option>
-      </select>
-    </div>
-    <small style="color:var(--text-3);font-size:0.72rem;margin:2px 0 0 0;display:block;">Wie oft die Karte automatisch neu geladen wird.</small>
 
     <p class="fp-section-label">Aktionen</p>
     <div class="filter-actions">
-      <button id="fullscreen-btn" class="button-link secondary" title="Karte auf Vollbild vergrößern" style="flex:1;">⛶ Vollbild</button>
-      <button id="dark-mode-btn" class="button-link secondary" title="Karte zwischen hell und dunkel wechseln" style="flex:1;">🌙 Modus</button>
-    </div>
-    <div class="filter-actions">
-      <button id="export-geojson-btn" class="button-link secondary" title="Alle aktuell geladenen Punkte als GeoJSON-Datei herunterladen" style="flex:1;">💾 GeoJSON</button>
-      <button id="refresh-map-btn" class="button-link primary" style="flex:1;">
-        <span id="btn-text">↻ Jetzt laden</span>
-        <span id="btn-spinner" style="display:none;">⌛ Lade…</span>
-      </button>
+      <button id="export-geojson-btn" class="button-link secondary" title="Alle aktuell geladenen Punkte als GeoJSON-Datei herunterladen" style="width:100%;">💾 GeoJSON exportieren</button>
     </div>
 
     <div class="fp-status-bar" style="flex-direction:column;align-items:flex-start;gap:4px;">
@@ -175,6 +105,62 @@
         <div style="background:var(--surface-1,#1c1c1e);border:1px solid var(--border);border-radius:12px;padding:16px 24px;font-size:0.85rem;color:var(--text-2);display:flex;align-items:center;gap:10px;">
           <span style="animation:spin 1s linear infinite;display:inline-block;">⟳</span> Kartendaten werden geladen…
         </div>
+      </div>
+
+      {# Quick-Control-Bar — floating am unteren Kartenrand #}
+      <div id="map-quick-ctrl">
+        <select id="time-range-select" class="mqc-select" title="Zeitraum">
+          <option value="2m">2 Min</option>
+          <option value="5m">5 Min</option>
+          <option value="10m">10 Min</option>
+          <option value="15m">15 Min</option>
+          <option value="30m">30 Min</option>
+          <option value="45m">45 Min</option>
+          <option value="1h" selected>1 Std</option>
+          <option value="2h">2 Std</option>
+          <option value="4h">4 Std</option>
+          <option value="6h">6 Std</option>
+          <option value="8h">8 Std</option>
+          <option value="12h">12 Std</option>
+          <option value="18h">18 Std</option>
+          <option value="24h">24 Std</option>
+          <option value="2d">2 Tage</option>
+          <option value="3d">3 Tage</option>
+          <option value="5d">5 Tage</option>
+          <option value="7d">7 Tage</option>
+          <option value="14d">14 Tage</option>
+          <option value="30d">30 Tage</option>
+          <option value="all">Gesamt</option>
+        </select>
+        <div class="mqc-sep"></div>
+        <select id="polling-interval" class="mqc-select" title="Auto-Aktualisierung">
+          <option value="2000">2s</option>
+          <option value="3000">3s</option>
+          <option value="5000">5s</option>
+          <option value="10000">10s</option>
+          <option value="15000">15s</option>
+          <option value="20000">20s</option>
+          <option value="30000">30s</option>
+          <option value="45000">45s</option>
+          <option value="60000">1min</option>
+          <option value="90000">1.5min</option>
+          <option value="120000">2min</option>
+          <option value="180000">3min</option>
+          <option value="300000">5min</option>
+        </select>
+        <button id="refresh-map-btn" class="mqc-btn" title="Jetzt laden">
+          <span id="btn-text">↻</span><span id="btn-spinner" style="display:none;">⌛</span>
+        </button>
+        <div class="mqc-sep"></div>
+        <label class="mqc-toggle" title="Letzter Punkt folgen — Karte springt automatisch zum neuesten GPS-Punkt">
+          <input type="checkbox" id="auto-center-toggle" checked><span>📍</span>
+        </label>
+        <label class="mqc-toggle" title="Gesamten Track einpassen — zeigt alle geladenen Punkte">
+          <input type="checkbox" id="fit-bounds-toggle"><span>⊡</span>
+        </label>
+        <div class="mqc-sep"></div>
+        <button id="dark-mode-btn" class="mqc-btn" title="Darkmode umschalten">🌙</button>
+        <button id="fullscreen-btn" class="mqc-btn" title="Vollbild">⛶</button>
       </div>
 
       {# Layer-Control — floating auf der Karte (oben rechts) #}

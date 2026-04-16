@@ -900,6 +900,71 @@ label {
 .mlc-lbl:hover { color: var(--text); }
 .mlc-lbl input[type="checkbox"] { cursor: pointer; }
 
+/* ── Map Quick-Control-Bar (unten zentriert auf der Karte) ── */
+#map-quick-ctrl {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 450;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  background: var(--surface-1);
+  border: 2px solid rgba(0,0,0,0.2);
+  border-radius: 4px;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.3);
+  padding: 2px 5px;
+  white-space: nowrap;
+  font-family: inherit;
+  max-width: calc(100% - 120px);
+}
+.mqc-select {
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 0.75rem;
+  color: var(--text-2);
+  cursor: pointer;
+  padding: 4px 2px;
+  font-family: inherit;
+  max-width: 100px;
+}
+.mqc-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 7px;
+  font-size: 0.82rem;
+  color: var(--text-2);
+  border-radius: 3px;
+  transition: background 0.12s;
+  line-height: 1;
+  font-family: inherit;
+}
+.mqc-btn:hover { background: var(--surface-2); }
+.mqc-toggle {
+  cursor: pointer;
+  padding: 4px 7px;
+  border-radius: 3px;
+  font-size: 0.82rem;
+  color: var(--text-3);
+  transition: background 0.12s, color 0.12s;
+  display: flex;
+  align-items: center;
+  user-select: none;
+}
+.mqc-toggle:hover { background: var(--surface-2); }
+.mqc-toggle:has(input:checked) { color: var(--mint, #30D158); }
+.mqc-toggle input { display: none; }
+.mqc-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border, rgba(0,0,0,0.15));
+  margin: 0 3px;
+  flex-shrink: 0;
+}
+
 /* ── Map Page Layout ──────────────────────────────────────── */
 .map-page-container {
   display: grid;
