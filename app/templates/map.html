@@ -247,13 +247,11 @@
         </div>
       </div>
 
-      <div id="legend-speed" style="display:none;min-width:160px;">
-        <div style="font-weight:600;color:var(--text-2);margin-bottom:6px;">Tempo</div>
-        <div style="display:flex;flex-direction:column;gap:4px;">
-          <div style="display:flex;align-items:center;gap:7px;"><span style="width:22px;height:3px;background:#30D158;border-radius:2px;display:inline-block;"></span><span>&lt; 5 km/h — Fuß</span></div>
-          <div style="display:flex;align-items:center;gap:7px;"><span style="width:22px;height:3px;background:#FFD60A;border-radius:2px;display:inline-block;"></span><span>5–20 km/h — Rad</span></div>
-          <div style="display:flex;align-items:center;gap:7px;"><span style="width:22px;height:3px;background:#FF9F0A;border-radius:2px;display:inline-block;"></span><span>20–80 km/h — Auto</span></div>
-          <div style="display:flex;align-items:center;gap:7px;"><span style="width:22px;height:3px;background:#FF453A;border-radius:2px;display:inline-block;"></span><span>&gt; 80 km/h — Bahn/Flug</span></div>
+      <div id="legend-speed" style="display:none;min-width:180px;">
+        <div style="font-weight:600;color:var(--text-2);margin-bottom:6px;">Tempo — 0–300 km/h</div>
+        <div style="height:7px;border-radius:4px;background:linear-gradient(to right,hsl(240,95%,52%),hsl(180,95%,52%),hsl(120,95%,52%),hsl(60,95%,52%),hsl(30,95%,52%),hsl(0,95%,52%));margin-bottom:4px;"></div>
+        <div style="display:flex;justify-content:space-between;font-size:0.68rem;color:var(--text-3);">
+          <span>0</span><span>60</span><span>120</span><span>180</span><span>240</span><span>300 km/h</span>
         </div>
       </div>
 
@@ -953,38 +951,30 @@
           });
         }
 
-        // === GESCHWINDIGKEITS-LAYER (Farb-Gruppierung → statt N-1 Einzelpolylinien) ===
+        // === GESCHWINDIGKEITS-LAYER — fließender Gradient 0–300 km/h (3 km/h-Schritte) ===
         if (speedActive && sorted.length >= 2) {
-          function speedColor(kmh) {
-            if (kmh < 0)  return '#8E8E93';
-            if (kmh < 5)  return '#30D158';
-            if (kmh < 20) return '#FFD60A';
-            if (kmh < 80) return '#FF9F0A';
-            return '#FF453A';
+          // HSL-Gradient: 0 km/h = blau (240°) → 300 km/h = rot (0°)
+          function speedColorGrad(kmh) {
+            if (kmh < 0) return 'hsl(220,12%,48%)'; // unbekannt → grau
+            const h = Math.round(240 - Math.min(300, kmh) / 300 * 240);
+            const l = kmh < 10 ? 55 : kmh > 250 ? 50 : 52;
+            return `hsl(${h},95%,${l}%)`;
           }
-          const sp = sorted.length > 3000 ? sorted.filter((_, i) => i % Math.ceil(sorted.length/3000) === 0) : sorted;
-          const groups = []; // {color, coords, kmhSum, count}
+          const sp = sorted.length > 4000
+            ? sorted.filter((_, i) => i % Math.ceil(sorted.length / 4000) === 0)
+            : sorted;
           for (let i = 1; i < sp.length; i++) {
             const prev = sp[i-1], cur = sp[i];
             const tSec = (new Date(cur.point_timestamp_utc) - new Date(prev.point_timestamp_utc)) / 1000;
             const distM = haversine(prev, cur);
             const kmh = tSec > 0 ? (distM / tSec) * 3.6 : -1;
             if (kmh > 500) continue;
-            const color = speedColor(kmh);
-            const last = groups[groups.length - 1];
-            if (last && last.color === color) {
-              last.coords.push([cur.latitude, cur.longitude]);
-              if (kmh >= 0) { last.kmhSum += kmh; last.count++; }
-            } else {
-              groups.push({ color, coords: [[prev.latitude, prev.longitude],[cur.latitude, cur.longitude]], kmhSum: kmh >= 0 ? kmh : 0, count: kmh >= 0 ? 1 : 0 });
-            }
+            const color = speedColorGrad(kmh);
+            const coords = [[prev.latitude, prev.longitude], [cur.latitude, cur.longitude]];
+            L.polyline(coords, { color, weight: 6, opacity: 0.18, lineCap: 'round', renderer: canvasRenderer, interactive: false }).addTo(speedLayer);
+            L.polyline(coords, { color, weight: 2.5, opacity: 0.92, lineCap: 'round', renderer: canvasRenderer })
+              .bindPopup(`${kmh >= 0 ? kmh.toFixed(1) : '?'} km/h`).addTo(speedLayer);
           }
-          groups.forEach(g => {
-            const avgKmh = g.count > 0 ? (g.kmhSum / g.count).toFixed(1) : '?';
-            L.polyline(g.coords, { color: 'rgba(0,0,0,0.15)', weight: 4, opacity: 1, renderer: canvasRenderer, interactive: false }).addTo(speedLayer);
-            L.polyline(g.coords, { color: g.color, weight: 2, opacity: 0.85, renderer: canvasRenderer })
-              .bindPopup(`Ø ${avgKmh} km/h`).addTo(speedLayer);
-          });
         }
 
         // === STOP-ERKENNUNG ===
