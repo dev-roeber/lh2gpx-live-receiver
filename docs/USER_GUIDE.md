@@ -12,8 +12,15 @@
 
 ## Karte
 
-- `/dashboard/map` zeigt die letzten Punkte auf der Live-Karte
-- Zeitraum, Polling, Session und Auto-Follow sind direkt steuerbar
+- `/dashboard/map` lädt ein serverseitig vorbereitetes Kartenmodell
+- steuerbar sind:
+  - Zeitraum
+  - Polling
+  - Maximalzahl geladener Punkte
+  - Session- oder Import-Filter
+  - Auto-Follow oder Fit-Bounds
+  - Layer für Punkte, Heatmap, Linien, Genauigkeit, Labels, Tempo, Stops, Tages-Tracks und Snap
+- GeoJSON exportiert den aktuell geladenen Kartenstand
 
 ## Punkte, Requests, Sessions
 

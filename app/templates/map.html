@@ -377,99 +377,126 @@
 <div id="fp-backdrop" onclick="toggleFilterPanel(false)"></div>
 
 <script>
-  // === CONFIG ===
-  let POLLING_INTERVAL = parseInt(localStorage.getItem('map-polling-interval')) || 5000;
-  let TIME_RANGE       = localStorage.getItem('map-time-range') || '1h';
-  let MAP_MAX_POINTS   = parseInt(localStorage.getItem('map-max-points'))      || 5000;
-  let ROUTE_TIME_GAP   = parseInt(localStorage.getItem('map-route-time-gap'))  || 5;
-  let ROUTE_DIST_GAP   = parseInt(localStorage.getItem('map-route-dist-gap'))  || 300;
-  let STOP_MIN_DUR     = parseInt(localStorage.getItem('map-stop-min-dur'))    || 5;
-  let STOP_RADIUS_M    = parseInt(localStorage.getItem('map-stop-radius'))     || 100;
+  const MAP_CONFIG = {{ config_summary | tojson }};
   const FILTER_DEBOUNCE = 300;
-  const MAX_LOG_LINES = 1000;
   const CLUSTER_THRESHOLD = 50;
+  const RANGE_MINUTES = {
+    '2m': 2, '5m': 5, '10m': 10, '15m': 15, '30m': 30, '45m': 45,
+    '1h': 60, '2h': 120, '4h': 240, '6h': 360, '8h': 480, '12h': 720, '18h': 1080, '24h': 1440,
+    '2d': 2880, '3d': 4320, '5d': 7200, '7d': 10080, '14d': 20160, '30d': 43200
+  };
 
-  // === STATE ===
-  let map, pathLayer, markerClusterGroup, heatLayer, pointsLayer, polylineLayer, knownPointIds = new Set();
-  let heatmapActive  = false;
-  let pointsActive   = true;
-  let polylineActive = true;
-  let accuracyActive  = false;
-  let labelsActive    = false;
-  let speedActive     = false;
-  let stopsActive     = false;
-  let daytrackActive  = false;
-  let snapActive      = false;
-  let accuracyLayer, labelsLayer, speedLayer, stopsLayer, daytrackLayer, snapLayer;
-  let canvasRenderer;
-  let darkMode = localStorage.getItem('map-dark-mode') === 'true' || false;
-  let tileLayer;
-  let lastApiStatus = 'loading';
-  let sessionStartTime = Date.now();
-  let filtersExpanded = false;
-  let lastLoadedPoints = [];
-  let isManualRefresh = false;
-  let lastRefreshTime = null;   // ms timestamp des letzten erfolgreichen Updates
-  let nextRefreshTime = null;   // ms timestamp des nächsten geplanten Updates
-  let barTickTimer = null;
-  let updateInterval = null;    // Modulebene: damit manueller Refresh den Timer zurücksetzen kann
-  let currentFetchController = null;  // AbortController für laufenden Fetch
-  let lastETag = null;                // ETag der letzten Antwort (für 304-Check)
-
-  // === FILTER-PANEL TOGGLE (Desktop) ===
-  function toggleFilterPanel(show) {
-    const fp  = document.querySelector('.map-filter-panel');
-    const btn = document.getElementById('fp-show-btn');
-    const bd  = document.getElementById('fp-backdrop');
-    fp.classList.toggle('fp-open', show);
-    if (bd) bd.classList.toggle('fp-open', show);
-    if (btn) {
-      btn.dataset.open = show ? '1' : '0';
-      btn.innerHTML = show ? '✕ Filter' : '☰ Filter';
-    }
-    localStorage.setItem('map-fp-hidden', show ? '0' : '1');
-    if (map) setTimeout(() => map.invalidateSize(false), 250);
-  }
-  // Zustand wiederherstellen (Standard: geschlossen → maximale Kartenfläche)
-  document.addEventListener('DOMContentLoaded', () => {
-    const wasOpen = localStorage.getItem('map-fp-hidden') !== '1';
-    toggleFilterPanel(wasOpen);
-  });
-
-  // Layer-Control: außerhalb klicken → schließen
-  document.addEventListener('click', (e) => {
-    const ctrl = document.getElementById('map-layer-ctrl');
-    if (ctrl && !ctrl.contains(e.target)) ctrl.classList.remove('mlc-open');
-  });
-
-  // === DEBOUNCE (per-call timeout) ===
-  function debounce(fn, ms) {
-    let t;
-    return function(...args) {
-      clearTimeout(t);
-      t = setTimeout(() => fn.apply(this, args), ms);
-    };
-  }
-
-  // === FULLSCREEN ===
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
   const supportsNativeFullscreen = !!document.documentElement.requestFullscreen;
 
-  // CSS fullscreen state for iOS fallback
-  let cssFsActive = false;
+  let POLLING_INTERVAL = parseInt(localStorage.getItem('map-polling-interval')) || 5000;
+  let TIME_RANGE = localStorage.getItem('map-time-range') || '1h';
+  let MAP_MAX_POINTS = parseInt(localStorage.getItem('map-max-points')) || MAP_CONFIG.pointsPageSizeMax || 2000;
+  let ROUTE_TIME_GAP = parseInt(localStorage.getItem('map-route-time-gap')) || 5;
+  let ROUTE_DIST_GAP = parseInt(localStorage.getItem('map-route-dist-gap')) || 300;
+  let STOP_MIN_DUR = parseInt(localStorage.getItem('map-stop-min-dur')) || 5;
+  let STOP_RADIUS_M = parseInt(localStorage.getItem('map-stop-radius')) || 100;
 
-  function toggleFullscreen() {
-    if (!isIOS && supportsNativeFullscreen) {
-      // Native fullscreen (Android / Desktop)
-      const container = document.getElementById('map-container');
-      if (!document.fullscreenElement) {
-        container.requestFullscreen().catch(() => activateCssFullscreen());
-      } else {
-        document.exitFullscreen();
+  let map;
+  let tileLayer;
+  let markerClusterGroup;
+  let pointsLayer;
+  let polylineLayer;
+  let accuracyLayer;
+  let labelsLayer;
+  let speedLayer;
+  let stopsLayer;
+  let daytrackLayer;
+  let snapLayer;
+  let heatLayer;
+  let canvasRenderer;
+  let darkMode = localStorage.getItem('map-dark-mode') === 'true' || false;
+  let cssFsActive = false;
+  let filtersExpanded = false;
+  let currentFetchController = null;
+  let lastETag = null;
+  let updateInterval = null;
+  let barTickTimer = null;
+  let lastRefreshTime = null;
+  let nextRefreshTime = null;
+  let isManualRefresh = false;
+  let currentLogItems = [];
+  let lastMapPayload = null;
+
+  let heatmapActive = false;
+  let pointsActive = true;
+  let polylineActive = true;
+  let accuracyActive = false;
+  let labelsActive = false;
+  let speedActive = false;
+  let stopsActive = false;
+  let daytrackActive = false;
+  let snapActive = false;
+
+  function debounce(fn, ms) {
+    let timer;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), ms);
+    };
+  }
+
+  function clampMapMaxPoints(value) {
+    const serverMax = MAP_CONFIG.pointsPageSizeMax || 2000;
+    return Math.max(1, Math.min(serverMax, parseInt(value || serverMax, 10) || serverMax));
+  }
+
+  function formatDuration(seconds) {
+    if (!seconds || seconds <= 0) return '-';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  }
+
+  function getRelativeTime(timestamp) {
+    const diffMs = Date.now() - new Date(timestamp).getTime();
+    if (diffMs < 1000) return 'jetzt';
+    if (diffMs < 60000) return `vor ${Math.floor(diffMs / 1000)}s`;
+    if (diffMs < 3600000) return `vor ${Math.floor(diffMs / 60000)}m`;
+    if (diffMs < 86400000) return `vor ${Math.floor(diffMs / 3600000)}h`;
+    return `vor ${Math.floor(diffMs / 86400000)}d`;
+  }
+
+  function toggleFilterPanel(show) {
+    const panel = document.querySelector('.map-filter-panel');
+    const button = document.getElementById('fp-show-btn');
+    const backdrop = document.getElementById('fp-backdrop');
+    panel.classList.toggle('fp-open', show);
+    backdrop.classList.toggle('fp-open', show);
+    button.dataset.open = show ? '1' : '0';
+    button.innerHTML = show ? '✕ Filter' : '☰ Filter';
+    localStorage.setItem('map-fp-hidden', show ? '0' : '1');
+    if (map) setTimeout(() => map.invalidateSize(false), 250);
+  }
+
+  function setDropdown(id, active) {
+    const element = document.getElementById(id);
+    element.disabled = !active;
+    element.classList.toggle('fp-inactive', !active);
+  }
+
+  function setupMobileFilterToggle() {
+    const toggleBtn = document.getElementById('map-filter-toggle-btn');
+    const filterPanel = document.querySelector('.map-filter-panel');
+    if (!toggleBtn || !filterPanel) return;
+    const isMobile = window.innerWidth <= 767;
+    if (isMobile) {
+      toggleBtn.style.display = 'block';
+      if (toggleBtn.dataset.init !== '1') {
+        toggleBtn.dataset.init = '1';
+        filterPanel.classList.add('collapsed');
+        filtersExpanded = false;
       }
     } else {
-      // iOS CSS-Vollbild-Fallback
-      activateCssFullscreen();
+      toggleBtn.style.display = 'none';
+      filterPanel.classList.remove('collapsed');
+      filtersExpanded = true;
+      toggleBtn.dataset.init = '0';
     }
   }
 
@@ -481,268 +508,390 @@
       if (map) map.invalidateSize(false);
       document.getElementById('fullscreen-btn').textContent = '✕';
       document.getElementById('fullscreen-btn').title = 'Vollbild beenden';
-    } else {
-      deactivateCssFullscreen();
+      return;
     }
-  }
-
-  function deactivateCssFullscreen() {
     cssFsActive = false;
-    const container = document.getElementById('map-container');
     container.style.cssText = '';
     if (map) map.invalidateSize(false);
     document.getElementById('fullscreen-btn').textContent = '⛶';
     document.getElementById('fullscreen-btn').title = 'Vollbild';
   }
 
-  // ESC key exits CSS fullscreen
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && cssFsActive) deactivateCssFullscreen(); });
+  function toggleFullscreen() {
+    const container = document.getElementById('map-container');
+    if (!isIOS && supportsNativeFullscreen) {
+      if (!document.fullscreenElement) {
+        container.requestFullscreen().catch(() => activateCssFullscreen());
+      } else {
+        document.exitFullscreen();
+      }
+      return;
+    }
+    activateCssFullscreen();
+  }
 
-  // iOS: show Add to Home Screen banner if not already installed
   function showIOSBanner() {
-    if (!isIOS) return;
-    if (window.navigator.standalone) return; // already installed
-    if (sessionStorage.getItem('ios-banner-dismissed')) return;
+    if (!isIOS || window.navigator.standalone || sessionStorage.getItem('ios-banner-dismissed')) return;
     const banner = document.createElement('div');
     banner.id = 'ios-home-banner';
-    banner.style.cssText = `
-      position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
-      background:#1C1C1E; border:1px solid rgba(255,255,255,0.12);
-      border-radius:16px; padding:14px 16px; z-index:10000;
-      display:flex; align-items:flex-start; gap:12px;
-      max-width:calc(100vw - 32px); box-shadow:0 8px 32px rgba(0,0,0,0.6);
-      font-family:-apple-system,system-ui,sans-serif;
-    `;
-    banner.innerHTML = `
-      <div style="font-size:1.6rem;flex-shrink:0;margin-top:2px;">⊕</div>
-      <div style="flex:1;min-width:0;">
-        <div style="font-size:0.85rem;font-weight:700;color:#fff;margin-bottom:3px;">Zum Home-Bildschirm hinzufügen</div>
-        <div style="font-size:0.75rem;color:rgba(255,255,255,0.55);line-height:1.4;">Tippe auf <strong style="color:#fff;">Teilen ↑</strong> und dann <strong style="color:#fff;">„Zum Home-Bildschirm"</strong> — danach steht echter Vollbild zur Verfügung.</div>
-      </div>
-      <button onclick="document.getElementById('ios-home-banner').remove();sessionStorage.setItem('ios-banner-dismissed','1')"
-        style="background:none;border:none;color:rgba(255,255,255,0.4);font-size:1.1rem;cursor:pointer;flex-shrink:0;padding:0;line-height:1;">✕</button>
-    `;
+    banner.style.cssText = 'position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:#1C1C1E; border:1px solid rgba(255,255,255,0.12); border-radius:16px; padding:14px 16px; z-index:10000; display:flex; align-items:flex-start; gap:12px; max-width:calc(100vw - 32px); box-shadow:0 8px 32px rgba(0,0,0,0.6); font-family:-apple-system,system-ui,sans-serif;';
+    banner.innerHTML = '<div style="font-size:1.6rem;flex-shrink:0;margin-top:2px;">⊕</div><div style="flex:1;min-width:0;"><div style="font-size:0.85rem;font-weight:700;color:#fff;margin-bottom:3px;">Zum Home-Bildschirm hinzufügen</div><div style="font-size:0.75rem;color:rgba(255,255,255,0.55);line-height:1.4;">Tippe auf <strong style="color:#fff;">Teilen ↑</strong> und dann <strong style="color:#fff;">„Zum Home-Bildschirm"</strong> — danach steht echter Vollbild zur Verfügung.</div></div><button style="background:none;border:none;color:rgba(255,255,255,0.4);font-size:1.1rem;cursor:pointer;flex-shrink:0;padding:0;line-height:1;">✕</button>';
+    banner.querySelector('button').onclick = () => {
+      banner.remove();
+      sessionStorage.setItem('ios-banner-dismissed', '1');
+    };
     document.body.appendChild(banner);
   }
 
-  document.addEventListener('DOMContentLoaded', showIOSBanner);
+  function buildCurrentFilters() {
+    const sessionActive = document.getElementById('session-filter-toggle').checked;
+    const importActive = document.getElementById('import-filter-toggle').checked;
+    const sessionId = sessionActive
+      ? document.getElementById('session-select-dropdown').value
+      : importActive
+        ? document.getElementById('import-select-dropdown').value
+        : '';
+    const params = new URLSearchParams();
+    params.set('page_size', clampMapMaxPoints(document.getElementById('map-max-points').value));
+    params.set('zoom', map ? String(map.getZoom()) : '10');
+    params.set('route_time_gap_min', String(ROUTE_TIME_GAP));
+    params.set('route_dist_gap_m', String(ROUTE_DIST_GAP));
+    params.set('stop_min_duration_min', String(STOP_MIN_DUR));
+    params.set('stop_radius_m', String(STOP_RADIUS_M));
+    params.set('include_points', pointsActive ? 'true' : 'false');
+    params.set('include_heatmap', heatmapActive ? 'true' : 'false');
+    params.set('include_polyline', polylineActive ? 'true' : 'false');
+    params.set('include_accuracy', accuracyActive ? 'true' : 'false');
+    params.set('include_labels', labelsActive ? 'true' : 'false');
+    params.set('include_speed', speedActive ? 'true' : 'false');
+    params.set('include_stops', stopsActive ? 'true' : 'false');
+    params.set('include_daytrack', daytrackActive ? 'true' : 'false');
+    params.set('include_snap', snapActive ? 'true' : 'false');
+    if (sessionId) params.set('session_id', sessionId);
+    if (TIME_RANGE !== 'all') {
+      params.set('date_from', new Date(Date.now() - RANGE_MINUTES[TIME_RANGE] * 60000).toISOString());
+    }
+    return params;
+  }
 
-  // === GEOJSON EXPORT (aus geladenen Kartenpunkten, nicht DOM) ===
-  function exportGeoJSON() {
-    if (!lastLoadedPoints.length) { alert('Keine Punkte geladen.'); return; }
-    const features = lastLoadedPoints.map(p => ({
+  function buildGeoJsonExportUrl() {
+    const params = buildCurrentFilters();
+    params.delete('zoom');
+    params.delete('route_time_gap_min');
+    params.delete('route_dist_gap_m');
+    params.delete('stop_min_duration_min');
+    params.delete('stop_radius_m');
+    params.delete('include_points');
+    params.delete('include_heatmap');
+    params.delete('include_polyline');
+    params.delete('include_accuracy');
+    params.delete('include_labels');
+    params.delete('include_speed');
+    params.delete('include_stops');
+    params.delete('include_daytrack');
+    params.delete('include_snap');
+    return `/api/points?${params.toString()}`;
+  }
+
+  async function exportGeoJSON() {
+    const response = await fetch(buildGeoJsonExportUrl(), { credentials: 'same-origin' });
+    if (!response.ok) {
+      alert('GeoJSON-Export fehlgeschlagen.');
+      return;
+    }
+    const payload = await response.json();
+    const features = (payload.points?.items || []).map(point => ({
       type: 'Feature',
-      geometry: { type: 'Point', coordinates: [p.longitude, p.latitude] },
+      geometry: { type: 'Point', coordinates: [point.longitude, point.latitude] },
       properties: {
-        timestamp: p.point_timestamp_utc,
-        accuracy_m: p.horizontal_accuracy_m,
-        source: p.source,
-        capture_mode: p.capture_mode
+        id: point.id,
+        request_id: point.request_id,
+        received_at_utc: point.received_at_utc,
+        sent_at_utc: point.sent_at_utc,
+        point_timestamp_utc: point.point_timestamp_utc,
+        point_timestamp_local: point.point_timestamp_local,
+        point_date_local: point.point_date_local,
+        point_time_local: point.point_time_local,
+        horizontal_accuracy_m: point.horizontal_accuracy_m,
+        session_id: point.session_id,
+        source: point.source,
+        capture_mode: point.capture_mode
       }
     }));
-    const blob = new Blob([JSON.stringify({ type: 'FeatureCollection', features }, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ type: 'FeatureCollection', features }, null, 2)], { type: 'application/geo+json' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `lh2gpx-${new Date().toISOString().split('T')[0]}-${lastLoadedPoints.length}pts.geojson`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `lh2gpx-map-${new Date().toISOString().slice(0, 10)}.geojson`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
     URL.revokeObjectURL(url);
   }
 
-  // === STATISTICS ===
-  function updateStatistics(points, totalPoints) {
-    if (!points || points.length === 0) {
-      document.getElementById('stat-points-per-min').innerText = '0';
-      document.getElementById('stat-avg-accuracy').innerText = '-';
-      document.getElementById('stat-visible-points').innerText = '0';
-      document.getElementById('stat-total-points').innerText = totalPoints || '0';
+  function updateLegend() {
+    document.getElementById('legend-points').style.display = pointsActive ? '' : 'none';
+    document.getElementById('legend-lines').style.display = polylineActive ? '' : 'none';
+    document.getElementById('legend-heatmap').style.display = heatmapActive ? '' : 'none';
+    document.getElementById('legend-accuracy').style.display = accuracyActive ? '' : 'none';
+    document.getElementById('legend-labels').style.display = labelsActive ? '' : 'none';
+    document.getElementById('legend-speed').style.display = speedActive ? '' : 'none';
+    document.getElementById('legend-stops').style.display = stopsActive ? '' : 'none';
+    document.getElementById('legend-daytrack').style.display = daytrackActive ? '' : 'none';
+    document.getElementById('legend-snap').style.display = snapActive ? '' : 'none';
+    const anyActive = heatmapActive || pointsActive || polylineActive || accuracyActive || labelsActive || speedActive || stopsActive || daytrackActive || snapActive;
+    document.getElementById('map-legend').style.display = anyActive ? 'flex' : 'none';
+  }
+
+  function clearRenderedLayers() {
+    markerClusterGroup.clearLayers();
+    pointsLayer.clearLayers();
+    polylineLayer.clearLayers();
+    accuracyLayer.clearLayers();
+    labelsLayer.clearLayers();
+    speedLayer.clearLayers();
+    stopsLayer.clearLayers();
+    daytrackLayer.clearLayers();
+    snapLayer.clearLayers();
+    if (map.hasLayer(heatLayer)) map.removeLayer(heatLayer);
+  }
+
+  function renderPoints(points, latestPoint) {
+    if (!pointsActive) return;
+    points.forEach(point => {
+      if (point.isLatest && latestPoint) {
+        const icon = L.divIcon({
+          className: '',
+          html: '<div class="sonar-wrap"><div class="sonar-ring"></div><div class="sonar-ring sonar-ring-2"></div><div class="sonar-dot"></div></div>',
+          iconSize: [24, 24],
+          iconAnchor: [12, 12]
+        });
+        L.marker([point.lat, point.lon], { icon, zIndexOffset: 1000 })
+          .bindPopup(`<b>📍 Letzte Position</b><br>${point.timestampLocal || point.timestampUtc}<br>±${Math.round(point.accuracyM)}m &nbsp; ${point.source || ''}`)
+          .addTo(pointsLayer);
+        return;
+      }
+      const marker = L.circleMarker([point.lat, point.lon], {
+        radius: 3.5,
+        color: '#1a5fa8',
+        weight: 0.5,
+        fillColor: '#0A84FF',
+        fillOpacity: 0.72,
+        renderer: canvasRenderer
+      }).bindPopup(`<b>GPS-Punkt</b><br>${point.timestampLocal || point.timestampUtc}<br>±${Math.round(point.accuracyM)}m &nbsp; ${point.source || ''}`);
+      if (points.length > CLUSTER_THRESHOLD) markerClusterGroup.addLayer(marker);
+      else marker.addTo(pointsLayer);
+    });
+  }
+
+  function renderHeatmap(entries) {
+    if (!heatmapActive || !entries.length) return;
+    heatLayer.setLatLngs(entries);
+    if (!map.hasLayer(heatLayer)) heatLayer.addTo(map);
+  }
+
+  function renderPolylines(segments) {
+    if (!segments.length) return;
+    segments.forEach(segment => {
+      L.polyline(segment.coords, { color: segment.color, weight: 9, opacity: 0.12, lineCap: 'round', lineJoin: 'round', renderer: canvasRenderer, interactive: false }).addTo(polylineLayer);
+      L.polyline(segment.coords, { color: segment.color, weight: 4, opacity: 0.30, lineCap: 'round', lineJoin: 'round', renderer: canvasRenderer, interactive: false }).addTo(polylineLayer);
+      L.polyline(segment.coords, { color: segment.color, weight: 1.8, opacity: 0.92, lineCap: 'round', lineJoin: 'round', renderer: canvasRenderer })
+        .bindPopup(`Route · ${segment.pointsCount} Punkte<br>${segment.startLabel || ''} ${segment.endLabel ? `– ${segment.endLabel}` : ''}`)
+        .addTo(polylineLayer);
+      if (labelsActive && segment.startLabel) {
+        [[segment.startPoint, segment.startLabel], [segment.endPoint, segment.endLabel]].forEach(([coords, label]) => {
+          if (!label) return;
+          L.marker(coords, {
+            icon: L.divIcon({
+              className: '',
+              html: `<span style="background:${segment.color};color:#fff;font-size:0.65rem;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.4);">${label}</span>`,
+              iconAnchor: [0, 0]
+            }),
+            interactive: false
+          }).addTo(labelsLayer);
+        });
+      }
+    });
+  }
+
+  function renderAccuracy(entries) {
+    entries.forEach(item => {
+      L.circle([item.lat, item.lon], {
+        radius: item.radius,
+        color: '#0A84FF',
+        fillColor: '#0A84FF',
+        fillOpacity: 0.06,
+        weight: 1,
+        opacity: 0.35,
+        renderer: canvasRenderer
+      }).addTo(accuracyLayer);
+    });
+  }
+
+  function renderSpeed(entries) {
+    entries.forEach(item => {
+      L.polyline(item.coords, { color: item.color, weight: 6, opacity: 0.18, lineCap: 'round', renderer: canvasRenderer, interactive: false }).addTo(speedLayer);
+      L.polyline(item.coords, { color: item.color, weight: 2.5, opacity: 0.92, lineCap: 'round', renderer: canvasRenderer })
+        .bindPopup(`${item.kmh.toFixed(1)} km/h`)
+        .addTo(speedLayer);
+    });
+  }
+
+  function renderStops(entries) {
+    entries.forEach(stop => {
+      L.circle([stop.lat, stop.lon], {
+        radius: stop.radius,
+        color: '#BF5AF2',
+        fillColor: '#BF5AF2',
+        fillOpacity: 0.15,
+        weight: 2,
+        opacity: 0.6,
+        renderer: canvasRenderer
+      }).addTo(stopsLayer);
+      L.marker([stop.lat, stop.lon], {
+        icon: L.divIcon({
+          className: '',
+          html: `<div style="background:#BF5AF2;color:#fff;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:6px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.5);">⏱ ${stop.durationMin}min</div>`,
+          iconAnchor: [0, 0]
+        })
+      }).bindPopup(`<b>Stop</b><br>${stop.startLabel} – ${stop.endLabel}<br>${stop.durationMin} Minuten · ${stop.pointsCount} Punkte`).addTo(stopsLayer);
+    });
+  }
+
+  function renderDaytracks(entries) {
+    entries.forEach(daytrack => {
+      daytrack.segments.forEach(segment => {
+        L.polyline(segment, { color: daytrack.color, weight: 3, opacity: 0.85, renderer: canvasRenderer })
+          .bindPopup(`${daytrack.day} · ${daytrack.pointsCount} Punkte`)
+          .addTo(daytrackLayer);
+      });
+      L.marker(daytrack.labelPoint, {
+        icon: L.divIcon({
+          className: '',
+          html: `<span style="background:${daytrack.color};color:#fff;font-size:0.65rem;font-weight:700;padding:1px 5px;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,0.4);">${daytrack.day.slice(5)}</span>`,
+          iconAnchor: [0, 0]
+        }),
+        interactive: false
+      }).addTo(daytrackLayer);
+    });
+  }
+
+  function renderSnap(entries) {
+    entries.forEach(item => {
+      L.polyline(item.coords, { color: 'rgba(0,0,0,0.3)', weight: 7, opacity: 1, renderer: canvasRenderer, interactive: false }).addTo(snapLayer);
+      L.polyline(item.coords, { color: '#30D158', weight: 4, opacity: 0.95, renderer: canvasRenderer })
+        .bindPopup('Straßen-Snap (serverseitig vorbereitet)')
+        .addTo(snapLayer);
+    });
+  }
+
+  function renderMapPayload(data) {
+    clearRenderedLayers();
+    const layers = data.layers || {};
+    renderHeatmap(layers.heatmap || []);
+    renderPoints(layers.points || [], layers.latestPoint || null);
+    renderPolylines(layers.polylines || []);
+    renderAccuracy(layers.accuracy || []);
+    renderSpeed(layers.speed || []);
+    renderStops(layers.stops || []);
+    renderDaytracks(layers.daytracks || []);
+    renderSnap(layers.snap || []);
+
+    const latest = layers.latestPoint;
+    const autoCenter = document.getElementById('auto-center-toggle').checked;
+    const fitBounds = document.getElementById('fit-bounds-toggle').checked;
+    if (fitBounds) {
+      const boundsPoints = [];
+      (layers.points || []).forEach(point => boundsPoints.push([point.lat, point.lon]));
+      if (!boundsPoints.length && latest) boundsPoints.push([latest.lat, latest.lon]);
+      if (boundsPoints.length) map.fitBounds(L.latLngBounds(boundsPoints), { padding: [50, 50], animate: true });
+    } else if (autoCenter && latest) {
+      map.setView([latest.lat, latest.lon], 18, { animate: true });
+    }
+  }
+
+  function updateStatistics(stats, meta) {
+    document.getElementById('stat-points-per-min').innerText = (stats.pointsPerMinute || 0).toFixed(1);
+    document.getElementById('stat-avg-accuracy').innerText = stats.avgAccuracyM ? `${Math.round(stats.avgAccuracyM)}m` : '-';
+    document.getElementById('stat-visible-points').innerText = (meta.visiblePoints || 0).toLocaleString('de-DE');
+    document.getElementById('stat-total-points').innerText = (meta.totalPoints || 0).toLocaleString('de-DE');
+    document.getElementById('stat-session-duration').innerText = formatDuration(stats.sessionDurationSeconds || 0);
+    document.getElementById('stat-zoom-level').innerText = map ? map.getZoom() : '-';
+  }
+
+  function renderLog(items) {
+    currentLogItems = items || [];
+    const body = document.getElementById('live-log-body');
+    body.innerHTML = '';
+    const limit = Math.max(1, parseInt(document.getElementById('log-limit').value, 10) || 100);
+    const query = document.getElementById('log-search').value.toLowerCase().trim();
+    const filtered = currentLogItems.filter(item => {
+      if (!query) return true;
+      const haystack = `${item.lat.toFixed(5)} ${item.lon.toFixed(5)} ${item.timestampLocal} ${item.requestId}`.toLowerCase();
+      return haystack.includes(query);
+    }).slice(0, limit);
+
+    if (!filtered.length) {
+      body.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 60px; color: var(--text-3); font-size: 0.95rem;">Keine Punkte im aktuellen Filter.</td></tr>';
       return;
     }
 
-    // Points per minute (based on last 100 points)
-    let ppm = '0';
-    try {
-      if (points.length >= 2) {
-        const recentPoints = points.slice(0, Math.min(100, points.length));
-        const newestTime = new Date(recentPoints[0].point_timestamp_utc).getTime();
-        const oldestTime = new Date(recentPoints[recentPoints.length - 1].point_timestamp_utc).getTime();
-        const elapsedMs = newestTime - oldestTime;
-        const elapsedMins = elapsedMs / 60000;
-        if (elapsedMins > 0) {
-          ppm = (recentPoints.length / elapsedMins).toFixed(1);
-        } else {
-          ppm = recentPoints.length > 1 ? '∞' : '0';
-        }
-      }
-    } catch (e) {
-      console.warn('Error calculating ppm:', e);
-      ppm = '0';
-    }
-    document.getElementById('stat-points-per-min').innerText = ppm;
-
-    // Average accuracy
-    const avgAcc = points.reduce((sum, p) => sum + (p.horizontal_accuracy_m || 0), 0) / points.length;
-    document.getElementById('stat-avg-accuracy').innerText = isFinite(avgAcc) ? avgAcc.toFixed(0) + 'm' : '-';
-
-    // Visible points
-    document.getElementById('stat-visible-points').innerText = points.length;
-
-    // Total points
-    document.getElementById('stat-total-points').innerText = totalPoints || points.length;
-
-    // Session duration
-    const now = Date.now();
-    const durationMs = now - sessionStartTime;
-    const hours = Math.floor(durationMs / 3600000);
-    const minutes = Math.floor((durationMs % 3600000) / 60000);
-    document.getElementById('stat-session-duration').innerText = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
-
-    // Zoom level
-    if (map) {
-      document.getElementById('stat-zoom-level').innerText = map.getZoom();
-    }
-
+    filtered.forEach(item => {
+      const row = document.createElement('tr');
+      row.style.borderBottom = '1px solid var(--surface-2)';
+      const coordText = `${item.lat.toFixed(5)}, ${item.lon.toFixed(5)}`;
+      const timeText = new Date(item.timestampLocal).toLocaleTimeString('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      row.innerHTML = `
+        <td style="padding: 14px 10px; color: var(--text-2); font-size: 0.9rem;"><span style="color: var(--text-3);">${getRelativeTime(item.timestampLocal)}</span> • ${timeText}</td>
+        <td style="padding: 14px 10px; color: var(--blue); cursor: pointer; user-select: none; border-radius: 4px; font-weight: 500;" title="Klicken zum Kopieren">${coordText}</td>
+        <td class="log-col-accuracy" style="padding: 14px 10px; color: var(--mint); font-weight: 500;">${item.accuracyM}m</td>
+        <td style="padding: 14px 10px; color: var(--orange); font-size: 0.9rem;">${item.source || 'N/A'}</td>
+        <td class="log-col-mode" style="padding: 14px 10px; color: var(--teal); font-size: 0.85rem;">${item.captureMode || 'N/A'}</td>
+        <td class="log-col-request-id" style="padding: 14px 10px; color: var(--text-3); font-size: 0.8rem; font-family: monospace;" title="${item.requestId || 'N/A'}">${(item.requestId || 'N/A').substring(0, 12)}</td>
+      `;
+      const coordCell = row.querySelector('td:nth-child(2)');
+      coordCell.onclick = async (event) => {
+        event.stopPropagation();
+        await navigator.clipboard.writeText(coordText);
+        const original = coordCell.style.backgroundColor;
+        coordCell.style.backgroundColor = 'rgba(16, 185, 129, 0.3)';
+        setTimeout(() => { coordCell.style.backgroundColor = original; }, 300);
+      };
+      body.appendChild(row);
+    });
   }
 
-  function initMap() {
-    map = L.map('map-container').setView([52.52, 13.405], 10);
+  function updateTraffic(bytes, mbps) {
+    document.getElementById('mbar-mbps').textContent = mbps.toFixed(2);
+    const today = new Date().toISOString().slice(0, 10);
+    const storedDate = localStorage.getItem('map-traffic-date');
+    let dailyBytes = storedDate === today ? (parseInt(localStorage.getItem('map-traffic-bytes')) || 0) : 0;
+    dailyBytes += bytes;
+    localStorage.setItem('map-traffic-date', today);
+    localStorage.setItem('map-traffic-bytes', dailyBytes);
+    const mb = dailyBytes / 1024 / 1024;
+    document.getElementById('mbar-daily').textContent = mb >= 1 ? `${mb.toFixed(1)} MB` : `${(dailyBytes / 1024).toFixed(0)} KB`;
+  }
 
-    const osmUrl = darkMode
-      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-      : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-
-    canvasRenderer = L.canvas({ padding: 0.5 });
-    tileLayer = L.tileLayer(osmUrl, { maxZoom: 19, attribution: '© OpenStreetMap & CartoDB' }).addTo(map);
-    pathLayer = L.featureGroup().addTo(map);
-    markerClusterGroup = L.markerClusterGroup({ chunkedLoading: true }).addTo(map);
-    polylineLayer = L.featureGroup().addTo(map);
-    pointsLayer   = L.featureGroup().addTo(map);
-    accuracyLayer = L.featureGroup().addTo(map);
-    labelsLayer   = L.featureGroup().addTo(map);
-    speedLayer    = L.featureGroup().addTo(map);
-    stopsLayer    = L.featureGroup().addTo(map);
-    daytrackLayer = L.featureGroup().addTo(map);
-    snapLayer     = L.featureGroup().addTo(map);
-    heatLayer = L.heatLayer([], {
-      radius: 14, blur: 12, maxZoom: 19, minOpacity: 0.25, max: 1.0,
-      gradient: {
-        0.00: 'rgba(0,100,255,0)',
-        0.15: 'rgba(0,100,255,0.6)',
-        0.35: '#0A84FF',
-        0.55: '#30D158',
-        0.72: '#FF9F0A',
-        0.88: '#FF453A',
-        1.00: '#FFD60A'
-      }
-    });
-    // Zoom-adaptiver Radius: bei hohem Zoom feinere Darstellung
-    map.on('zoomend', () => {
-      if (!heatmapActive) return;
-      const z = map.getZoom();
-      const r = z <= 8 ? 18 : z <= 11 ? 14 : z <= 14 ? 10 : z <= 16 ? 7 : 5;
-      const b = Math.round(r * 0.75);
-      heatLayer.setOptions({ radius: r, blur: b });
-    });
-
-    L.control.scale().addTo(map);
-
-    // Sofort Größe neu berechnen + ResizeObserver für dynamische Anpassungen
-    map.invalidateSize(false);
-
-    const mapContainer = document.getElementById('map-container');
-    const resizeObserver = new ResizeObserver(() => {
-      if (map) {
-        map.invalidateSize(false);
-      }
-    });
-    resizeObserver.observe(mapContainer);
-
-    // Eingabefelder mit gespeicherten Werten befüllen
-    document.getElementById('map-max-points').value    = MAP_MAX_POINTS;
-    document.getElementById('route-time-gap').value    = ROUTE_TIME_GAP;
-    document.getElementById('route-dist-gap').value    = ROUTE_DIST_GAP;
-    document.getElementById('stop-min-duration').value = STOP_MIN_DUR;
-    document.getElementById('stop-radius').value       = STOP_RADIUS_M;
-    // Polling-Interval korrekt vorauswählen
-    const piSel = document.getElementById('polling-interval');
-    piSel.value = String(POLLING_INTERVAL);
-    if (!piSel.value) piSel.value = '5000'; // Fallback falls gespeicherter Wert nicht in Liste
-
-    updateLegend();
-    updateMap();
-    updateInterval = setInterval(updateMap, POLLING_INTERVAL);
-    barTickTimer = setInterval(tickRefreshBar, 1000);
-
-    // Polling Interval Handler
-    document.getElementById('polling-interval').onchange = (e) => {
-      POLLING_INTERVAL = parseInt(e.target.value);
-      localStorage.setItem('map-polling-interval', POLLING_INTERVAL);
-      clearInterval(updateInterval);
-      updateInterval = setInterval(updateMap, POLLING_INTERVAL);
-      nextRefreshTime = Date.now() + POLLING_INTERVAL;
-      tickRefreshBar();
-    };
-
-    // Max-Punkte + Segmentierungs-Werte speichern
-    document.getElementById('map-max-points').onchange = (e) => {
-      MAP_MAX_POINTS = parseInt(e.target.value) || 5000;
-      localStorage.setItem('map-max-points', MAP_MAX_POINTS);
-    };
-    document.getElementById('route-time-gap').onchange = (e) => {
-      ROUTE_TIME_GAP = parseInt(e.target.value) || 5;
-      localStorage.setItem('map-route-time-gap', ROUTE_TIME_GAP);
-      debounce(updateMap, 500)();
-    };
-    document.getElementById('route-dist-gap').onchange = (e) => {
-      ROUTE_DIST_GAP = parseInt(e.target.value) || 300;
-      localStorage.setItem('map-route-dist-gap', ROUTE_DIST_GAP);
-      debounce(updateMap, 500)();
-    };
-    document.getElementById('stop-min-duration').onchange = (e) => {
-      STOP_MIN_DUR = parseInt(e.target.value) || 5;
-      localStorage.setItem('map-stop-min-dur', STOP_MIN_DUR);
-      if (stopsActive) debounce(updateMap, 500)();
-    };
-    document.getElementById('stop-radius').onchange = (e) => {
-      STOP_RADIUS_M = parseInt(e.target.value) || 100;
-      localStorage.setItem('map-stop-radius', STOP_RADIUS_M);
-      if (stopsActive) debounce(updateMap, 500)();
-    };
+  function tickRefreshBar() {
+    if (!lastRefreshTime) return;
+    const now = Date.now();
+    const agoSec = Math.round((now - lastRefreshTime) / 1000);
+    const remMs = nextRefreshTime ? Math.max(0, nextRefreshTime - now) : null;
+    const remSec = remMs !== null ? Math.ceil(remMs / 1000) : null;
+    document.getElementById('mbar-ago').textContent = agoSec === 0 ? 'gerade eben' : `vor ${agoSec}s`;
+    document.getElementById('mbar-next').textContent = remSec !== null ? (remSec <= 0 ? 'jetzt…' : `in ${remSec}s`) : '—';
+    const pct = (remMs !== null && POLLING_INTERVAL > 0) ? Math.max(0, Math.min(100, 100 - (remMs / POLLING_INTERVAL * 100))) : 0;
+    document.getElementById('mbar-progress').style.width = `${pct}%`;
   }
 
   async function updateMap() {
-    const range = document.getElementById('time-range-select').value;
-    // Direkt aus sichtbaren Dropdowns lesen — kein Hidden-Element nötig
-    const sessionActive = document.getElementById('session-filter-toggle').checked;
-    const importActive  = document.getElementById('import-filter-toggle').checked;
-    const sessionId = sessionActive ? document.getElementById('session-select-dropdown').value
-                    : importActive  ? document.getElementById('import-select-dropdown').value
-                    : '';
-    const stats = document.getElementById('map-stats-text');
+    const statsText = document.getElementById('map-stats-text');
     const badge = document.getElementById('map-points-badge');
-    const logBody = document.getElementById('live-log-body');
-    const logLimit = parseInt(document.getElementById('log-limit').value) || 50;
-    const autoCenter = document.getElementById('auto-center-toggle').checked;
     const apiStatus = document.getElementById('api-status');
-    const fitBounds = document.getElementById('fit-bounds-toggle').checked;
     const overlay = document.getElementById('map-loading-overlay');
-
-    const mapMaxPoints = parseInt(document.getElementById('map-max-points').value) || MAP_MAX_POINTS;
-    const pageSize = mapMaxPoints;
-    let url = `/api/points?page_size=${pageSize}`;
-    if (sessionId) url += `&session_id=${sessionId}`;
-
-    if (range !== 'all') {
-      const mins = {
-        '2m': 2, '5m': 5, '10m': 10, '15m': 15, '30m': 30, '45m': 45,
-        '1h': 60, '2h': 120, '4h': 240, '6h': 360, '8h': 480, '12h': 720, '18h': 1080, '24h': 1440,
-        '2d': 2880, '3d': 4320, '5d': 7200, '7d': 10080, '14d': 20160, '30d': 43200
-      }[range];
-      const from = new Date(Date.now() - mins * 60000).toISOString();
-      url += `&date_from=${encodeURIComponent(from)}`;
-    }
+    const params = buildCurrentFilters();
+    const url = `/api/map-data?${params.toString()}`;
 
     try {
       apiStatus.textContent = '● LADEN';
@@ -752,11 +901,10 @@
       currentFetchController = new AbortController();
       const fetchStart = Date.now();
       const headers = lastETag && !isManualRefresh ? { 'If-None-Match': lastETag } : {};
-      const res = await fetch(url, { credentials: 'same-origin', signal: currentFetchController.signal, headers });
+      const response = await fetch(url, { credentials: 'same-origin', signal: currentFetchController.signal, headers });
+      const fetchMs = Date.now() - fetchStart;
 
-      // 304 Not Modified: Daten unverändert → kein Re-Render nötig
-      if (res.status === 304) {
-        const fetchMs = Date.now() - fetchStart;
+      if (response.status === 304 && lastMapPayload) {
         overlay.style.display = 'none';
         apiStatus.textContent = '● ONLINE';
         apiStatus.style.color = 'var(--mint)';
@@ -764,627 +912,224 @@
         lastRefreshTime = Date.now();
         nextRefreshTime = Date.now() + POLLING_INTERVAL;
         isManualRefresh = false;
+        renderLog(currentLogItems);
         return;
       }
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      lastETag = res.headers.get('etag') || null;
-      const text = await res.text();
-      const fetchMs = Date.now() - fetchStart;
-      const data = JSON.parse(text);
-      // Traffic tracken
-      const fetchBytes = text.length;
-      const fetchMbps = fetchMs > 0 ? (fetchBytes / 1024 / 1024) / (fetchMs / 1000) : 0;
-      updateTraffic(fetchBytes, fetchMbps);
-      const points = data.points.items;
-      lastLoadedPoints = points || [];
-      lastApiStatus = 'online';
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      lastETag = response.headers.get('etag') || null;
+      const text = await response.text();
+      const payload = JSON.parse(text);
+      lastMapPayload = payload;
       overlay.style.display = 'none';
       isManualRefresh = false;
       lastRefreshTime = Date.now();
       nextRefreshTime = Date.now() + POLLING_INTERVAL;
+      updateTraffic(text.length, fetchMs > 0 ? (text.length / 1024 / 1024) / (fetchMs / 1000) : 0);
       tickRefreshBar();
-      // API-Info-Zeilen aktualisieren
-      document.getElementById('api-info-points').textContent = `${(points || []).length.toLocaleString('de-DE')} / ${(data.points.total || 0).toLocaleString('de-DE')} gesamt`;
+
+      renderMapPayload(payload);
+      updateStatistics(payload.stats || {}, payload.meta || {});
+      renderLog(payload.logItems || []);
+
+      const visible = payload.meta?.visiblePoints || 0;
+      const total = payload.meta?.totalPoints || 0;
+      statsText.innerText = visible ? `${total.toLocaleString('de-DE')} Punkte gesamt · ${visible.toLocaleString('de-DE')} im geladenen Kartenmodell` : 'Keine Punkte im gewählten Zeitraum.';
+      badge.textContent = `${visible.toLocaleString('de-DE')} geladen`;
+      badge.style.display = visible ? 'inline' : 'none';
+      document.getElementById('api-info-points').textContent = `${visible.toLocaleString('de-DE')} / ${total.toLocaleString('de-DE')} gesamt`;
       document.getElementById('api-info-ms').textContent = `${fetchMs} ms`;
-      const shortUrl = url.length > 48 ? url.slice(0, 48) + '…' : url;
-      document.getElementById('api-info-url').textContent = shortUrl;
-      
-      // === MAP UPDATE ===
-      pathLayer.clearLayers();
-      markerClusterGroup.clearLayers();
-
-      // === HEATMAP UPDATE ===
-      if (heatmapActive && points && points.length > 0) {
-        const heatData = points.map(p => {
-          // Gewicht: genauere Punkte (kleine accuracy) → stärker; max 1.0
-          const acc = p.horizontal_accuracy_m;
-          const w = (acc > 0 && acc < 500) ? Math.min(1.0, 30 / acc) : 0.4;
-          return [p.latitude, p.longitude, w];
-        });
-        heatLayer.setLatLngs(heatData);
-        if (!map.hasLayer(heatLayer)) heatLayer.addTo(map);
-      } else {
-        if (map.hasLayer(heatLayer)) map.removeLayer(heatLayer);
-      }
-      
-      // === PUNKTE & POLYLINIEN & EXTRA-LAYER ===
-      pointsLayer.clearLayers();
-      polylineLayer.clearLayers();
-      markerClusterGroup.clearLayers();
-      accuracyLayer.clearLayers();
-      labelsLayer.clearLayers();
-      speedLayer.clearLayers();
-      stopsLayer.clearLayers();
-      daytrackLayer.clearLayers();
-      snapLayer.clearLayers();
-
-      if (points && points.length > 0) {
-        // ISO-String-Vergleich: schneller als new Date() für Sortierung
-        const sorted = [...points].sort((a, b) =>
-          a.point_timestamp_utc < b.point_timestamp_utc ? -1 : 1
-        );
-        const last = points[0]; // API liefert DESC
-
-        // Haversine-Distanz (Meter) — wird von mehreren Layern genutzt
-        function haversine(a, b) {
-          const R = 6371000, rad = Math.PI / 180;
-          const dLat = (b.latitude  - a.latitude)  * rad;
-          const dLon = (b.longitude - a.longitude) * rad;
-          const s = Math.sin(dLat/2)**2 + Math.cos(a.latitude*rad)*Math.cos(b.latitude*rad)*Math.sin(dLon/2)**2;
-          return 2 * R * Math.asin(Math.sqrt(s));
-        }
-
-        // === CHAIKIN-GLÄTTUNG (reduziert GPS-Rauschen optisch) ===
-        function chaikin(coords, iterations = 2) {
-          let pts = coords;
-          for (let it = 0; it < iterations; it++) {
-            const out = [pts[0]];
-            for (let i = 0; i < pts.length - 1; i++) {
-              const [x0, y0] = pts[i], [x1, y1] = pts[i+1];
-              out.push([x0*0.75 + x1*0.25, y0*0.75 + y1*0.25]);
-              out.push([x0*0.25 + x1*0.75, y0*0.25 + y1*0.75]);
-            }
-            out.push(pts[pts.length - 1]);
-            pts = out;
-          }
-          return pts;
-        }
-
-        // === PUNKTE-LAYER ===
-        if (pointsActive) {
-          sorted.forEach((p) => {
-            const isLast = p === last;
-            const idx = sorted.indexOf(p);
-            const ageFade = Math.max(0.35, 1 - (sorted.length - 1 - idx) / Math.max(sorted.length, 1) * 0.65);
-            if (isLast) {
-              // Sonar-Ping: divIcon mit CSS-Pulsanimation
-              const icon = L.divIcon({
-                className: '',
-                html: `<div class="sonar-wrap">
-                  <div class="sonar-ring"></div>
-                  <div class="sonar-ring sonar-ring-2"></div>
-                  <div class="sonar-dot"></div>
-                </div>`,
-                iconSize: [24, 24],
-                iconAnchor: [12, 12]
-              });
-              L.marker([p.latitude, p.longitude], { icon, zIndexOffset: 1000 })
-                .bindPopup(`<b>📍 Letzte Position</b><br>${p.point_timestamp_local || p.point_timestamp_utc}<br>±${Math.round(p.horizontal_accuracy_m)}m &nbsp; ${p.source || ''}`)
-                .addTo(pointsLayer);
-            } else {
-              const marker = L.circleMarker([p.latitude, p.longitude], {
-                radius: 3.5, color: '#1a5fa8', weight: 0.5,
-                fillColor: '#0A84FF', fillOpacity: ageFade * 0.8, renderer: canvasRenderer
-              }).bindPopup(
-                `<b>GPS-Punkt</b><br>${p.point_timestamp_local || p.point_timestamp_utc}<br>±${Math.round(p.horizontal_accuracy_m)}m &nbsp; ${p.source || ''}`
-              );
-              if (sorted.length > CLUSTER_THRESHOLD) markerClusterGroup.addLayer(marker);
-              else marker.addTo(pointsLayer);
-            }
-          });
-        }
-
-        // === POLYLINIEN-LAYER (Routen-Segmentierung) ===
-        if (polylineActive) {
-          const timeGapMs  = (parseInt(document.getElementById('route-time-gap').value) || ROUTE_TIME_GAP) * 60000;
-          const distGapM   =  parseInt(document.getElementById('route-dist-gap').value) || ROUTE_DIST_GAP;
-
-          // Segmente schneiden
-          const segments = [];
-          let seg = [sorted[0]];
-          for (let i = 1; i < sorted.length; i++) {
-            const prev = sorted[i-1], cur = sorted[i];
-            const tGap = new Date(cur.point_timestamp_utc) - new Date(prev.point_timestamp_utc);
-            const dGap = haversine(prev, cur);
-            if (tGap > timeGapMs || dGap > distGapM) {
-              if (seg.length > 1) segments.push(seg);
-              seg = [];
-            }
-            seg.push(cur);
-          }
-          if (seg.length > 1) segments.push(seg);
-
-          const palette = ['#0A84FF','#30D158','#FF9F0A','#BF5AF2','#5AC8FA','#FF453A'];
-          segments.forEach((s, i) => {
-            const color = palette[i % palette.length];
-            const rawCoords = s.map(p => [p.latitude, p.longitude]);
-            // Chaikin nur bei kurzen Segmenten sinnvoll (Performance)
-            const coords = rawCoords.length <= 800 ? chaikin(rawCoords, 2) : rawCoords;
-            // Neon-Glow: 3 gestapelte Polylines (Halo → Kern → Linie)
-            L.polyline(coords, { color, weight: 9,   opacity: 0.12, lineCap: 'round', lineJoin: 'round', renderer: canvasRenderer, interactive: false }).addTo(polylineLayer);
-            L.polyline(coords, { color, weight: 4,   opacity: 0.30, lineCap: 'round', lineJoin: 'round', renderer: canvasRenderer, interactive: false }).addTo(polylineLayer);
-            L.polyline(coords, { color, weight: 1.8, opacity: 0.92, lineCap: 'round', lineJoin: 'round', renderer: canvasRenderer }).bindPopup(
-              `Route ${i+1} · ${s.length} Punkte<br>` +
-              `${s[0].point_timestamp_local?.slice(11,16) || ''} – ${s[s.length-1].point_timestamp_local?.slice(11,16) || ''}`
-            ).addTo(polylineLayer);
-
-            // === LABELS-LAYER: Uhrzeit am Start und Ende jedes Segments ===
-            if (labelsActive) {
-              [s[0], s[s.length - 1]].forEach((pt, idx) => {
-                const t = (pt.point_timestamp_local || pt.point_timestamp_utc || '').slice(11, 16);
-                if (!t) return;
-                L.marker([pt.latitude, pt.longitude], {
-                  icon: L.divIcon({
-                    className: '',
-                    html: `<span style="background:${color};color:#fff;font-size:0.65rem;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.4);">${t}</span>`,
-                    iconAnchor: [0, 0]
-                  }),
-                  interactive: false
-                }).addTo(labelsLayer);
-              });
-            }
-          });
-        }
-
-        // === ACCURACY-LAYER: Genauigkeitskreis um jeden Punkt (max. 300) ===
-        if (accuracyActive) {
-          const accPoints = sorted.length > 300 ? sorted.slice(-300) : sorted;
-          accPoints.forEach(p => {
-            const r = p.horizontal_accuracy_m;
-            if (r > 0 && r < 5000) {
-              L.circle([p.latitude, p.longitude], {
-                radius: r, color: '#0A84FF', fillColor: '#0A84FF',
-                fillOpacity: 0.06, weight: 1, opacity: 0.35, renderer: canvasRenderer
-              }).addTo(accuracyLayer);
-            }
-          });
-        }
-
-        // === GESCHWINDIGKEITS-LAYER — fließender Gradient 0–300 km/h (3 km/h-Schritte) ===
-        if (speedActive && sorted.length >= 2) {
-          // HSL-Gradient: 0 km/h = blau (240°) → 300 km/h = rot (0°)
-          function speedColorGrad(kmh) {
-            if (kmh < 0) return 'hsl(220,12%,48%)'; // unbekannt → grau
-            const h = Math.round(240 - Math.min(300, kmh) / 300 * 240);
-            const l = kmh < 10 ? 55 : kmh > 250 ? 50 : 52;
-            return `hsl(${h},95%,${l}%)`;
-          }
-          const sp = sorted.length > 4000
-            ? sorted.filter((_, i) => i % Math.ceil(sorted.length / 4000) === 0)
-            : sorted;
-          for (let i = 1; i < sp.length; i++) {
-            const prev = sp[i-1], cur = sp[i];
-            const tSec = (new Date(cur.point_timestamp_utc) - new Date(prev.point_timestamp_utc)) / 1000;
-            const distM = haversine(prev, cur);
-            const kmh = tSec > 0 ? (distM / tSec) * 3.6 : -1;
-            if (kmh > 500) continue;
-            const color = speedColorGrad(kmh);
-            const coords = [[prev.latitude, prev.longitude], [cur.latitude, cur.longitude]];
-            L.polyline(coords, { color, weight: 6, opacity: 0.18, lineCap: 'round', renderer: canvasRenderer, interactive: false }).addTo(speedLayer);
-            L.polyline(coords, { color, weight: 2.5, opacity: 0.92, lineCap: 'round', renderer: canvasRenderer })
-              .bindPopup(`${kmh >= 0 ? kmh.toFixed(1) : '?'} km/h`).addTo(speedLayer);
-          }
-        }
-
-        // === STOP-ERKENNUNG ===
-        if (stopsActive) {
-          const minMs = STOP_MIN_DUR * 60000;
-          let i = 0;
-          while (i < sorted.length) {
-            const anchor = sorted[i];
-            let j = i + 1;
-            while (j < sorted.length && haversine(anchor, sorted[j]) <= STOP_RADIUS_M) j++;
-            const durMs = new Date(sorted[j-1].point_timestamp_utc) - new Date(anchor.point_timestamp_utc);
-            if (durMs >= minMs && j > i + 1) {
-              const midPt = sorted[Math.floor((i + j - 1) / 2)];
-              const durMin = Math.round(durMs / 60000);
-              const startT = anchor.point_timestamp_local?.slice(11,16) || '';
-              const endT   = sorted[j-1].point_timestamp_local?.slice(11,16) || '';
-              L.circle([midPt.latitude, midPt.longitude], {
-                radius: STOP_RADIUS_M, color: '#BF5AF2', fillColor: '#BF5AF2',
-                fillOpacity: 0.15, weight: 2, opacity: 0.6, renderer: canvasRenderer
-              }).addTo(stopsLayer);
-              L.marker([midPt.latitude, midPt.longitude], {
-                icon: L.divIcon({
-                  className: '',
-                  html: `<div style="background:#BF5AF2;color:#fff;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:6px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.5);">⏱ ${durMin}min</div>`,
-                  iconAnchor: [0, 0]
-                })
-              }).bindPopup(`<b>Stop</b><br>${startT} – ${endT}<br>${durMin} Minuten · ${j-i} Punkte`).addTo(stopsLayer);
-              i = j;
-            } else { i++; }
-          }
-        }
-
-        // === TAGES-TRACKS ===
-        if (daytrackActive) {
-          const dayPalette = ['#0A84FF','#30D158','#FF9F0A','#BF5AF2','#5AC8FA','#FF453A','#FFD60A','#FF6B6B','#4ECDC4','#95E77E'];
-          const byDay = {};
-          sorted.forEach(p => {
-            const day = (p.point_date_local || p.point_timestamp_utc || '').slice(0, 10);
-            if (!byDay[day]) byDay[day] = [];
-            byDay[day].push(p);
-          });
-          Object.entries(byDay).sort().forEach(([day, pts], idx) => {
-            const color = dayPalette[idx % dayPalette.length];
-            // Segmente innerhalb des Tages (gleiche Lückenlogik)
-            const tGapMs = ROUTE_TIME_GAP * 60000;
-            const segs = []; let seg = [pts[0]];
-            for (let k = 1; k < pts.length; k++) {
-              if (new Date(pts[k].point_timestamp_utc) - new Date(pts[k-1].point_timestamp_utc) > tGapMs) {
-                if (seg.length > 1) segs.push(seg); seg = [];
-              }
-              seg.push(pts[k]);
-            }
-            if (seg.length > 1) segs.push(seg);
-            segs.forEach(s => {
-              L.polyline(s.map(p => [p.latitude, p.longitude]), {
-                color, weight: 3, opacity: 0.85, renderer: canvasRenderer
-              }).bindPopup(`${day} · ${pts.length} Punkte`).addTo(daytrackLayer);
-            });
-            // Tages-Label am ersten Punkt
-            L.marker([pts[0].latitude, pts[0].longitude], {
-              icon: L.divIcon({
-                className: '',
-                html: `<span style="background:${color};color:#fff;font-size:0.65rem;font-weight:700;padding:1px 5px;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,0.4);">${day.slice(5)}</span>`,
-                iconAnchor: [0, 0]
-              }), interactive: false
-            }).addTo(daytrackLayer);
-          });
-        }
-
-        // === ROAD-SNAP (OSRM, async — startet nach Rest des Renders) ===
-        if (snapActive) buildSnapLayer(sorted);
-
-        // === BOUNDS / AUTOCENTRE ===
-        const allCoords = sorted.map(p => [p.latitude, p.longitude]);
-        if (fitBounds && allCoords.length > 0) {
-          map.fitBounds(L.latLngBounds(allCoords), {padding: [50, 50], animate: true});
-        } else if (autoCenter) {
-          map.setView([last.latitude, last.longitude], 18, {animate: true});
-        }
-        stats.innerText = `${data.points.total.toLocaleString('de-DE')} Punkte gesamt`;
-        badge.textContent = `${points.length.toLocaleString('de-DE')} geladen`;
-        badge.style.display = 'inline';
-      } else {
-        stats.innerText = 'Keine Punkte im gewählten Zeitraum.';
-        badge.style.display = 'none';
-      }
-
-      // === UPDATE STATS ===
-      updateStatistics(points, data.points.total);
-
-      // === LOG UPDATE ===
-      if (points && points.length > 0) {
-        if (knownPointIds.size === 0) logBody.innerHTML = '';
-
-        [...points].reverse().forEach((p) => {
-          if (!knownPointIds.has(p.id)) {
-            // Limit Size
-            if (knownPointIds.size >= MAX_LOG_LINES) {
-              const firstRow = logBody.lastChild;
-              if (firstRow) logBody.removeChild(firstRow);
-              knownPointIds.delete([...knownPointIds][0]);
-            }
-            
-            knownPointIds.add(p.id);
-            const row = document.createElement('tr');
-            row.style.borderBottom = '1px solid var(--surface-2)';
-            row.dataset.lat = p.latitude.toFixed(5);
-            row.dataset.lon = p.longitude.toFixed(5);
-            row.dataset.time = p.point_timestamp_local;
-            row.dataset.accuracy = p.horizontal_accuracy_m;
-
-            const coordText = `${p.latitude.toFixed(5)}, ${p.longitude.toFixed(5)}`;
-            const requestIdShort = (p.request_id || 'N/A').substring(0, 12);
-            const relTime = getRelativeTime(p.point_timestamp_local);
-            const berlinTime = new Date(p.point_timestamp_local).toLocaleTimeString('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-            row.innerHTML = `
-              <td style="padding: 14px 10px; color: var(--text-2); font-size: 0.9rem;"><span style="color: var(--text-3);">${relTime}</span> • ${berlinTime}</td>
-              <td style="padding: 14px 10px; color: var(--blue); cursor: pointer; user-select: none; border-radius: 4px; font-weight: 500;" title="Klicken zum Kopieren">${coordText}</td>
-              <td class="log-col-accuracy" style="padding: 14px 10px; color: var(--mint); font-weight: 500;">${p.horizontal_accuracy_m}m</td>
-              <td style="padding: 14px 10px; color: var(--orange); font-size: 0.9rem;">${p.source || 'N/A'}</td>
-              <td class="log-col-mode" style="padding: 14px 10px; color: var(--teal); font-size: 0.85rem;">${p.capture_mode || 'N/A'}</td>
-              <td class="log-col-request-id" style="padding: 14px 10px; color: var(--text-3); font-size: 0.8rem; font-family: monospace;" title="${p.request_id || 'N/A'}">${requestIdShort}</td>
-            `;
-
-            // Copy-to-clipboard handler for coordinates
-            const coordCell = row.querySelector('td:nth-child(2)');
-            coordCell.onclick = (e) => {
-              e.stopPropagation();
-              navigator.clipboard.writeText(coordText).then(() => {
-                const origBg = coordCell.style.backgroundColor;
-                coordCell.style.backgroundColor = 'rgba(16, 185, 129, 0.3)';
-                coordCell.style.transition = 'background-color 0.2s';
-                setTimeout(() => {
-                  coordCell.style.backgroundColor = origBg;
-                }, 300);
-              });
-            };
-
-            logBody.insertBefore(row, logBody.firstChild);
-          }
-        });
-        
-        filterLog();
-        // Keep logLimit rows visible, remove from bottom if too many
-        while (logBody.children.length > logLimit) {
-          logBody.removeChild(logBody.lastChild);
-        }
-      }
-      
+      document.getElementById('api-info-url').textContent = url.length > 48 ? `${url.slice(0, 48)}…` : url;
       apiStatus.textContent = '● ONLINE';
       apiStatus.style.color = 'var(--mint)';
-    } catch (e) {
-      if (e.name === 'AbortError') return; // Abgebrochener Fetch — kein Fehler anzeigen
-      console.error('Map update error:', e);
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+      console.error('Map update error:', error);
       overlay.style.display = 'none';
-      stats.innerText = 'Fehler beim Laden der Kartendaten.';
-      stats.style.color = 'var(--c-crit)';
+      statsText.innerText = 'Fehler beim Laden der Kartendaten.';
+      statsText.style.color = 'var(--c-crit)';
       apiStatus.textContent = '● FEHLER';
       apiStatus.style.color = '#ef4444';
-      lastApiStatus = 'offline';
     } finally {
       document.getElementById('btn-text').style.display = 'inline';
       document.getElementById('btn-spinner').style.display = 'none';
     }
   }
 
-  // === RELATIVE TIME ===
-  function getRelativeTime(timestamp) {
-    const now = new Date();
-    const logTime = new Date(timestamp);
-    const diffMs = now - logTime;
+  const debouncedMapRefresh = debounce(() => {
+    lastETag = null;
+    updateMap();
+  }, FILTER_DEBOUNCE);
 
-    if (diffMs < 1000) return 'jetzt';
-    if (diffMs < 60000) return `vor ${Math.floor(diffMs / 1000)}s`;
-    if (diffMs < 3600000) return `vor ${Math.floor(diffMs / 60000)}m`;
-    if (diffMs < 86400000) return `vor ${Math.floor(diffMs / 3600000)}h`;
-    return `vor ${Math.floor(diffMs / 86400000)}d`;
-  }
+  function initMap() {
+    MAP_MAX_POINTS = clampMapMaxPoints(MAP_MAX_POINTS);
+    map = L.map('map-container').setView([52.52, 13.405], 10);
+    canvasRenderer = L.canvas({ padding: 0.5 });
 
-  // === OSRM ROAD-SNAP ===
-  async function snapSegment(pts) {
-    const max = 80;
-    const step = pts.length > max ? Math.ceil(pts.length / max) : 1;
-    const sampled = pts.filter((_, i) => i % step === 0);
-    if (sampled.length < 2) return null;
-    const coords = sampled.map(p => `${p.longitude.toFixed(6)},${p.latitude.toFixed(6)}`).join(';');
-    const ts = sampled.map(p => Math.floor(new Date(p.point_timestamp_utc).getTime() / 1000));
-    // Streng monoton steigend
-    for (let i = 1; i < ts.length; i++) if (ts[i] <= ts[i-1]) ts[i] = ts[i-1] + 1;
-    const radii = sampled.map(() => '50').join(';');
-    const url = `https://router.project-osrm.org/match/v1/driving/${coords}?overview=full&geometries=geojson&timestamps=${ts.join(';')}&radiuses=${radii}`;
-    try {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 6000);
-      const res = await fetch(url, { signal: ctrl.signal });
-      clearTimeout(t);
-      if (!res.ok) return null;
-      const d = await res.json();
-      if (d.code !== 'Ok' || !d.matchings?.length) return null;
-      return d.matchings.flatMap(m => m.geometry.coordinates.map(([lon, lat]) => [lat, lon]));
-    } catch { return null; }
-  }
-
-  async function buildSnapLayer(sorted) {
-    snapLayer.clearLayers();
-    const apiStatus = document.getElementById('api-status');
-    apiStatus.textContent = '● SNAP…';
-    apiStatus.style.color = 'var(--teal)';
-    // Segmentierung
-    const tGapMs = ROUTE_TIME_GAP * 60000;
-    const dGapM  = ROUTE_DIST_GAP;
-    const segments = []; let seg = [sorted[0]];
-    function hav(a, b) {
-      const R = 6371000, r = Math.PI/180, dLat = (b.latitude-a.latitude)*r, dLon = (b.longitude-a.longitude)*r;
-      return 2*R*Math.asin(Math.sqrt(Math.sin(dLat/2)**2+Math.cos(a.latitude*r)*Math.cos(b.latitude*r)*Math.sin(dLon/2)**2));
-    }
-    for (let i = 1; i < sorted.length; i++) {
-      const p = sorted[i-1], c = sorted[i];
-      if ((new Date(c.point_timestamp_utc)-new Date(p.point_timestamp_utc)) > tGapMs || hav(p,c) > dGapM) {
-        if (seg.length > 1) segments.push(seg); seg = [];
-      }
-      seg.push(c);
-    }
-    if (seg.length > 1) segments.push(seg);
-    // Max 10 Segmente snappen
-    const toSnap = segments.slice(0, 10);
-    // Max 3 gleichzeitig
-    for (let i = 0; i < toSnap.length; i += 3) {
-      const batch = toSnap.slice(i, i + 3);
-      const results = await Promise.all(batch.map(snapSegment));
-      results.forEach(coords => {
-        if (!coords) return;
-        L.polyline(coords, { color: 'rgba(0,0,0,0.3)', weight: 7, opacity: 1, renderer: canvasRenderer, interactive: false }).addTo(snapLayer);
-        L.polyline(coords, { color: '#30D158', weight: 4, opacity: 0.95, renderer: canvasRenderer })
-          .bindPopup('Straßen-Snap (OSRM)').addTo(snapLayer);
-      });
-    }
-    apiStatus.textContent = '● ONLINE';
-    apiStatus.style.color = 'var(--mint)';
-  }
-
-  function updateLegend() {
-    document.getElementById('legend-points').style.display    = pointsActive   ? '' : 'none';
-    document.getElementById('legend-lines').style.display     = polylineActive ? '' : 'none';
-    document.getElementById('legend-heatmap').style.display   = heatmapActive  ? '' : 'none';
-    document.getElementById('legend-accuracy').style.display  = accuracyActive ? '' : 'none';
-    document.getElementById('legend-labels').style.display    = labelsActive   ? '' : 'none';
-    document.getElementById('legend-speed').style.display     = speedActive    ? '' : 'none';
-    document.getElementById('legend-stops').style.display     = stopsActive    ? '' : 'none';
-    document.getElementById('legend-daytrack').style.display  = daytrackActive ? '' : 'none';
-    document.getElementById('legend-snap').style.display      = snapActive     ? '' : 'none';
-    const anyActive = pointsActive || polylineActive || heatmapActive || accuracyActive || labelsActive || speedActive || stopsActive || daytrackActive || snapActive;
-    document.getElementById('map-legend').style.display = anyActive ? 'flex' : 'none';
-  }
-
-  function updateTraffic(bytes, mbps) {
-    // MB/s anzeigen
-    document.getElementById('mbar-mbps').textContent = mbps.toFixed(2);
-    // Tages-Summe (localStorage, reset bei Datumsänderung)
-    const today = new Date().toISOString().slice(0, 10);
-    const storedDate  = localStorage.getItem('map-traffic-date');
-    let dailyBytes = storedDate === today ? (parseInt(localStorage.getItem('map-traffic-bytes')) || 0) : 0;
-    dailyBytes += bytes;
-    localStorage.setItem('map-traffic-date',  today);
-    localStorage.setItem('map-traffic-bytes', dailyBytes);
-    const mb = dailyBytes / 1024 / 1024;
-    document.getElementById('mbar-daily').textContent = mb >= 1 ? mb.toFixed(1) + ' MB' : (dailyBytes / 1024).toFixed(0) + ' KB';
-  }
-
-  function tickRefreshBar() {
-    if (!lastRefreshTime) return;
-    const now = Date.now();
-    const agoSec = Math.round((now - lastRefreshTime) / 1000);
-    const remMs  = nextRefreshTime ? Math.max(0, nextRefreshTime - now) : null;
-    const remSec = remMs !== null ? Math.ceil(remMs / 1000) : null;
-
-    document.getElementById('mbar-ago').textContent  = agoSec === 0 ? 'gerade eben' : `vor ${agoSec}s`;
-    document.getElementById('mbar-next').textContent = remSec !== null
-      ? (remSec <= 0 ? 'jetzt…' : `in ${remSec}s`) : '—';
-
-    const pct = (remMs !== null && POLLING_INTERVAL > 0)
-      ? Math.max(0, Math.min(100, 100 - (remMs / POLLING_INTERVAL * 100))) : 0;
-    document.getElementById('mbar-progress').style.width = pct + '%';
-  }
-
-  function filterLog() {
-    const query = document.getElementById('log-search').value.toLowerCase();
-    const rows = document.getElementById('live-log-body').querySelectorAll('tr');
-
-    rows.forEach(row => {
-      if (!query) {
-        row.style.display = '';
-        return;
-      }
-      const lat = row.dataset.lat || '';
-      const lon = row.dataset.lon || '';
-      const time = row.dataset.time || '';
-      const match = lat.includes(query) || lon.includes(query) || time.includes(query);
-      row.style.display = match ? '' : 'none';
+    const tileUrl = darkMode
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+      : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    tileLayer = L.tileLayer(tileUrl, { maxZoom: 19, attribution: '© OpenStreetMap & CartoDB' }).addTo(map);
+    markerClusterGroup = L.markerClusterGroup({ chunkedLoading: true }).addTo(map);
+    pointsLayer = L.featureGroup().addTo(map);
+    polylineLayer = L.featureGroup().addTo(map);
+    accuracyLayer = L.featureGroup().addTo(map);
+    labelsLayer = L.featureGroup().addTo(map);
+    speedLayer = L.featureGroup().addTo(map);
+    stopsLayer = L.featureGroup().addTo(map);
+    daytrackLayer = L.featureGroup().addTo(map);
+    snapLayer = L.featureGroup().addTo(map);
+    heatLayer = L.heatLayer([], {
+      radius: 14, blur: 12, maxZoom: 19, minOpacity: 0.25, max: 1.0,
+      gradient: { 0.00: 'rgba(0,100,255,0)', 0.15: 'rgba(0,100,255,0.6)', 0.35: '#0A84FF', 0.55: '#30D158', 0.72: '#FF9F0A', 0.88: '#FF453A', 1.00: '#FFD60A' }
     });
+
+    document.getElementById('map-max-points').max = String(MAP_CONFIG.pointsPageSizeMax || 2000);
+    document.getElementById('map-max-points').value = MAP_MAX_POINTS;
+    document.getElementById('route-time-gap').value = ROUTE_TIME_GAP;
+    document.getElementById('route-dist-gap').value = ROUTE_DIST_GAP;
+    document.getElementById('stop-min-duration').value = STOP_MIN_DUR;
+    document.getElementById('stop-radius').value = STOP_RADIUS_M;
+    document.getElementById('polling-interval').value = String(POLLING_INTERVAL);
+    document.getElementById('time-range-select').value = TIME_RANGE;
+    if (darkMode) {
+      document.getElementById('dark-mode-btn').textContent = '☀️';
+      document.getElementById('dark-mode-btn').title = 'Helle Karte';
+    }
+
+    const resizeObserver = new ResizeObserver(() => map.invalidateSize(false));
+    resizeObserver.observe(document.getElementById('map-container'));
+    L.control.scale().addTo(map);
+
+    updateLegend();
+    updateMap();
+    updateInterval = setInterval(updateMap, POLLING_INTERVAL);
+    barTickTimer = setInterval(tickRefreshBar, 1000);
   }
+
+  document.addEventListener('click', (event) => {
+    const ctrl = document.getElementById('map-layer-ctrl');
+    if (ctrl && !ctrl.contains(event.target)) ctrl.classList.remove('mlc-open');
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && cssFsActive) activateCssFullscreen();
+  });
 
   document.getElementById('refresh-map-btn').onclick = () => {
     isManualRefresh = true;
-    lastETag = null; // Manueller Refresh: Cache ignorieren, immer neu laden
-    // Interval-Timer zurücksetzen damit Countdown nach manuellem Refresh korrekt ist
+    lastETag = null;
     clearInterval(updateInterval);
     updateInterval = setInterval(updateMap, POLLING_INTERVAL);
     document.getElementById('btn-text').style.display = 'none';
     document.getElementById('btn-spinner').style.display = 'inline';
     updateMap();
   };
-
-  document.getElementById('time-range-select').onchange = (e) => {
-    TIME_RANGE = e.target.value;
+  document.getElementById('time-range-select').onchange = (event) => {
+    TIME_RANGE = event.target.value;
     localStorage.setItem('map-time-range', TIME_RANGE);
-    lastETag = null; // Neue URL → alten ETag verwerfen
-    debounce(updateMap, FILTER_DEBOUNCE)();
+    debouncedMapRefresh();
   };
-  document.getElementById('log-search').oninput = filterLog;
-
+  document.getElementById('polling-interval').onchange = (event) => {
+    POLLING_INTERVAL = parseInt(event.target.value, 10) || 5000;
+    localStorage.setItem('map-polling-interval', POLLING_INTERVAL);
+    clearInterval(updateInterval);
+    updateInterval = setInterval(updateMap, POLLING_INTERVAL);
+    nextRefreshTime = Date.now() + POLLING_INTERVAL;
+    tickRefreshBar();
+  };
+  document.getElementById('map-max-points').onchange = (event) => {
+    MAP_MAX_POINTS = clampMapMaxPoints(event.target.value);
+    event.target.value = MAP_MAX_POINTS;
+    localStorage.setItem('map-max-points', MAP_MAX_POINTS);
+    debouncedMapRefresh();
+  };
+  document.getElementById('route-time-gap').onchange = (event) => {
+    ROUTE_TIME_GAP = parseInt(event.target.value, 10) || 5;
+    localStorage.setItem('map-route-time-gap', ROUTE_TIME_GAP);
+    debouncedMapRefresh();
+  };
+  document.getElementById('route-dist-gap').onchange = (event) => {
+    ROUTE_DIST_GAP = parseInt(event.target.value, 10) || 300;
+    localStorage.setItem('map-route-dist-gap', ROUTE_DIST_GAP);
+    debouncedMapRefresh();
+  };
+  document.getElementById('stop-min-duration').onchange = (event) => {
+    STOP_MIN_DUR = parseInt(event.target.value, 10) || 5;
+    localStorage.setItem('map-stop-min-dur', STOP_MIN_DUR);
+    if (stopsActive) debouncedMapRefresh();
+  };
+  document.getElementById('stop-radius').onchange = (event) => {
+    STOP_RADIUS_M = parseInt(event.target.value, 10) || 100;
+    localStorage.setItem('map-stop-radius', STOP_RADIUS_M);
+    if (stopsActive) debouncedMapRefresh();
+  };
+  document.getElementById('log-limit').onchange = () => renderLog(currentLogItems);
+  document.getElementById('log-search').oninput = () => renderLog(currentLogItems);
   document.getElementById('dark-mode-btn').onclick = () => {
     darkMode = !darkMode;
     localStorage.setItem('map-dark-mode', darkMode);
     document.getElementById('dark-mode-btn').textContent = darkMode ? '☀️' : '🌙';
     document.getElementById('dark-mode-btn').title = darkMode ? 'Helle Karte' : 'Dunkle Karte';
-    const newUrl = darkMode
+    const nextTileUrl = darkMode
       ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
       : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
     map.removeLayer(tileLayer);
-    tileLayer = L.tileLayer(newUrl, { maxZoom: 19, attribution: '© OpenStreetMap & CartoDB' }).addTo(map);
+    tileLayer = L.tileLayer(nextTileUrl, { maxZoom: 19, attribution: '© OpenStreetMap & CartoDB' }).addTo(map);
   };
-  // Init-Icon setzen
-  if (darkMode) {
-    document.getElementById('dark-mode-btn').textContent = '☀️';
-    document.getElementById('dark-mode-btn').title = 'Helle Karte';
-  }
-
   document.getElementById('fullscreen-btn').onclick = toggleFullscreen;
   document.getElementById('export-geojson-btn').onclick = exportGeoJSON;
-
-  // Fit-bounds ↔ auto-center: gegenseitig exklusiv
-  document.getElementById('fit-bounds-toggle').onchange = (e) => {
-    if (e.target.checked) document.getElementById('auto-center-toggle').checked = false;
+  document.getElementById('fit-bounds-toggle').onchange = (event) => {
+    if (event.target.checked) document.getElementById('auto-center-toggle').checked = false;
     updateMap();
   };
-  document.getElementById('auto-center-toggle').onchange = (e) => {
-    if (e.target.checked) document.getElementById('fit-bounds-toggle').checked = false;
+  document.getElementById('auto-center-toggle').onchange = (event) => {
+    if (event.target.checked) document.getElementById('fit-bounds-toggle').checked = false;
   };
 
-  document.getElementById('heatmap-toggle').onchange   = (e) => { heatmapActive  = e.target.checked; updateLegend(); updateMap(); };
-  document.getElementById('points-toggle').onchange    = (e) => { pointsActive   = e.target.checked; updateLegend(); updateMap(); };
-  document.getElementById('polyline-toggle').onchange  = (e) => { polylineActive = e.target.checked; updateLegend(); updateMap(); };
-  document.getElementById('accuracy-toggle').onchange  = (e) => { accuracyActive = e.target.checked; updateLegend(); updateMap(); };
-  document.getElementById('labels-toggle').onchange    = (e) => { labelsActive   = e.target.checked; updateLegend(); updateMap(); };
-  document.getElementById('speed-toggle').onchange     = (e) => { speedActive    = e.target.checked; updateLegend(); updateMap(); };
-  document.getElementById('stops-toggle').onchange     = (e) => {
-    stopsActive = e.target.checked;
+  document.getElementById('heatmap-toggle').onchange = (event) => { heatmapActive = event.target.checked; updateLegend(); debouncedMapRefresh(); };
+  document.getElementById('points-toggle').onchange = (event) => { pointsActive = event.target.checked; updateLegend(); debouncedMapRefresh(); };
+  document.getElementById('polyline-toggle').onchange = (event) => { polylineActive = event.target.checked; updateLegend(); debouncedMapRefresh(); };
+  document.getElementById('accuracy-toggle').onchange = (event) => { accuracyActive = event.target.checked; updateLegend(); debouncedMapRefresh(); };
+  document.getElementById('labels-toggle').onchange = (event) => { labelsActive = event.target.checked; updateLegend(); debouncedMapRefresh(); };
+  document.getElementById('speed-toggle').onchange = (event) => { speedActive = event.target.checked; updateLegend(); debouncedMapRefresh(); };
+  document.getElementById('stops-toggle').onchange = (event) => {
+    stopsActive = event.target.checked;
     document.getElementById('stops-config').style.display = stopsActive ? '' : 'none';
-    updateLegend(); updateMap();
+    updateLegend();
+    debouncedMapRefresh();
   };
-  document.getElementById('daytrack-toggle').onchange  = (e) => { daytrackActive = e.target.checked; updateLegend(); updateMap(); };
-  document.getElementById('snap-toggle').onchange      = (e) => { snapActive     = e.target.checked; updateLegend(); updateMap(); };
-  // route-time-gap + route-dist-gap: onchange wird in initMap() gesetzt (mit localStorage-Speicherung)
+  document.getElementById('daytrack-toggle').onchange = (event) => { daytrackActive = event.target.checked; updateLegend(); debouncedMapRefresh(); };
+  document.getElementById('snap-toggle').onchange = (event) => { snapActive = event.target.checked; updateLegend(); debouncedMapRefresh(); };
 
-  // Hilfsfunktion: Dropdown aktivieren/deaktivieren
-  function setDropdown(id, active) {
-    const el = document.getElementById(id);
-    el.disabled = !active;
-    el.classList.toggle('fp-inactive', !active);
-  }
-
-  // Session-Filter Toggle
-  document.getElementById('session-filter-toggle').onchange = (e) => {
-    setDropdown('session-select-dropdown', e.target.checked);
-    if (e.target.checked) {
+  document.getElementById('session-filter-toggle').onchange = (event) => {
+    setDropdown('session-select-dropdown', event.target.checked);
+    if (event.target.checked) {
       document.getElementById('import-filter-toggle').checked = false;
       setDropdown('import-select-dropdown', false);
       document.getElementById('import-select-dropdown').value = '';
     } else {
       document.getElementById('session-select-dropdown').value = '';
     }
-    updateMap();
+    debouncedMapRefresh();
   };
-  document.getElementById('session-select-dropdown').onchange = updateMap;
-
-  // Import-Filter Toggle
-  document.getElementById('import-filter-toggle').onchange = (e) => {
-    setDropdown('import-select-dropdown', e.target.checked);
-    if (e.target.checked) {
+  document.getElementById('session-select-dropdown').onchange = debouncedMapRefresh;
+  document.getElementById('import-filter-toggle').onchange = (event) => {
+    setDropdown('import-select-dropdown', event.target.checked);
+    if (event.target.checked) {
       document.getElementById('session-filter-toggle').checked = false;
       setDropdown('session-select-dropdown', false);
       document.getElementById('session-select-dropdown').value = '';
     } else {
       document.getElementById('import-select-dropdown').value = '';
     }
-    updateMap();
+    debouncedMapRefresh();
   };
-  document.getElementById('import-select-dropdown').onchange = updateMap;
+  document.getElementById('import-select-dropdown').onchange = debouncedMapRefresh;
 
-  // Restore time range setting
-  document.getElementById('time-range-select').value = TIME_RANGE;
-
-  // === MOBILE FILTER TOGGLE ===
-  // Einmalig onclick setzen, nicht bei jedem resize überschreiben
-  (function() {
+  (() => {
     const toggleBtn = document.getElementById('map-filter-toggle-btn');
     const filterPanel = document.querySelector('.map-filter-panel');
-    if (!toggleBtn || !filterPanel) return;
     toggleBtn.onclick = () => {
       filtersExpanded = !filtersExpanded;
       filterPanel.classList.toggle('collapsed', !filtersExpanded);
@@ -1392,30 +1137,12 @@
     };
   })();
 
-  function setupMobileFilterToggle() {
-    const toggleBtn = document.getElementById('map-filter-toggle-btn');
-    const filterPanel = document.querySelector('.map-filter-panel');
-    if (!toggleBtn || !filterPanel) return;
-    const isMobile = window.innerWidth <= 767;
-    if (isMobile) {
-      toggleBtn.style.display = 'block';
-      // Zustand NICHT überschreiben wenn bereits initialisiert
-      if (toggleBtn.dataset.init !== '1') {
-        toggleBtn.dataset.init = '1';
-        filterPanel.classList.add('collapsed');
-        filtersExpanded = false;
-      }
-    } else {
-      toggleBtn.style.display = 'none';
-      filterPanel.classList.remove('collapsed');
-      filtersExpanded = true;
-      toggleBtn.dataset.init = '0'; // beim nächsten Wechsel zu Mobile neu initialisieren
-    }
-  }
-
-  setupMobileFilterToggle();
+  document.addEventListener('DOMContentLoaded', () => {
+    toggleFilterPanel(localStorage.getItem('map-fp-hidden') !== '1');
+    setupMobileFilterToggle();
+    showIOSBanner();
+    initMap();
+  });
   window.addEventListener('resize', setupMobileFilterToggle);
-
-  document.addEventListener('DOMContentLoaded', initMap);
 </script>
 {% endblock %}

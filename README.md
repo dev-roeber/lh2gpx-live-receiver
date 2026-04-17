@@ -23,7 +23,7 @@ Receiver- und Operator-Server für optionale Live-Location-Uploads aus der `Loca
 ## Aktueller Stand
 
 - **Design-System (April 2026):** Vollständig auf iOS-inspiriertes Dark-Design umgestellt. OLED-Schwarz als Hintergrund, Mint `#30D158` als primärer Akzent, semantische Farben (Blau, Orange, Lila, Rot, Teal) für Status und Kategorien. Glasmorphismus-Header, Pill-Buttons, gerundete Karten.
-- **Interaktive Karte:** `/dashboard/map` mit Leaflet, CartoDB-Dark-Tiles, MarkerCluster, Live-Polling (2s–5min konfigurierbar), Zeitraumfilter (2min–gesamt), Session-Filter, Auto-Follow, Fit-Bounds, GeoJSON-Export, Copy-to-Clipboard.
+- **Interaktive Karte:** `/dashboard/map` mit Leaflet, serverseitig vorbereiteten Karten-Layern über `/api/map-data`, Live-Polling (2s–5min konfigurierbar), Zeitraumfilter (2min–gesamt), Session-/Import-Filter, Auto-Follow, Fit-Bounds, GeoJSON-Export, Copy-to-Clipboard.
 - **Responsive:** CSS-Grid-basiertes 3-View-System. Desktop: Filter-Panel | Karte | Live-Log. Tablet: 2-Spalten. Mobile: vollständig gestackt, Filter einklappbar. iPhone-Overflow vollständig behoben.
 - **Login:** Bearer-basierter Dashboard-Login mit signiertem Session-Cookie. Nach Login Redirect auf `/dashboard/map`.
 - **Deutsche Oberfläche:** Alle Dashboard-Seiten vollständig auf Deutsch lokalisiert.
@@ -74,6 +74,8 @@ Unbekannte additive Zusatzfelder werden weiter toleriert und im Rohpayload gespe
   - Kennzahlen für Requests, Punkte, Sessions und Zeiträume.
 - `GET /api/points`
   - Punkteliste mit Filter und Export.
+- `GET /api/map-data`
+  - serverseitig vorbereitete Layer für Karte, Heatmap, Track, Speed, Stops, Daytracks und optional Snap.
 - `GET /api/points/{id}`
   - Punktdetail.
 - `GET /api/requests`
@@ -114,17 +116,19 @@ Jede Seite hat:
 
 Interaktive GPS-Echtzeit-Karte mit:
 
-- **Leaflet** + CartoDB-Dark-Tiles (kein API-Key benötigt)
-- **MarkerCluster** für kompakte Darstellung vieler Punkte
+- **Leaflet** mit serverseitig vorbereiteten Layern über `GET /api/map-data`
+- **serverseitige Layer-Aufbereitung** für Punkte, Heatmap, Polylinien, Genauigkeit, Geschwindigkeit, Stops, Daytracks und optionalen Straßen-Snap
+- **deutlich kleinere Payloads** als der rohe Punktedownload; bei `page_size=2000` aktuell etwa `59.2%` kleiner als `/api/points`
 - **Live-Polling:** 2s / 3s / 5s (Standard) / 10s / 15s / 20s / 30s / 45s / 1min / 1.5min / 2min / 3min / 5min
 - **Zeitraumfilter:** 2min bis 30 Tage oder gesamt (max. 2000 Punkte), mit localStorage-Persistenz
-- **Session-Filter:** Session-Auswahl per Dropdown, beschriftet mit Zeitstempelbereich
+- **Session- und Import-Filter:** exklusive Auswahl per Dropdown
 - **Auto-Follow:** Karte folgt automatisch dem neuesten eingehenden Punkt (Zoom 18)
 - **Fit-Bounds:** gesamten Track auf einmal anzeigen
-- **GeoJSON-Export** des aktuellen Karteninhalts
+- **GeoJSON-Export** des aktuell geladenen Kartenmodells
 - **Copy-to-Clipboard** für Koordinaten
 - **Vollbild:** native API auf Desktop/Android; CSS-Fallback (`position:fixed; 100vw/100dvh`) auf iOS
-- **Live-Punkt-Log:** scrollbare Echtzeit-Tabelle direkt unter der Karte; Zeitstempel in `Europe/Berlin`; auf Mobile: Spalten `Genauigkeit`, `Modus`, `Request ID` ausgeblendet
+- **Live-Punkt-Log:** scrollbare Echtzeit-Tabelle direkt unter der Karte; reagiert direkt auf Filter- und Log-Limit-Änderungen; auf Mobile: Spalten `Genauigkeit`, `Modus`, `Request ID` ausgeblendet
+- **Session-Länge und Statistik:** kommen aus dem serverseitig vorbereiteten Kartenmodell statt aus der offenen Browser-Tab-Dauer
 
 ### Responsive Layout
 

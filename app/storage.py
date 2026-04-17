@@ -980,6 +980,33 @@ class ReceiverStorage:
 
         if export_format == "json":
             return json.dumps(listed, ensure_ascii=False, indent=2), "application/json"
+        if export_format == "geojson":
+            features = [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [item["longitude"], item["latitude"]]},
+                    "properties": {
+                        "id": item["id"],
+                        "request_id": item["request_id"],
+                        "received_at_utc": item["received_at_utc"],
+                        "sent_at_utc": item["sent_at_utc"],
+                        "point_timestamp_utc": item["point_timestamp_utc"],
+                        "point_timestamp_local": item["point_timestamp_local"],
+                        "point_date_local": item["point_date_local"],
+                        "point_time_local": item["point_time_local"],
+                        "horizontal_accuracy_m": item["horizontal_accuracy_m"],
+                        "session_id": item["session_id"],
+                        "source": item["source"],
+                        "capture_mode": item["capture_mode"],
+                    },
+                }
+                for item in listed
+            ]
+            return json.dumps(
+                {"type": "FeatureCollection", "features": features},
+                ensure_ascii=False,
+                indent=2,
+            ), "application/geo+json"
         if export_format == "ndjson":
             return "\n".join(json.dumps(item, ensure_ascii=False, sort_keys=True) for item in listed), "application/x-ndjson"
         if export_format == "csv":

@@ -26,6 +26,7 @@
 - alle Dashboard-Routen nutzen `_base_template_context()`
 - Snapshot-Daten kommen aus `_dashboard_snapshot()`
 - Punkte- und Request-Views liefern auch im Fehlerfall strukturkompatible Leerpayloads
+- die Kartenansicht lädt ihr Arbeitsmodell über `GET /api/map-data`
 
 ## Auth-Modell
 
@@ -45,3 +46,18 @@
 - asynchroner Import-Task
 - Dedupe innerhalb der Datei und gegen die Datenbank
 - Schlüsselkombination: `point_timestamp_utc + latitude + longitude`
+
+## Kartenmodell `/dashboard/map`
+
+- `map.html` berechnet Layer nicht mehr primär aus `/api/points`
+- der Browser fragt `GET /api/map-data` mit Filter- und Layer-Flags ab
+- serverseitig vorbereitet werden:
+  - Punkte
+  - Heatmap-Zellen
+  - vereinfachte Polylinien
+  - Genauigkeitskreise
+  - Geschwindigkeitssegmente
+  - Stops
+  - Tages-Tracks
+  - optionaler OSRM-Snap
+- GeoJSON-Export nutzt das aktuell geladene Kartenmodell statt blind den gesamten Datenbestand zu exportieren

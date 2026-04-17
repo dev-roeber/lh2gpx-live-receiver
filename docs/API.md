@@ -45,6 +45,7 @@
 - `GET /api/stats`
 - `GET /api/live-summary`
 - `GET /api/points`
+- `GET /api/map-data`
 - `GET /api/points/{id}`
 - `GET /api/requests`
 - `GET /api/requests/{request_id}`
@@ -76,7 +77,38 @@ Zusätzlich für Requests:
 
 Zusätzlich für Punkte:
 
-- `format=json|csv|ndjson`
+- `format=json|csv|ndjson|geojson`
+
+## `GET /api/map-data`
+
+- liefert ein serverseitig vorbereitetes Kartenmodell für `/dashboard/map`
+- reduziert Client-Arbeit für mobile Geräte deutlich, weil Layer nicht mehr im Browser aus Rohpunkten zusammengesetzt werden
+- unterstützt dieselben Grundfilter wie `GET /api/points` für:
+  - `date_from`
+  - `date_to`
+  - `session_id`
+  - `page_size`
+- zusätzliche Layer- und Tuning-Parameter:
+  - `zoom`
+  - `route_time_gap_min`
+  - `route_dist_gap_m`
+  - `stop_min_duration_min`
+  - `stop_radius_m`
+  - `include_points`
+  - `include_heatmap`
+  - `include_polyline`
+  - `include_accuracy`
+  - `include_labels`
+  - `include_speed`
+  - `include_stops`
+  - `include_daytrack`
+  - `include_snap`
+- Antwort enthält:
+  - `meta`
+  - `stats`
+  - `layers`
+  - `logItems`
+- `ETag`/`304` wird wie bei `GET /api/points` unterstützt
 
 ## Import
 

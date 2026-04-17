@@ -11,6 +11,7 @@
 - SQLite für Requests und GPS-Punkte
 - optionales NDJSON-Audit für Rohpayloads
 - serverseitig gerenderte Operator-UI
+- serverseitige Karten-Layer-Aufbereitung für `/dashboard/map`
 - Caddy als TLS-Reverse-Proxy
 
 ## Request-Fluss
@@ -28,6 +29,23 @@
 - Session-Cookie nach Bearer-Login
 - optional HTTP Basic Auth
 - ohne Admin-Credentials lokal-only
+
+## Kartenmodell
+
+- `/dashboard/map` rendert nicht mehr aus rohen Punktelisten allein
+- der Browser lädt stattdessen `GET /api/map-data`
+- der Server bereitet daraus vor:
+  - Punktlayer
+  - Heatmap-Aggregate
+  - vereinfachte Track-Polylinien
+  - Geschwindigkeitssegmente
+  - Stop-Erkennung
+  - Tages-Tracks
+  - optionalen Straßen-Snap
+- Ziel:
+  - kleinere Payloads
+  - weniger Client-CPU
+  - konsistentere Darstellung auf mobilen Geräten
 
 ## Hot-Reload
 

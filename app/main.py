@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import platform
 import secrets
 import time
@@ -17,6 +18,7 @@ from pathlib import Path
 from secrets import compare_digest
 from typing import Any
 from urllib.parse import parse_qs, urlencode
+from urllib.request import urlopen
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, status
@@ -108,6 +110,10 @@ class SimpleRateLimiter:
 
 _POINTS_CACHE: dict[str, tuple[float, str, bytes]] = {}  # key → (ts, etag, body)
 _POINTS_CACHE_TTL = 2.0  # Sekunden
+_MAP_DATA_CACHE: dict[str, tuple[float, str, bytes]] = {}
+_MAP_DATA_CACHE_TTL = 2.0
+_SNAP_CACHE: dict[str, tuple[float, list[list[float]] | None]] = {}
+_SNAP_CACHE_TTL = 300.0
 
 _import_tasks: dict[str, dict] = {}  # task_id → {status, ...}
 
@@ -455,7 +461,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         page_size: int | None = Query(default=None, ge=1),
         format: str = Query(default="json"),
     ):
-        if format not in {"json", "csv", "ndjson"}:
+        if format not in {"json", "csv", "ndjson", "geojson"}:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unsupported export format.")
         effective_page_size = min(page_size or _settings(request).points_page_size_default, _settings(request).points_page_size_max)
         filters = PointFilters(
@@ -496,6 +502,81 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 cutoff = now - _POINTS_CACHE_TTL
                 for k in [k for k, v in _POINTS_CACHE.items() if v[0] < cutoff]:
                     del _POINTS_CACHE[k]
+
+        if request.headers.get("if-none-match") == f'"{etag}"':
+            return Response(status_code=304, headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"})
+
+        return Response(
+            content=body,
+            media_type="application/json",
+            headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"},
+        )
+
+    @app.get("/api/map-data", dependencies=[Depends(_require_admin_access)])
+    async def api_map_data(
+        request: Request,
+        date_from: str | None = Query(default=None),
+        date_to: str | None = Query(default=None),
+        session_id: str | None = Query(default=None),
+        page_size: int | None = Query(default=None, ge=1),
+        zoom: int = Query(default=12, ge=1, le=22),
+        route_time_gap_min: int = Query(default=5, ge=1, le=1440),
+        route_dist_gap_m: int = Query(default=300, ge=10, le=50000),
+        stop_min_duration_min: int = Query(default=5, ge=1, le=240),
+        stop_radius_m: int = Query(default=100, ge=10, le=5000),
+        include_points: bool = Query(default=True),
+        include_heatmap: bool = Query(default=False),
+        include_polyline: bool = Query(default=True),
+        include_accuracy: bool = Query(default=False),
+        include_labels: bool = Query(default=False),
+        include_speed: bool = Query(default=False),
+        include_stops: bool = Query(default=False),
+        include_daytrack: bool = Query(default=False),
+        include_snap: bool = Query(default=False),
+    ) -> Response:
+        effective_page_size = min(page_size or _settings(request).points_page_size_max, _settings(request).points_page_size_max)
+        filters = PointFilters(
+            date_from=date_from,
+            date_to=date_to,
+            session_id=session_id,
+            page=1,
+            page_size=effective_page_size,
+        )
+
+        cache_key = str(request.url.query)
+        now = time.time()
+        cached = _MAP_DATA_CACHE.get(cache_key)
+        if cached and (now - cached[0]) < _MAP_DATA_CACHE_TTL:
+            _, etag, body = cached
+        else:
+            listed = _storage(request).list_points(filters)
+            payload = await asyncio.to_thread(
+                _prepare_map_payload,
+                listed["items"],
+                total_points=listed["total"],
+                zoom=zoom,
+                route_time_gap_min=route_time_gap_min,
+                route_dist_gap_m=route_dist_gap_m,
+                stop_min_duration_min=stop_min_duration_min,
+                stop_radius_m=stop_radius_m,
+                include_points=include_points,
+                include_heatmap=include_heatmap,
+                include_polyline=include_polyline,
+                include_accuracy=include_accuracy,
+                include_labels=include_labels,
+                include_speed=include_speed,
+                include_stops=include_stops,
+                include_daytrack=include_daytrack,
+                include_snap=include_snap,
+            )
+            result = {"requestId": request.state.request_id, **payload}
+            body = json.dumps(result, separators=(",", ":")).encode()
+            etag = hashlib.md5(body, usedforsecurity=False).hexdigest()
+            _MAP_DATA_CACHE[cache_key] = (now, etag, body)
+            if len(_MAP_DATA_CACHE) > 200:
+                cutoff = now - _MAP_DATA_CACHE_TTL
+                for key in [key for key, value in _MAP_DATA_CACHE.items() if value[0] < cutoff]:
+                    del _MAP_DATA_CACHE[key]
 
         if request.headers.get("if-none-match") == f'"{etag}"':
             return Response(status_code=304, headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"})
@@ -1079,6 +1160,472 @@ def _settings(request: Request) -> Settings:
 
 def _storage(request: Request) -> ReceiverStorage:
     return request.app.state.storage
+
+
+def _prepare_map_payload(
+    points_desc: list[dict[str, Any]],
+    *,
+    total_points: int,
+    zoom: int,
+    route_time_gap_min: int,
+    route_dist_gap_m: int,
+    stop_min_duration_min: int,
+    stop_radius_m: int,
+    include_points: bool,
+    include_heatmap: bool,
+    include_polyline: bool,
+    include_accuracy: bool,
+    include_labels: bool,
+    include_speed: bool,
+    include_stops: bool,
+    include_daytrack: bool,
+    include_snap: bool,
+) -> dict[str, Any]:
+    if not points_desc:
+        return {
+            "meta": {"totalPoints": total_points, "visiblePoints": 0, "serverPrepared": True},
+            "stats": {"pointsPerMinute": 0, "avgAccuracyM": None, "sessionDurationSeconds": 0},
+            "layers": {
+                "points": [],
+                "latestPoint": None,
+                "heatmap": [],
+                "polylines": [],
+                "accuracy": [],
+                "speed": [],
+                "stops": [],
+                "daytracks": [],
+                "snap": [],
+            },
+            "logItems": [],
+        }
+
+    sorted_points = list(reversed(points_desc))
+    segments = _segment_track(
+        sorted_points,
+        time_gap_ms=route_time_gap_min * 60000,
+        dist_gap_m=route_dist_gap_m,
+    )
+    latest = points_desc[0]
+    avg_accuracy = sum(float(point["horizontal_accuracy_m"]) for point in points_desc) / len(points_desc)
+
+    payload = {
+        "meta": {
+            "totalPoints": total_points,
+            "visiblePoints": len(points_desc),
+            "serverPrepared": True,
+            "segmentCount": len(segments),
+        },
+        "stats": {
+            "pointsPerMinute": _points_per_minute(points_desc),
+            "avgAccuracyM": round(avg_accuracy, 2),
+            "sessionDurationSeconds": _track_duration_seconds(sorted_points),
+        },
+        "layers": {
+            "points": [],
+            "latestPoint": _serialize_latest_point(latest),
+            "heatmap": [],
+            "polylines": [],
+            "accuracy": [],
+            "speed": [],
+            "stops": [],
+            "daytracks": [],
+            "snap": [],
+        },
+        "logItems": [_serialize_log_point(point) for point in points_desc[:1000]],
+    }
+
+    if include_points:
+        sampled_points = _downsample_points(sorted_points, _target_point_limit(zoom, len(sorted_points)))
+        payload["layers"]["points"] = [_serialize_map_point(point, latest["id"]) for point in sampled_points]
+
+    if include_heatmap:
+        payload["layers"]["heatmap"] = _aggregate_heatmap(points_desc, zoom=zoom)
+
+    if include_polyline or include_labels:
+        payload["layers"]["polylines"] = _serialize_polyline_segments(segments, zoom=zoom, include_labels=include_labels)
+
+    if include_accuracy:
+        payload["layers"]["accuracy"] = [
+            {"lat": point["latitude"], "lon": point["longitude"], "radius": point["horizontal_accuracy_m"]}
+            for point in _downsample_points(sorted_points, 300)
+            if 0 < float(point["horizontal_accuracy_m"]) < 5000
+        ]
+
+    if include_speed:
+        payload["layers"]["speed"] = _serialize_speed_segments(sorted_points, zoom=zoom)
+
+    if include_stops:
+        payload["layers"]["stops"] = _detect_stops(
+            sorted_points,
+            stop_radius_m=stop_radius_m,
+            stop_min_duration_min=stop_min_duration_min,
+        )
+
+    if include_daytrack:
+        payload["layers"]["daytracks"] = _serialize_daytracks(
+            sorted_points,
+            zoom=zoom,
+            route_time_gap_min=route_time_gap_min,
+        )
+
+    if include_snap:
+        payload["layers"]["snap"] = _serialize_snap_segments(segments, zoom=zoom)
+
+    return payload
+
+
+def _point_dt(point: dict[str, Any]) -> datetime:
+    return datetime.fromisoformat(str(point["point_timestamp_utc"]))
+
+
+def _track_duration_seconds(points_asc: list[dict[str, Any]]) -> int:
+    if len(points_asc) < 2:
+        return 0
+    return max(0, int((_point_dt(points_asc[-1]) - _point_dt(points_asc[0])).total_seconds()))
+
+
+def _points_per_minute(points_desc: list[dict[str, Any]]) -> float:
+    if len(points_desc) < 2:
+        return 0.0
+    recent = points_desc[: min(100, len(points_desc))]
+    newest = _point_dt(recent[0])
+    oldest = _point_dt(recent[-1])
+    elapsed_minutes = max((newest - oldest).total_seconds() / 60, 0.0001)
+    return round(len(recent) / elapsed_minutes, 2)
+
+
+def _target_point_limit(zoom: int, available: int) -> int:
+    if zoom <= 8:
+        target = 140
+    elif zoom <= 10:
+        target = 220
+    elif zoom <= 12:
+        target = 360
+    elif zoom <= 14:
+        target = 700
+    elif zoom <= 16:
+        target = 1200
+    else:
+        target = 2000
+    return max(2, min(available, target))
+
+
+def _downsample_points(points_asc: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    if len(points_asc) <= limit:
+        return points_asc
+    if limit <= 2:
+        return [points_asc[0], points_asc[-1]]
+    stride = (len(points_asc) - 1) / (limit - 1)
+    sampled = []
+    seen: set[int] = set()
+    for index in range(limit):
+        source_index = min(len(points_asc) - 1, round(index * stride))
+        point = points_asc[source_index]
+        point_id = int(point["id"])
+        if point_id in seen:
+            continue
+        sampled.append(point)
+        seen.add(point_id)
+    if sampled[-1]["id"] != points_asc[-1]["id"]:
+        sampled[-1] = points_asc[-1]
+    return sampled
+
+
+def _haversine_m(a: dict[str, Any], b: dict[str, Any]) -> float:
+    radius = 6371000.0
+    lat1 = math.radians(float(a["latitude"]))
+    lon1 = math.radians(float(a["longitude"]))
+    lat2 = math.radians(float(b["latitude"]))
+    lon2 = math.radians(float(b["longitude"]))
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    root = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    return 2 * radius * math.asin(math.sqrt(root))
+
+
+def _segment_track(points_asc: list[dict[str, Any]], *, time_gap_ms: int, dist_gap_m: int) -> list[list[dict[str, Any]]]:
+    if len(points_asc) < 2:
+        return []
+    segments: list[list[dict[str, Any]]] = []
+    segment = [points_asc[0]]
+    for current in points_asc[1:]:
+        previous = segment[-1]
+        time_gap = (_point_dt(current) - _point_dt(previous)).total_seconds() * 1000
+        dist_gap = _haversine_m(previous, current)
+        if time_gap > time_gap_ms or dist_gap > dist_gap_m:
+            if len(segment) > 1:
+                segments.append(segment)
+            segment = [current]
+            continue
+        segment.append(current)
+    if len(segment) > 1:
+        segments.append(segment)
+    return segments
+
+
+def _rdp(coords: list[list[float]], epsilon: float) -> list[list[float]]:
+    if len(coords) <= 2 or epsilon <= 0:
+        return coords
+    start = coords[0]
+    end = coords[-1]
+    x1, y1 = start
+    x2, y2 = end
+    denominator = math.hypot(x2 - x1, y2 - y1)
+    max_distance = -1.0
+    split_index = -1
+    for index in range(1, len(coords) - 1):
+        x0, y0 = coords[index]
+        if denominator == 0:
+            distance = math.hypot(x0 - x1, y0 - y1)
+        else:
+            distance = abs((y2 - y1) * x0 - (x2 - x1) * y0 + x2 * y1 - y2 * x1) / denominator
+        if distance > max_distance:
+            max_distance = distance
+            split_index = index
+    if max_distance <= epsilon or split_index < 0:
+        return [start, end]
+    left = _rdp(coords[: split_index + 1], epsilon)
+    right = _rdp(coords[split_index:], epsilon)
+    return left[:-1] + right
+
+
+def _simplify_segment(segment: list[dict[str, Any]], zoom: int) -> list[list[float]]:
+    coords = [[float(point["latitude"]), float(point["longitude"])] for point in segment]
+    if len(coords) <= 2:
+        return coords
+    tolerance_m = 120 if zoom <= 8 else 60 if zoom <= 10 else 25 if zoom <= 12 else 10 if zoom <= 14 else 4 if zoom <= 16 else 1
+    epsilon = tolerance_m / 111320.0
+    return _rdp(coords, epsilon)
+
+
+def _palette_color(index: int) -> str:
+    palette = ["#0A84FF", "#30D158", "#FF9F0A", "#BF5AF2", "#5AC8FA", "#FF453A", "#FFD60A", "#64D2FF"]
+    return palette[index % len(palette)]
+
+
+def _serialize_polyline_segments(
+    segments: list[list[dict[str, Any]]],
+    *,
+    zoom: int,
+    include_labels: bool,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "color": _palette_color(index),
+            "coords": _simplify_segment(segment, zoom),
+            "pointsCount": len(segment),
+            "startLabel": (segment[0]["point_timestamp_local"] or "")[11:16] if include_labels else "",
+            "endLabel": (segment[-1]["point_timestamp_local"] or "")[11:16] if include_labels else "",
+            "startPoint": [float(segment[0]["latitude"]), float(segment[0]["longitude"])],
+            "endPoint": [float(segment[-1]["latitude"]), float(segment[-1]["longitude"])],
+        }
+        for index, segment in enumerate(segments)
+    ]
+
+
+def _speed_color(kmh: float) -> str:
+    hue = round(240 - min(300.0, max(0.0, kmh)) / 300.0 * 240)
+    lightness = 55 if kmh < 10 else 50 if kmh > 250 else 52
+    return f"hsl({hue},95%,{lightness}%)"
+
+
+def _serialize_speed_segments(points_asc: list[dict[str, Any]], *, zoom: int) -> list[dict[str, Any]]:
+    sampled = _downsample_points(points_asc, _target_point_limit(zoom, len(points_asc)))
+    segments = []
+    for previous, current in zip(sampled, sampled[1:], strict=False):
+        seconds = max((_point_dt(current) - _point_dt(previous)).total_seconds(), 0.0)
+        if seconds <= 0:
+            continue
+        kmh = (_haversine_m(previous, current) / seconds) * 3.6
+        if kmh > 500:
+            continue
+        segments.append(
+            {
+                "coords": [
+                    [float(previous["latitude"]), float(previous["longitude"])],
+                    [float(current["latitude"]), float(current["longitude"])],
+                ],
+                "kmh": round(kmh, 1),
+                "color": _speed_color(kmh),
+            }
+        )
+    return segments
+
+
+def _heat_cell_m(zoom: int) -> int:
+    return 800 if zoom <= 8 else 350 if zoom <= 10 else 160 if zoom <= 12 else 80 if zoom <= 14 else 40 if zoom <= 16 else 20
+
+
+def _aggregate_heatmap(points_desc: list[dict[str, Any]], *, zoom: int) -> list[list[float]]:
+    cell_m = _heat_cell_m(zoom)
+    lat_step = cell_m / 111320.0
+    buckets: dict[tuple[int, int], dict[str, float]] = {}
+    for point in points_desc:
+        lat = float(point["latitude"])
+        lon = float(point["longitude"])
+        lon_step = max(lat_step / max(math.cos(math.radians(lat)), 0.2), 1e-6)
+        key = (round(lat / lat_step), round(lon / lon_step))
+        weight = min(1.0, 30.0 / max(float(point["horizontal_accuracy_m"]), 1.0))
+        bucket = buckets.setdefault(key, {"lat_sum": 0.0, "lon_sum": 0.0, "weight_sum": 0.0})
+        bucket["lat_sum"] += lat * weight
+        bucket["lon_sum"] += lon * weight
+        bucket["weight_sum"] += weight
+    if not buckets:
+        return []
+    max_weight = max(bucket["weight_sum"] for bucket in buckets.values()) or 1.0
+    aggregated = []
+    for bucket in buckets.values():
+        aggregated.append(
+            [
+                round(bucket["lat_sum"] / bucket["weight_sum"], 6),
+                round(bucket["lon_sum"] / bucket["weight_sum"], 6),
+                round(min(1.0, bucket["weight_sum"] / max_weight), 4),
+            ]
+        )
+    return aggregated
+
+
+def _detect_stops(
+    points_asc: list[dict[str, Any]],
+    *,
+    stop_radius_m: int,
+    stop_min_duration_min: int,
+) -> list[dict[str, Any]]:
+    minimum_ms = stop_min_duration_min * 60000
+    index = 0
+    stops = []
+    while index < len(points_asc):
+        anchor = points_asc[index]
+        cursor = index + 1
+        while cursor < len(points_asc) and _haversine_m(anchor, points_asc[cursor]) <= stop_radius_m:
+            cursor += 1
+        if cursor > index + 1:
+            duration_ms = (_point_dt(points_asc[cursor - 1]) - _point_dt(anchor)).total_seconds() * 1000
+            if duration_ms >= minimum_ms:
+                midpoint = points_asc[(index + cursor - 1) // 2]
+                stops.append(
+                    {
+                        "lat": float(midpoint["latitude"]),
+                        "lon": float(midpoint["longitude"]),
+                        "radius": stop_radius_m,
+                        "durationMin": round(duration_ms / 60000),
+                        "startLabel": (anchor["point_timestamp_local"] or "")[11:16],
+                        "endLabel": (points_asc[cursor - 1]["point_timestamp_local"] or "")[11:16],
+                        "pointsCount": cursor - index,
+                    }
+                )
+                index = cursor
+                continue
+        index += 1
+    return stops
+
+
+def _serialize_daytracks(points_asc: list[dict[str, Any]], *, zoom: int, route_time_gap_min: int) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for point in points_asc:
+        grouped.setdefault(str(point["point_date_local"]), []).append(point)
+    daytracks = []
+    for index, (day, items) in enumerate(sorted(grouped.items())):
+        segments = _segment_track(items, time_gap_ms=route_time_gap_min * 60000, dist_gap_m=200000)
+        daytracks.append(
+            {
+                "day": day,
+                "color": _palette_color(index),
+                "labelPoint": [float(items[0]["latitude"]), float(items[0]["longitude"])],
+                "segments": [_simplify_segment(segment, zoom) for segment in segments],
+                "pointsCount": len(items),
+            }
+        )
+    return daytracks
+
+
+def _serialize_map_point(point: dict[str, Any], latest_point_id: int) -> dict[str, Any]:
+    return {
+        "id": int(point["id"]),
+        "lat": float(point["latitude"]),
+        "lon": float(point["longitude"]),
+        "timestampLocal": point["point_timestamp_local"],
+        "timestampUtc": point["point_timestamp_utc"],
+        "accuracyM": float(point["horizontal_accuracy_m"]),
+        "source": point["source"] or "",
+        "isLatest": int(point["id"]) == int(latest_point_id),
+    }
+
+
+def _serialize_latest_point(point: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(point["id"]),
+        "lat": float(point["latitude"]),
+        "lon": float(point["longitude"]),
+        "timestampLocal": point["point_timestamp_local"],
+        "timestampUtc": point["point_timestamp_utc"],
+        "accuracyM": float(point["horizontal_accuracy_m"]),
+        "source": point["source"] or "",
+    }
+
+
+def _serialize_log_point(point: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(point["id"]),
+        "lat": float(point["latitude"]),
+        "lon": float(point["longitude"]),
+        "timestampLocal": point["point_timestamp_local"],
+        "accuracyM": float(point["horizontal_accuracy_m"]),
+        "source": point["source"] or "",
+        "captureMode": point["capture_mode"] or "",
+        "requestId": point["request_id"] or "",
+    }
+
+
+def _serialize_snap_segments(segments: list[list[dict[str, Any]]], *, zoom: int) -> list[dict[str, Any]]:
+    snapped = []
+    for segment in segments[:10]:
+        coords = _snap_segment(segment, zoom=zoom)
+        if coords:
+            snapped.append({"coords": coords})
+    return snapped
+
+
+def _snap_segment(segment: list[dict[str, Any]], *, zoom: int) -> list[list[float]] | None:
+    sampled = _downsample_points(segment, 80 if zoom <= 14 else 120)
+    if len(sampled) < 2:
+        return None
+    key = hashlib.sha1(
+        "|".join(
+            f"{point['point_timestamp_utc']}:{float(point['latitude']):.6f}:{float(point['longitude']):.6f}"
+            for point in sampled
+        ).encode(),
+        usedforsecurity=False,
+    ).hexdigest()
+    now = time.time()
+    cached = _SNAP_CACHE.get(key)
+    if cached and (now - cached[0]) < _SNAP_CACHE_TTL:
+        return cached[1]
+    coords = ";".join(f"{float(point['longitude']):.6f},{float(point['latitude']):.6f}" for point in sampled)
+    timestamps = [int(_point_dt(point).timestamp()) for point in sampled]
+    for index in range(1, len(timestamps)):
+        if timestamps[index] <= timestamps[index - 1]:
+            timestamps[index] = timestamps[index - 1] + 1
+    url = (
+        "https://router.project-osrm.org/match/v1/driving/"
+        f"{coords}?overview=full&geometries=geojson&timestamps={';'.join(str(value) for value in timestamps)}"
+        f"&radiuses={';'.join('50' for _ in sampled)}"
+    )
+    try:
+        with urlopen(url, timeout=6) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if payload.get("code") != "Ok" or not payload.get("matchings"):
+            result = None
+        else:
+            result = [
+                [round(lat, 6), round(lon, 6)]
+                for matching in payload["matchings"]
+                for lon, lat in matching["geometry"]["coordinates"]
+            ]
+    except Exception:
+        result = None
+    _SNAP_CACHE[key] = (now, result)
+    return result
 
 
 def _request_metadata(request: Request) -> RequestMetadata:

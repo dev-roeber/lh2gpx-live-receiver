@@ -82,6 +82,21 @@ Pruefen:
 - Requestdetail unter `/api/requests/{request_id}`
 - HTML-Punktliste unter `/dashboard/points`
 
+## Karte lädt langsam oder unvollständig
+
+Pruefen:
+
+- `/readyz`
+- `/dashboard/map`
+- `/api/map-data`
+- ob `include_snap=true` aktiv ist; dieser Layer ist bewusst der teuerste Pfad
+- Container-Logs auf Laufzeiten von `/api/map-data`
+
+Hinweise:
+
+- ohne Snap ist die serverseitige Kartenpipeline deutlich schneller
+- mit Snap sind mehrere Sekunden Laufzeit möglich, weil der Server OSRM-Matching anfragt und cacht
+
 ## Export leer
 
 Pruefen:
