@@ -520,8 +520,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session_id: str | None = Query(default=None),
         page_size: int | None = Query(default=None, ge=1),
         zoom: int = Query(default=12, ge=1, le=22),
-        route_time_gap_min: int = Query(default=5, ge=1, le=1440),
-        route_dist_gap_m: int = Query(default=300, ge=10, le=50000),
+        route_time_gap_min: int = Query(default=15, ge=1, le=1440),
+        route_dist_gap_m: int = Query(default=1200, ge=10, le=50000),
         stop_min_duration_min: int = Query(default=5, ge=1, le=240),
         stop_radius_m: int = Query(default=100, ge=10, le=5000),
         include_points: bool = Query(default=True),
@@ -1348,11 +1348,16 @@ def _segment_track(points_asc: list[dict[str, Any]], *, time_gap_ms: int, dist_g
         return []
     segments: list[list[dict[str, Any]]] = []
     segment = [points_asc[0]]
+    hard_jump_dist_m = max(dist_gap_m * 8, 15000)
+    hard_jump_speed_kmh = 220.0
     for current in points_asc[1:]:
         previous = segment[-1]
         time_gap = (_point_dt(current) - _point_dt(previous)).total_seconds() * 1000
         dist_gap = _haversine_m(previous, current)
-        if time_gap > time_gap_ms or dist_gap > dist_gap_m:
+        elapsed_seconds = max(time_gap / 1000, 0.001)
+        implied_speed_kmh = (dist_gap / elapsed_seconds) * 3.6
+        split_for_distance = dist_gap >= hard_jump_dist_m or (dist_gap > dist_gap_m and implied_speed_kmh > hard_jump_speed_kmh)
+        if time_gap > time_gap_ms or split_for_distance:
             if len(segment) > 1:
                 segments.append(segment)
             segment = [current]
@@ -1360,7 +1365,47 @@ def _segment_track(points_asc: list[dict[str, Any]], *, time_gap_ms: int, dist_g
         segment.append(current)
     if len(segment) > 1:
         segments.append(segment)
-    return segments
+    return _compact_track_segments(segments, time_gap_ms=time_gap_ms, dist_gap_m=dist_gap_m)
+
+
+def _segment_duration_ms(segment: list[dict[str, Any]]) -> float:
+    if len(segment) < 2:
+        return 0.0
+    return (_point_dt(segment[-1]) - _point_dt(segment[0])).total_seconds() * 1000
+
+
+def _is_micro_segment(segment: list[dict[str, Any]], *, time_gap_ms: int) -> bool:
+    return len(segment) <= 6 or _segment_duration_ms(segment) <= max(180000, time_gap_ms * 0.6)
+
+
+def _compact_track_segments(
+    segments: list[list[dict[str, Any]]],
+    *,
+    time_gap_ms: int,
+    dist_gap_m: int,
+) -> list[list[dict[str, Any]]]:
+    if len(segments) <= 1:
+        return segments
+    soft_time_gap_ms = max(time_gap_ms * 3, 15 * 60000)
+    soft_dist_gap_m = max(dist_gap_m * 4, 1200)
+    hard_time_gap_ms = max(time_gap_ms * 12, 2 * 3600 * 1000)
+    hard_dist_gap_m = max(dist_gap_m * 10, 10000)
+    compacted = [segments[0]]
+    for segment in segments[1:]:
+        previous = compacted[-1]
+        gap_time_ms = (_point_dt(segment[0]) - _point_dt(previous[-1])).total_seconds() * 1000
+        gap_dist_m = _haversine_m(previous[-1], segment[0])
+        should_merge = (
+            gap_time_ms <= soft_time_gap_ms
+            and gap_dist_m <= soft_dist_gap_m
+            and (gap_time_ms < hard_time_gap_ms and gap_dist_m < hard_dist_gap_m)
+            and (_is_micro_segment(previous, time_gap_ms=time_gap_ms) or _is_micro_segment(segment, time_gap_ms=time_gap_ms))
+        )
+        if should_merge:
+            previous.extend(segment)
+            continue
+        compacted.append(segment)
+    return compacted
 
 
 def _rdp(coords: list[list[float]], epsilon: float) -> list[list[float]]:

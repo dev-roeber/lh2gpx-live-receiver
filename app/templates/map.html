@@ -380,6 +380,7 @@
   const MAP_CONFIG = {{ config_summary | tojson }};
   const FILTER_DEBOUNCE = 300;
   const CLUSTER_THRESHOLD = 50;
+  const ROUTE_DEFAULTS_VERSION = '2';
   const RANGE_MINUTES = {
     '2m': 2, '5m': 5, '10m': 10, '15m': 15, '30m': 30, '45m': 45,
     '1h': 60, '2h': 120, '4h': 240, '6h': 360, '8h': 480, '12h': 720, '18h': 1080, '24h': 1440,
@@ -389,11 +390,21 @@
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
   const supportsNativeFullscreen = !!document.documentElement.requestFullscreen;
 
+  if (localStorage.getItem('map-route-defaults-version') !== ROUTE_DEFAULTS_VERSION) {
+    if (!localStorage.getItem('map-route-time-gap') || localStorage.getItem('map-route-time-gap') === '5') {
+      localStorage.setItem('map-route-time-gap', '15');
+    }
+    if (!localStorage.getItem('map-route-dist-gap') || localStorage.getItem('map-route-dist-gap') === '300') {
+      localStorage.setItem('map-route-dist-gap', '1200');
+    }
+    localStorage.setItem('map-route-defaults-version', ROUTE_DEFAULTS_VERSION);
+  }
+
   let POLLING_INTERVAL = parseInt(localStorage.getItem('map-polling-interval')) || 5000;
   let TIME_RANGE = localStorage.getItem('map-time-range') || '1h';
   let MAP_MAX_POINTS = parseInt(localStorage.getItem('map-max-points')) || MAP_CONFIG.pointsPageSizeMax || 2000;
-  let ROUTE_TIME_GAP = parseInt(localStorage.getItem('map-route-time-gap')) || 5;
-  let ROUTE_DIST_GAP = parseInt(localStorage.getItem('map-route-dist-gap')) || 300;
+  let ROUTE_TIME_GAP = parseInt(localStorage.getItem('map-route-time-gap')) || 15;
+  let ROUTE_DIST_GAP = parseInt(localStorage.getItem('map-route-dist-gap')) || 1200;
   let STOP_MIN_DUR = parseInt(localStorage.getItem('map-stop-min-dur')) || 5;
   let STOP_RADIUS_M = parseInt(localStorage.getItem('map-stop-radius')) || 100;
 
@@ -892,7 +903,7 @@
       if (!boundsPoints.length && latest) boundsPoints.push([latest.lat, latest.lon]);
       if (boundsPoints.length) map.fitBounds(L.latLngBounds(boundsPoints), { padding: [50, 50], animate: true });
     } else if (autoCenter && latest) {
-      map.setView([latest.lat, latest.lon], 18, { animate: true });
+      map.panTo([latest.lat, latest.lon], { animate: true });
     }
   }
 
