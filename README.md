@@ -25,7 +25,7 @@ Receiver- und Operator-Server für optionale Live-Location-Uploads aus der `Loca
 - **Design-System (April 2026):** Vollständig auf iOS-inspiriertes Dark-Design umgestellt. OLED-Schwarz als Hintergrund, Mint `#30D158` als primärer Akzent, semantische Farben (Blau, Orange, Lila, Rot, Teal) für Status und Kategorien. Glasmorphismus-Header, Pill-Buttons, gerundete Karten.
 - **Interaktive Karte:** `/dashboard/map` mit Leaflet, CartoDB-Dark-Tiles, MarkerCluster, Live-Polling (2s–5min konfigurierbar), Zeitraumfilter (2min–gesamt), Session-Filter, Auto-Follow, Fit-Bounds, GeoJSON-Export, Copy-to-Clipboard.
 - **Responsive:** CSS-Grid-basiertes 3-View-System. Desktop: Filter-Panel | Karte | Live-Log. Tablet: 2-Spalten. Mobile: vollständig gestackt, Filter einklappbar. iPhone-Overflow vollständig behoben.
-- **Login:** Session-Cookie-Auth für das Dashboard. Nach Login Redirect auf `/dashboard/map`.
+- **Login:** Bearer-basierter Dashboard-Login mit signiertem Session-Cookie. Nach Login Redirect auf `/dashboard/map`.
 - **Deutsche Oberfläche:** Alle Dashboard-Seiten vollständig auf Deutsch lokalisiert.
 - **iOS-Vollbild:** Native `requestFullscreen()` nicht auf iOS verfügbar → CSS-Fallback (`position:fixed; 100vw/100dvh`) per ⛶-Button. Einmaliger "Zum Home-Bildschirm"-Banner mit Anleitung.
 
@@ -168,7 +168,7 @@ Darunter: priorisierte Next-Actions, jüngste Requests-Tabelle, Top-Sessions, ne
 - Systemseite mit Version, Laufzeit und Changelog-Ausschnitten
 - CSV-, JSON- und NDJSON-Export der Punkteliste
 
-**Sicherheitshinweis:** Der Zugriffsschutz für das Dashboard erfolgt über Session-Cookie-Auth. Ingest-Endpunkte sind Bearer-Token-gesichert.
+**Sicherheitshinweis:** Der Zugriffsschutz für das Dashboard erfolgt über signierte Session-Cookies oder optional HTTP Basic Auth. Ingest-Endpunkte sind Bearer-Token-gesichert.
 
 ## Konfiguration
 
@@ -179,10 +179,12 @@ Wichtige ENV-Variablen:
 - `PUBLIC_HOSTNAME` / `PUBLIC_BASE_URL`
 - `LIVE_LOCATION_BEARER_TOKEN` (Pflicht für Ingest-Sicherheit)
 - `ADMIN_USERNAME` / `ADMIN_PASSWORD` (Dashboard-Login)
+- `SESSION_SIGNING_SECRET` (optional dedizierter Signing-Key für Dashboard-Cookies)
 - `LOCAL_TIMEZONE` (IANA-Validierung beim Start; Zeitstempel werden als UTC in DB gespeichert, wenn `UTC` gesetzt)
 - `DATA_DIR` / `SQLITE_PATH`
 - `ENABLE_RAW_PAYLOAD_NDJSON`
 - `LOG_LEVEL` (Standard: INFO)
+- `POINTS_PAGE_SIZE_MAX` (Standard: 2000)
 
 Hinweise:
 

@@ -2,72 +2,52 @@
 
 ## Ziel
 
-Der Receiver nimmt optionale Live-Location-Uploads an und macht sie für den Serverbetrieb sichtbar, exportierbar und diagnostizierbar.
+- optionaler Self-Hosted-Receiver für Live-Location-Uploads aus der App
+- lokale Speicherung, Diagnose, Export und Operator-Sicht ohne externe Datenbank
 
 ## Bausteine
 
 - FastAPI-App
-- SQLite-Datenbank für Requests und GPS-Punkte
-- optionales NDJSON für Rohpayload-Audit
+- SQLite für Requests und GPS-Punkte
+- optionales NDJSON-Audit für Rohpayloads
+- serverseitig gerenderte Operator-UI
 - Caddy als TLS-Reverse-Proxy
-- receiver-first Operator-UI in serverseitig gerendertem HTML mit mehreren Admin-Views
 
 ## Request-Fluss
 
 1. Client sendet `POST /live-location`
-2. Middleware erzeugt `request_id`, misst Dauer und liest den Body kontrolliert ein
-3. Bearer-Auth und optionales Rate-Limit greifen
-4. Pydantic validiert den Input
-5. Storage speichert:
-   - Request-Metadaten
-   - einzelne GPS-Punkte
-   - optional Rohpayload-NDJSON
-6. API antwortet mit `202 Accepted`
-7. Logs enthalten strukturierte Diagnosedaten ohne Secret-Leaks
+2. Middleware vergibt `request_id`, misst Laufzeit und prüft das Body-Limit
+3. Bearer-Auth und optionales In-Memory-Rate-Limit greifen
+4. Pydantic validiert den Payload
+5. Storage speichert Request-Metadaten und einzelne Punkte
+6. optional wird das Rohpayload in NDJSON auditiert
+7. API antwortet mit `202 Accepted`
 
-## Warum SQLite + NDJSON
+## Operator-Zugriff
 
-- SQLite liefert schnelle Listen-, Filter- und Detailabfragen
-- SQLite ist leicht zu sichern und benötigt keine externe Datenbank
-- NDJSON bleibt als leicht lesbarer Rohpayload-Auditpfad optional erhalten
-- diese Kombination deckt Operator-UI und Export ohne unnötige Infrastruktur ab
+- Session-Cookie nach Bearer-Login
+- optional HTTP Basic Auth
+- ohne Admin-Credentials lokal-only
 
-## Fehlerbehandlung
+## Hot-Reload
 
-- `401` für fehlende oder ungültige Bearer-Tokens
-- `413` für zu große Requests
-- `422` für Payload-/Schemafehler
-- `429` für Rate-Limit
-- `503` für Storage-Probleme oder fehlende Schreibbereitschaft
-- `500` nur für unerwartete Fehler
+- `POST /api/settings` lädt unterstützte Runtime-Settings neu
+- neu verdrahtet werden:
+  - `app.state.settings`
+  - `app.state.storage`
+  - `app.state.rate_limiter`
+  - Session-Signing-Key
+  - Template-Zeitzonenformatierung
+  - Request-Body-Limit via Request-Zeit-Lookup
 
-## Sicherheitsmodell
+## Import-Dedupe
 
-- Ingest getrennt von Operator-Zugriff
-- Bearer-Token für Ingest optional
-- Operator-UI lokal-only, bis Admin-Credentials gesetzt sind
-- keine Secret-Anzeige in API oder HTML
-- JSON-Access-Logs über Caddy
-
-## Informationsarchitektur der Operator-UI
-
-Die HTML-Oberfläche ist entlang des Receiver-Betriebs gruppiert:
-
-- Receiver: Dashboard, Live-Status, Letzte Aktivität
-- Daten: Punkte, Requests, Sessions, Exporte
-- Betrieb: Konfiguration, Storage, Troubleshooting, Open Items
-- Sicherheit: Auth-Status und Security-Hinweise
-- System: Version, Laufzeit und Changelog-Ausschnitte
-
-Das erlaubt eine klarere Operator-Sicht, ohne die Ingest-, Storage- oder API-Logik umzubauen.
+- innerhalb der Datei: Dedupe über `timestamp + latitude + longitude`
+- gegen die Datenbank: gleiche Triple-Kombination wird übersprungen
 
 ## Bewusst nicht umgesetzt
 
-- kein eigenes Session-/Login-System für Operatoren
-- kein kartenbasiertes Session-/Track-Preview
-- kein externes Migrationsframework
-
-Begründung:
-
-- der Lauf sollte den Receiver-Kern stabilisieren, nicht die zweite Ausbauphase vorwegnehmen
-- offene Ausbaupunkte sind in [OPEN_ITEMS.md](OPEN_ITEMS.md) gesammelt
+- persistentes Rate-Limit-Backend
+- externes Migrationsframework
+- Multi-User-/Rollenmodell
+- automatische Retention- oder Export-Jobs

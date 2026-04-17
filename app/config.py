@@ -64,6 +64,7 @@ class Settings:
     points_page_size_max: int
     rate_limit_requests_per_minute: int
     trust_proxy_headers: bool
+    session_signing_secret: str | None = None
 
     @property
     def auth_required(self) -> bool:
@@ -107,6 +108,7 @@ class Settings:
         raw_bearer_token = os.getenv("LIVE_LOCATION_BEARER_TOKEN", "").strip()
         raw_admin_username = os.getenv("ADMIN_USERNAME", "").strip()
         raw_admin_password = os.getenv("ADMIN_PASSWORD", "").strip()
+        raw_session_signing_secret = os.getenv("SESSION_SIGNING_SECRET", "").strip()
 
         return cls(
             bind_host=_read_non_empty_env("BIND_HOST", default="0.0.0.0"),
@@ -116,6 +118,7 @@ class Settings:
             bearer_token=raw_bearer_token or None,
             admin_username=raw_admin_username or None,
             admin_password=raw_admin_password or None,
+            session_signing_secret=raw_session_signing_secret or None,
             data_dir=data_dir,
             sqlite_path=sqlite_path,
             raw_payload_ndjson_path=raw_payload_ndjson_path,
@@ -125,7 +128,7 @@ class Settings:
             log_level=_read_non_empty_env("LOG_LEVEL", default="INFO").upper(),
             request_body_max_bytes=_read_int_env("REQUEST_BODY_MAX_BYTES", default=262144, minimum=1024),
             points_page_size_default=_read_int_env("POINTS_PAGE_SIZE_DEFAULT", default=50, minimum=1, maximum=100000),
-            points_page_size_max=_read_int_env("POINTS_PAGE_SIZE_MAX", default=50000, minimum=1, maximum=100000),
+            points_page_size_max=_read_int_env("POINTS_PAGE_SIZE_MAX", default=2000, minimum=1, maximum=100000),
             rate_limit_requests_per_minute=_read_int_env("RATE_LIMIT_REQUESTS_PER_MINUTE", default=0, minimum=0),
             trust_proxy_headers=_read_bool_env("TRUST_PROXY_HEADERS", default=True),
         )
@@ -140,7 +143,8 @@ class Settings:
             valid_keys = {
                 "public_hostname", "public_base_url", "bearer_token", 
                 "raw_payload_ndjson_enabled", "local_timezone", "log_level",
-                "points_page_size_default", "points_page_size_max"
+                "request_body_max_bytes", "points_page_size_default", "points_page_size_max",
+                "rate_limit_requests_per_minute", "trust_proxy_headers"
             }
             overrides = {k: v for k, v in data.items() if k in valid_keys and v is not None}
             if not overrides:
@@ -166,6 +170,46 @@ class Settings:
             if not url.startswith(("http://", "https://")):
                 raise ValueError("Basis-URL muss mit http:// oder https:// beginnen")
 
+        if "request_body_max_bytes" in updates:
+            value = int(updates["request_body_max_bytes"])
+            if value < 1024:
+                raise ValueError("REQUEST_BODY_MAX_BYTES muss mindestens 1024 sein")
+            updates["request_body_max_bytes"] = value
+
+        if "points_page_size_default" in updates:
+            value = int(updates["points_page_size_default"])
+            if value < 1:
+                raise ValueError("POINTS_PAGE_SIZE_DEFAULT muss mindestens 1 sein")
+            updates["points_page_size_default"] = value
+
+        if "points_page_size_max" in updates:
+            value = int(updates["points_page_size_max"])
+            if value < 1:
+                raise ValueError("POINTS_PAGE_SIZE_MAX muss mindestens 1 sein")
+            updates["points_page_size_max"] = value
+
+        if "rate_limit_requests_per_minute" in updates:
+            value = int(updates["rate_limit_requests_per_minute"])
+            if value < 0:
+                raise ValueError("RATE_LIMIT_REQUESTS_PER_MINUTE darf nicht negativ sein")
+            updates["rate_limit_requests_per_minute"] = value
+
+        if "trust_proxy_headers" in updates:
+            value = updates["trust_proxy_headers"]
+            if isinstance(value, bool):
+                pass
+            elif isinstance(value, str) and value.strip().lower() in {"1", "true", "yes", "on"}:
+                updates["trust_proxy_headers"] = True
+            elif isinstance(value, str) and value.strip().lower() in {"0", "false", "no", "off"}:
+                updates["trust_proxy_headers"] = False
+            else:
+                raise ValueError("TRUST_PROXY_HEADERS muss ein Boolean sein")
+
+        default_page_size = int(updates.get("points_page_size_default", self.points_page_size_default))
+        max_page_size = int(updates.get("points_page_size_max", self.points_page_size_max))
+        if default_page_size > max_page_size:
+            raise ValueError("POINTS_PAGE_SIZE_DEFAULT darf nicht größer als POINTS_PAGE_SIZE_MAX sein")
+
         path = self.persistent_settings_path
         current_data = {}
         if path.exists():
@@ -179,7 +223,8 @@ class Settings:
         allowed_fields = {
             "public_hostname", "public_base_url", "bearer_token", 
             "raw_payload_ndjson_enabled", "local_timezone", "log_level",
-            "points_page_size_default", "points_page_size_max"
+            "request_body_max_bytes", "points_page_size_default", "points_page_size_max",
+            "rate_limit_requests_per_minute", "trust_proxy_headers"
         }
         filtered_updates = {k: v for k, v in updates.items() if k in allowed_fields}
         
@@ -199,6 +244,7 @@ class Settings:
             "adminAuthEnabled": self.admin_auth_enabled,
             "adminUsername": self.admin_username or "",
             "adminPassword": _mask_secret(self.admin_password),
+            "sessionSigningSecretConfigured": bool(self.session_signing_secret),
             "dataDir": str(self.data_dir),
             "sqlitePath": str(self.sqlite_path),
             "rawPayloadNdjsonEnabled": self.raw_payload_ndjson_enabled,

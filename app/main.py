@@ -6,6 +6,7 @@ import hmac
 import json
 import logging
 import platform
+import secrets
 import time
 from base64 import b64decode
 from collections import defaultdict, deque
@@ -159,6 +160,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.storage = ReceiverStorage(resolved_settings)
     app.state.storage.startup()
     app.state.rate_limiter = SimpleRateLimiter(resolved_settings.rate_limit_requests_per_minute)
+    app.state.session_signing_key = _build_session_signing_key(resolved_settings)
     app.state.started_at_utc = datetime.now(timezone.utc)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -177,11 +179,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if request.method.upper() == "POST" and request.url.path == "/live-location":
             raw_body = await request.body()
             request.state.raw_body_text = raw_body.decode("utf-8", errors="replace")
-            if len(raw_body) > resolved_settings.request_body_max_bytes:
+            max_bytes = _settings(request).request_body_max_bytes
+            if len(raw_body) > max_bytes:
                 response = _json_error(
                     request=request,
                     status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail=f"Request body exceeds {resolved_settings.request_body_max_bytes} bytes.",
+                    detail=f"Request body exceeds {max_bytes} bytes.",
                     error_category="payload_too_large",
                 )
                 await _record_failure(
@@ -412,6 +415,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             new_storage = ReceiverStorage(new_settings)
             new_storage.startup()
             request.app.state.storage = new_storage
+            request.app.state.rate_limiter = SimpleRateLimiter(new_settings.rate_limit_requests_per_minute)
+            request.app.state.session_signing_key = _build_session_signing_key(
+                new_settings,
+                existing_key=getattr(request.app.state, "session_signing_key", None),
+            )
             
             # Templates-Globals aktualisieren
             templates.env.globals.update(
@@ -589,7 +597,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
 
-        token = _create_session_token(settings)
+        token = _create_session_token(settings, request.app)
         redirect = RedirectResponse(url="/dashboard/map", status_code=status.HTTP_303_SEE_OTHER)
         redirect.set_cookie(
             key=_SESSION_COOKIE,
@@ -812,7 +820,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             points = _storage(request).list_points(point_filters)
         except StorageError:
-            points = []
+            points = {"page": page, "pageSize": effective_page_size, "total": 0, "items": []}
         snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
             request,
@@ -874,7 +882,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             requests_payload = _storage(request).list_requests(request_filters)
         except StorageError:
-            requests_payload = None
+            requests_payload = {"page": page, "pageSize": effective_page_size, "total": 0, "items": []}
         snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
             request,
@@ -1132,18 +1140,25 @@ def _json_error(
     return response
 
 
-def _session_signing_key(settings: Settings) -> bytes:
-    key = settings.bearer_token or "lh2gpx-no-auth-fallback"
-    return key.encode("utf-8")
+def _build_session_signing_key(settings: Settings, existing_key: bytes | None = None) -> bytes:
+    if settings.session_signing_secret:
+        return settings.session_signing_secret.encode("utf-8")
+    if settings.bearer_token:
+        return settings.bearer_token.encode("utf-8")
+    if settings.admin_password:
+        return settings.admin_password.encode("utf-8")
+    if existing_key:
+        return existing_key
+    return secrets.token_bytes(32)
 
 
-def _create_session_token(settings: Settings) -> str:
+def _create_session_token(settings: Settings, app: FastAPI) -> str:
     ts = str(int(time.time()))
-    sig = hmac.new(_session_signing_key(settings), ts.encode(), hashlib.sha256).hexdigest()
+    sig = hmac.new(app.state.session_signing_key, ts.encode(), hashlib.sha256).hexdigest()
     return f"{ts}:{sig}"
 
 
-def _validate_session_token(token: str, settings: Settings) -> bool:
+def _validate_session_token(token: str, settings: Settings, app: FastAPI) -> bool:
     try:
         ts_str, sig = token.split(":", 1)
         ts = int(ts_str)
@@ -1151,7 +1166,7 @@ def _validate_session_token(token: str, settings: Settings) -> bool:
         return False
     if time.time() - ts > _SESSION_MAX_AGE:
         return False
-    expected = hmac.new(_session_signing_key(settings), ts_str.encode(), hashlib.sha256).hexdigest()
+    expected = hmac.new(app.state.session_signing_key, ts_str.encode(), hashlib.sha256).hexdigest()
     return compare_digest(sig, expected)
 
 
@@ -1181,7 +1196,7 @@ async def _require_admin_access(request: Request, authorization: str | None = He
 
     # 1. Session-Cookie — gilt für alle Zugriffspfade
     cookie = request.cookies.get(_SESSION_COOKIE, "")
-    if cookie and _validate_session_token(cookie, settings):
+    if cookie and _validate_session_token(cookie, settings, request.app):
         return
 
     # 2. HTTP-Basic-Auth (wenn Admin-Credentials konfiguriert)

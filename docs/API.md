@@ -1,28 +1,34 @@
 # API
 
+## Basis
+
+- JSON-API für Ingest, Monitoring und Operatoren
+- HTML-Dashboard unter `/dashboard/*`
+
 ## `GET /health`
 
-Liveness-Check. Antwortet mit Prozessstatus und Storage-Grunddaten.
+- Liveness-Check
+- liefert Prozessstatus und Storage-Grunddaten
 
 ## `GET /readyz`
 
-Readiness-Check. Antwortet mit `200`, wenn der Receiver Daten sicher schreiben kann, sonst `503`.
+- Readiness-Check
+- `200`, wenn der Receiver sicher schreiben kann
+- `503`, wenn Storage oder Dateisystem nicht bereit sind
 
 ## `POST /live-location`
 
-Nimmt Live-Location-Requests an.
-
-### Erwartete Felder
-
-- `source`
-- `sessionID`
-- `captureMode`
-- `sentAt`
-- `points[]`
-- `points[].latitude`
-- `points[].longitude`
-- `points[].timestamp`
-- `points[].horizontalAccuracyM`
+- Ingest-Endpunkt für Live-Location-Uploads
+- erwartete Felder:
+  - `source`
+  - `sessionID`
+  - `captureMode`
+  - `sentAt`
+  - `points[]`
+  - `points[].latitude`
+  - `points[].longitude`
+  - `points[].timestamp`
+  - `points[].horizontalAccuracyM`
 
 ### Statuscodes
 
@@ -34,22 +40,24 @@ Nimmt Live-Location-Requests an.
 - `503` storage unavailable
 - `500` unexpected internal error
 
-## `GET /api/stats`
+## Operator-API
 
-Operator-API mit:
+- `GET /api/stats`
+- `GET /api/live-summary`
+- `GET /api/points`
+- `GET /api/points/{id}`
+- `GET /api/requests`
+- `GET /api/requests/{request_id}`
+- `GET /api/sessions`
+- `GET /api/sessions/{session_id}`
+- `DELETE /api/sessions/{session_id}`
+- `GET /api/config-summary`
+- `POST /api/settings`
+- `POST /api/import`
+- `GET /api/import/status/{task_id}`
+- `POST /api/storage/vacuum`
 
-- Gesamtanzahl Requests
-- akzeptierte und fehlgeschlagene Requests
-- Gesamtanzahl Punkte
-- letzter Erfolg / letzter Fehler
-- Punkte pro Tag
-- Punkte pro Session
-
-## `GET /api/points`
-
-Liste gespeicherter Punkte, neueste zuerst.
-
-### Query-Parameter
+## Punkte- und Request-Filter
 
 - `date_from`
 - `date_to`
@@ -61,52 +69,32 @@ Liste gespeicherter Punkte, neueste zuerst.
 - `search`
 - `page`
 - `page_size`
+
+Zusätzlich für Requests:
+
+- `ingest_status`
+
+Zusätzlich für Punkte:
+
 - `format=json|csv|ndjson`
 
-## `GET /api/points/{id}`
+## Import
 
-Punktdetail.
+- unterstützte Dateitypen:
+  - `json`
+  - `gpx`
+  - `kml`
+  - `kmz`
+  - `geojson`
+  - `csv`
+  - `zip`
+- Dedupe erfolgt über `timestamp + latitude + longitude`
 
-## `GET /api/requests`
+## Dashboard-Routen
 
-Requestliste mit optionalen Filtern:
-
-- `date_from`
-- `date_to`
-- `time_from`
-- `time_to`
-- `session_id`
-- `capture_mode`
-- `source`
-- `ingest_status`
-- `search`
-- `page`
-- `page_size`
-
-## `GET /api/requests/{request_id}`
-
-Requestdetail inklusive Rohpayload, Bounding Box und gespeicherter Punkte.
-
-## `GET /api/sessions`
-
-Sessionliste mit Punktanzahl und erstem/letztem Punkt.
-
-## `GET /api/sessions/{session_id}`
-
-Sessiondetail mit zugeordneten Requests, Bounding Box und Zeitspanne.
-
-## `GET /api/config-summary`
-
-Masked operator summary of runtime config. Secrets bleiben maskiert.
-
-## `GET /dashboard`
-
-HTML-Receiver-Dashboard für Operatoren.
-
-## Weitere HTML-Views unter `/dashboard/*`
-
-Die Operator-UI ist jetzt in mehrere serverseitig gerenderte Arbeitsbereiche aufgeteilt:
-
+- `/dashboard`
+- `/dashboard/map`
+- `/dashboard/import`
 - `/dashboard/live-status`
 - `/dashboard/activity`
 - `/dashboard/points`
@@ -123,14 +111,10 @@ Die Operator-UI ist jetzt in mehrere serverseitig gerenderte Arbeitsbereiche auf
 - `/dashboard/troubleshooting`
 - `/dashboard/open-items`
 
-Alle Seiten bleiben durch dieselbe Admin-Zugriffskontrolle geschützt wie das Haupt-Dashboard.
+## Zugriffsschutz
 
-## Scope-Hinweis
-
-Diese API-Doku beschreibt nur den aktuell umgesetzten Receiver-Stand. Bewusst nicht Teil dieses Laufs:
-
-- separate Admin-Session-Auth
-- weitergehende Operator-Rollen
-- geplante Export-/Retention-Jobs
-
-Offene Folgepunkte stehen in [OPEN_ITEMS.md](OPEN_ITEMS.md).
+- Ingest: Bearer-Token
+- Dashboard:
+  - signierter Session-Cookie nach Bearer-Login
+  - optional HTTP Basic Auth
+  - ohne Admin-Credentials lokal-only

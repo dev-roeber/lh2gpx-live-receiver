@@ -50,7 +50,7 @@
       </tr>
     </thead>
     <tbody>
-      {% for item in points.items %}
+      {% for item in points["items"] %}
       <tr>
         <td>
           <strong>{{ item.point_timestamp_utc.split('T')[1][:8] }}</strong>

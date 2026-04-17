@@ -10,6 +10,7 @@ services:
       PUBLIC_HOSTNAME: ${PUBLIC_HOSTNAME:-localhost}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
       LIVE_LOCATION_BEARER_TOKEN: ${LIVE_LOCATION_BEARER_TOKEN:-}
+      SESSION_SIGNING_SECRET: ${SESSION_SIGNING_SECRET:-}
       DATA_DIR: ${DATA_DIR:-/app/data}
       SQLITE_PATH: ${SQLITE_PATH:-/app/data/receiver.sqlite3}
       RAW_PAYLOAD_NDJSON_PATH: ${RAW_PAYLOAD_NDJSON_PATH:-/app/data/raw-payloads.ndjson}

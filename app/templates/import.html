@@ -135,7 +135,7 @@
   <div class="panel-header"><h3>Hinweise</h3></div>
   <ul class="hint-list">
     <li>Importierte Punkte erscheinen als eigene Import-Session in der Punkteliste und auf der Karte.</li>
-    <li>Bereits vorhandene Punkte werden <em>nicht</em> dedupliziert — wiederholter Import derselben Datei erzeugt Duplikate.</li>
+    <li>Importe werden über <em>Zeitstempel + Latitude + Longitude</em> dedupliziert — doppelte Punkte in Datei und Datenbank werden übersprungen.</li>
     <li>Google Maps Takeout: Exportiere unter <em>Meine Aktivitäten → Standortverlauf</em>. Die Datei heißt <code>Records.json</code> oder liegt als ZIP vor. Beide Formate (alt + Timeline 2024+) werden unterstützt.</li>
     <li>Zeitstempel ohne Zeitzone werden als UTC interpretiert.</li>
     <li>KML-LineStrings ohne Zeitstempel erhalten den Importzeitpunkt als Zeitstempel.</li>
