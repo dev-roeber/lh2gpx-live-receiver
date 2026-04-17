@@ -1471,7 +1471,7 @@ def _serialize_polyline_segments(
 def _speed_color(kmh: float) -> str:
     normalized_kmh = max(0.0, kmh)
     if normalized_kmh <= 100.0:
-        normalized_kmh = min(100.0, round(normalized_kmh / 3.0) * 3.0)
+        normalized_kmh = min(100.0, round(normalized_kmh / 5.0) * 5.0)
     hue = round(240 - min(300.0, normalized_kmh) / 300.0 * 240)
     lightness = 55 if kmh < 10 else 50 if kmh > 250 else 52
     return f"hsl({hue},95%,{lightness}%)"
