@@ -919,9 +919,19 @@ label {
   padding: 6px 12px;
   white-space: nowrap;
   font-family: inherit;
-  width: min(760px, calc(100% - 24px));
-  max-width: min(760px, calc(100% - 24px));
-  justify-content: center;
+  width: clamp(320px, calc(100% - 24px), 920px);
+  max-width: calc(100% - 24px);
+  justify-content: flex-start;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.28) transparent;
+}
+#map-quick-ctrl::-webkit-scrollbar { height: 6px; }
+#map-quick-ctrl::-webkit-scrollbar-track { background: transparent; }
+#map-quick-ctrl::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.22);
+  border-radius: 999px;
 }
 .mqc-select {
   background: transparent;
@@ -970,6 +980,42 @@ label {
   background: rgba(255,255,255,0.12);
   margin: 0 4px;
   flex-shrink: 0;
+}
+
+@media (max-width: 860px) {
+  #map-quick-ctrl {
+    width: calc(100% - 20px);
+    max-width: calc(100% - 20px);
+    padding: 6px 10px;
+    gap: 3px;
+  }
+
+  .mqc-select {
+    min-width: 88px;
+    max-width: 116px;
+  }
+}
+
+@media (max-width: 560px) {
+  #map-quick-ctrl {
+    bottom: 18px;
+    width: calc(100% - 16px);
+    max-width: calc(100% - 16px);
+    padding: 6px 8px;
+    border-radius: 8px;
+  }
+
+  .mqc-select {
+    font-size: 0.78rem;
+    min-width: 82px;
+    max-width: 108px;
+  }
+
+  .mqc-btn,
+  .mqc-toggle {
+    padding: 6px 7px;
+    font-size: 0.84rem;
+  }
 }
 
 /* ── Sonar-Ping: letzter GPS-Punkt ───────────────────────── */
