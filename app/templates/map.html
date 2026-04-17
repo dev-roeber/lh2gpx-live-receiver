@@ -653,7 +653,7 @@
     stopsLayer.clearLayers();
     daytrackLayer.clearLayers();
     snapLayer.clearLayers();
-    if (map.hasLayer(heatLayer)) map.removeLayer(heatLayer);
+    if (heatLayer && map.hasLayer(heatLayer)) map.removeLayer(heatLayer);
   }
 
   function renderPoints(points, latestPoint) {
@@ -685,7 +685,7 @@
   }
 
   function renderHeatmap(entries) {
-    if (!heatmapActive || !entries.length) return;
+    if (!heatmapActive || !entries.length || !heatLayer) return;
     heatLayer.setLatLngs(entries);
     if (!map.hasLayer(heatLayer)) heatLayer.addTo(map);
   }
@@ -1009,10 +1009,22 @@
     stopsLayer = L.featureGroup().addTo(map);
     daytrackLayer = L.featureGroup().addTo(map);
     snapLayer = L.featureGroup().addTo(map);
-    heatLayer = L.heatLayer([], {
-      radius: 14, blur: 12, maxZoom: 19, minOpacity: 0.25, max: 1.0,
-      gradient: { 0.00: 'rgba(0,100,255,0)', 0.15: 'rgba(0,100,255,0.6)', 0.35: '#0A84FF', 0.55: '#30D158', 0.72: '#FF9F0A', 0.88: '#FF453A', 1.00: '#FFD60A' }
-    });
+    if (typeof L.heatLayer === 'function') {
+      heatLayer = L.heatLayer([], {
+        radius: 14, blur: 12, maxZoom: 19, minOpacity: 0.25, max: 1.0,
+        gradient: { 0.00: 'rgba(0,100,255,0)', 0.15: 'rgba(0,100,255,0.6)', 0.35: '#0A84FF', 0.55: '#30D158', 0.72: '#FF9F0A', 0.88: '#FF453A', 1.00: '#FFD60A' }
+      });
+    } else {
+      heatLayer = null;
+      heatmapActive = false;
+      const heatToggle = document.getElementById('heatmap-toggle');
+      if (heatToggle) {
+        heatToggle.checked = false;
+        heatToggle.disabled = true;
+        heatToggle.title = 'Heatmap-Plugin nicht verfügbar';
+      }
+      console.warn('leaflet.heat is unavailable; heatmap layer disabled');
+    }
 
     document.getElementById('map-max-points').max = String(MAP_CONFIG.pointsPageSizeMax || 2000);
     document.getElementById('map-max-points').value = MAP_MAX_POINTS;
