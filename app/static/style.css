@@ -907,9 +907,6 @@ label {
   left: 50%;
   transform: translateX(-50%);
   z-index: 450;
-  display: flex;
-  align-items: center;
-  gap: 4px;
   background: rgba(28, 28, 30, 0.68);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
@@ -921,11 +918,19 @@ label {
   font-family: inherit;
   width: clamp(320px, calc(100% - 24px), 920px);
   max-width: calc(100% - 24px);
-  justify-content: flex-start;
   overflow-x: auto;
   overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.28) transparent;
+}
+#map-quick-ctrl-inner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  min-width: 100%;
 }
 #map-quick-ctrl::-webkit-scrollbar { height: 6px; }
 #map-quick-ctrl::-webkit-scrollbar-track { background: transparent; }
