@@ -693,11 +693,13 @@
   function renderPolylines(segments) {
     if (!segments.length) return;
     segments.forEach(segment => {
-      L.polyline(segment.coords, { color: segment.color, weight: 9, opacity: 0.12, lineCap: 'round', lineJoin: 'round', renderer: canvasRenderer, interactive: false }).addTo(polylineLayer);
-      L.polyline(segment.coords, { color: segment.color, weight: 4, opacity: 0.30, lineCap: 'round', lineJoin: 'round', renderer: canvasRenderer, interactive: false }).addTo(polylineLayer);
-      L.polyline(segment.coords, { color: segment.color, weight: 1.8, opacity: 0.92, lineCap: 'round', lineJoin: 'round', renderer: canvasRenderer })
-        .bindPopup(`Route · ${segment.pointsCount} Punkte<br>${segment.startLabel || ''} ${segment.endLabel ? `– ${segment.endLabel}` : ''}`)
-        .addTo(polylineLayer);
+      if (polylineActive) {
+        L.polyline(segment.coords, { color: segment.color, weight: 9, opacity: 0.12, lineCap: 'round', lineJoin: 'round', renderer: canvasRenderer, interactive: false }).addTo(polylineLayer);
+        L.polyline(segment.coords, { color: segment.color, weight: 4, opacity: 0.30, lineCap: 'round', lineJoin: 'round', renderer: canvasRenderer, interactive: false }).addTo(polylineLayer);
+        L.polyline(segment.coords, { color: segment.color, weight: 1.8, opacity: 0.92, lineCap: 'round', lineJoin: 'round', renderer: canvasRenderer })
+          .bindPopup(`Route · ${segment.pointsCount} Punkte<br>${segment.startLabel || ''} ${segment.endLabel ? `– ${segment.endLabel}` : ''}`)
+          .addTo(polylineLayer);
+      }
       if (labelsActive && segment.startLabel) {
         [[segment.startPoint, segment.startLabel], [segment.endPoint, segment.endLabel]].forEach(([coords, label]) => {
           if (!label) return;
@@ -712,6 +714,35 @@
         });
       }
     });
+  }
+
+  function collectVisibleBoundsPoints(layers) {
+    const points = [];
+    if (pointsActive) {
+      (layers.points || []).forEach(point => points.push([point.lat, point.lon]));
+      if (!points.length && layers.latestPoint) points.push([layers.latestPoint.lat, layers.latestPoint.lon]);
+    }
+    if (polylineActive || labelsActive) {
+      (layers.polylines || []).forEach(segment => {
+        (segment.coords || []).forEach(coords => points.push(coords));
+        if (labelsActive) {
+          if (segment.startPoint) points.push(segment.startPoint);
+          if (segment.endPoint) points.push(segment.endPoint);
+        }
+      });
+    }
+    if (accuracyActive) (layers.accuracy || []).forEach(item => points.push([item.lat, item.lon]));
+    if (speedActive) (layers.speed || []).forEach(item => (item.coords || []).forEach(coords => points.push(coords)));
+    if (stopsActive) (layers.stops || []).forEach(item => points.push([item.lat, item.lon]));
+    if (daytrackActive) {
+      (layers.daytracks || []).forEach(daytrack => {
+        (daytrack.segments || []).forEach(segment => (segment || []).forEach(coords => points.push(coords)));
+        if (daytrack.labelPoint) points.push(daytrack.labelPoint);
+      });
+    }
+    if (snapActive) (layers.snap || []).forEach(item => (item.coords || []).forEach(coords => points.push(coords)));
+    if (heatmapActive) (layers.heatmap || []).forEach(item => points.push([item[0], item[1]]));
+    return points;
   }
 
   function renderAccuracy(entries) {
@@ -801,8 +832,7 @@
     const autoCenter = document.getElementById('auto-center-toggle').checked;
     const fitBounds = document.getElementById('fit-bounds-toggle').checked;
     if (fitBounds) {
-      const boundsPoints = [];
-      (layers.points || []).forEach(point => boundsPoints.push([point.lat, point.lon]));
+      const boundsPoints = collectVisibleBoundsPoints(layers);
       if (!boundsPoints.length && latest) boundsPoints.push([latest.lat, latest.lon]);
       if (boundsPoints.length) map.fitBounds(L.latLngBounds(boundsPoints), { padding: [50, 50], animate: true });
     } else if (autoCenter && latest) {
