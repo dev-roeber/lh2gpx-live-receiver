@@ -198,6 +198,7 @@
       <span id="map-points-badge" style="display:none;font-size:0.72rem;font-weight:600;color:var(--mint);background:var(--mint-dim);border:1px solid var(--mint-border);border-radius:999px;padding:2px 10px;"></span>
     </div>
 
+    <div id="map-legend-anchor"></div>
     <div id="map-legend" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--separator);display:flex;flex-wrap:wrap;gap:18px;font-size:0.78rem;color:var(--text-3);">
 
       <div id="legend-points" style="display:none;min-width:110px;">
@@ -481,8 +482,14 @@
 
   function updateLegendPlacement() {
     const legend = document.getElementById('map-legend');
+    const legendAnchor = document.getElementById('map-legend-anchor');
+    const mapWrap = document.getElementById('map-wrap');
     if (!legend) return;
-    if (cssFsActive || document.fullscreenElement) {
+    const fullscreenActive = cssFsActive || !!document.fullscreenElement;
+    if (fullscreenActive) {
+      if (mapWrap && legend.parentElement !== mapWrap) {
+        mapWrap.appendChild(legend);
+      }
       legend.style.position = 'absolute';
       legend.style.left = '12px';
       legend.style.right = '12px';
@@ -496,6 +503,9 @@
       legend.style.boxShadow = '0 10px 30px rgba(0,0,0,0.22)';
       legend.style.marginTop = '0';
     } else {
+      if (legendAnchor?.parentNode && legend.parentElement !== legendAnchor.parentElement) {
+        legendAnchor.parentNode.insertBefore(legend, legendAnchor.nextSibling);
+      }
       legend.style.position = 'static';
       legend.style.left = '';
       legend.style.right = '';
