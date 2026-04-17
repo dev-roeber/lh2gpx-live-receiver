@@ -21,12 +21,12 @@
   <span>Heute: <strong id="mbar-daily" style="color:var(--text-2);">—</strong></span>
 </div>
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
-<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css" />
+<link rel="stylesheet" href="/static/vendor/leaflet.markercluster/MarkerCluster.css" />
+<link rel="stylesheet" href="/static/vendor/leaflet.markercluster/MarkerCluster.Default.css" />
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script src="/static/vendor/leaflet.markercluster/leaflet.markercluster.js"></script>
+<script src="/static/vendor/leaflet.heat/leaflet-heat.js"></script>
 
 <div class="map-page-container">
   <button id="map-filter-toggle-btn" class="map-filter-toggle" style="display: none;">Filteroptionen ▼</button>
@@ -422,6 +422,10 @@
   let isManualRefresh = false;
   let currentLogItems = [];
   let lastMapPayload = null;
+  let persistentRuntimeWarnings = [];
+  let mapRuntimeWarnings = [];
+  let heatmapPluginAvailable = false;
+  let markerClusterAvailable = false;
 
   let heatmapActive = false;
   let pointsActive = true;
@@ -643,8 +647,48 @@
     document.getElementById('map-legend').style.display = anyActive ? 'flex' : 'none';
   }
 
+  function setToggleAvailability(toggleId, available, unavailableTitle = 'Funktion derzeit nicht verfügbar') {
+    const toggle = document.getElementById(toggleId);
+    if (!toggle) return;
+    toggle.disabled = !available;
+    if (!available) {
+      toggle.checked = false;
+      toggle.title = unavailableTitle;
+    } else {
+      toggle.title = '';
+    }
+  }
+
+  function setLayerToggle(toggleId, active) {
+    const toggle = document.getElementById(toggleId);
+    if (toggle) toggle.checked = active;
+  }
+
+  function rememberLayerWarning(message) {
+    if (!mapRuntimeWarnings.includes(message)) mapRuntimeWarnings.push(message);
+  }
+
+  function rememberPersistentWarning(message) {
+    if (!persistentRuntimeWarnings.includes(message)) persistentRuntimeWarnings.push(message);
+  }
+
+  function runLayerStage(name, fn) {
+    try {
+      fn();
+    } catch (error) {
+      console.error(`Layer render failed: ${name}`, error);
+      rememberLayerWarning(`${name} deaktiviert`);
+      if (name === 'Heatmap') {
+        heatmapActive = false;
+        setLayerToggle('heatmap-toggle', false);
+        setToggleAvailability('heatmap-toggle', false, 'Heatmap-Layer fehlgeschlagen');
+        updateLegend();
+      }
+    }
+  }
+
   function clearRenderedLayers() {
-    markerClusterGroup.clearLayers();
+    if (markerClusterGroup) markerClusterGroup.clearLayers();
     pointsLayer.clearLayers();
     polylineLayer.clearLayers();
     accuracyLayer.clearLayers();
@@ -658,6 +702,7 @@
 
   function renderPoints(points, latestPoint) {
     if (!pointsActive) return;
+    const useCluster = !!markerClusterGroup && points.length > CLUSTER_THRESHOLD;
     points.forEach(point => {
       if (point.isLatest && latestPoint) {
         const icon = L.divIcon({
@@ -679,14 +724,24 @@
         fillOpacity: 0.72,
         renderer: canvasRenderer
       }).bindPopup(`<b>GPS-Punkt</b><br>${point.timestampLocal || point.timestampUtc}<br>±${Math.round(point.accuracyM)}m &nbsp; ${point.source || ''}`);
-      if (points.length > CLUSTER_THRESHOLD) markerClusterGroup.addLayer(marker);
+      if (useCluster) markerClusterGroup.addLayer(marker);
       else marker.addTo(pointsLayer);
     });
   }
 
   function renderHeatmap(entries) {
     if (!heatmapActive || !entries.length || !heatLayer) return;
-    heatLayer.setLatLngs(entries);
+    const normalized = entries
+      .filter(item => Array.isArray(item) && item.length >= 2)
+      .map(item => {
+        const lat = Number(item[0]);
+        const lon = Number(item[1]);
+        const weight = Number.isFinite(Number(item[2])) ? Math.max(0, Math.min(1, Number(item[2]))) : 0.5;
+        return [lat, lon, weight];
+      })
+      .filter(item => Number.isFinite(item[0]) && Number.isFinite(item[1]));
+    if (!normalized.length) return;
+    heatLayer.setLatLngs(normalized);
     if (!map.hasLayer(heatLayer)) heatLayer.addTo(map);
   }
 
@@ -817,16 +872,17 @@
   }
 
   function renderMapPayload(data) {
+    mapRuntimeWarnings = [...persistentRuntimeWarnings];
     clearRenderedLayers();
     const layers = data.layers || {};
-    renderHeatmap(layers.heatmap || []);
-    renderPoints(layers.points || [], layers.latestPoint || null);
-    renderPolylines(layers.polylines || []);
-    renderAccuracy(layers.accuracy || []);
-    renderSpeed(layers.speed || []);
-    renderStops(layers.stops || []);
-    renderDaytracks(layers.daytracks || []);
-    renderSnap(layers.snap || []);
+    runLayerStage('Heatmap', () => renderHeatmap(layers.heatmap || []));
+    runLayerStage('Punkte', () => renderPoints(layers.points || [], layers.latestPoint || null));
+    runLayerStage('Linien', () => renderPolylines(layers.polylines || []));
+    runLayerStage('Radius', () => renderAccuracy(layers.accuracy || []));
+    runLayerStage('Tempo', () => renderSpeed(layers.speed || []));
+    runLayerStage('Stops', () => renderStops(layers.stops || []));
+    runLayerStage('Tage', () => renderDaytracks(layers.daytracks || []));
+    runLayerStage('Snap', () => renderSnap(layers.snap || []));
 
     const latest = layers.latestPoint;
     const autoCenter = document.getElementById('auto-center-toggle').checked;
@@ -882,10 +938,15 @@
       const coordCell = row.querySelector('td:nth-child(2)');
       coordCell.onclick = async (event) => {
         event.stopPropagation();
-        await navigator.clipboard.writeText(coordText);
-        const original = coordCell.style.backgroundColor;
-        coordCell.style.backgroundColor = 'rgba(16, 185, 129, 0.3)';
-        setTimeout(() => { coordCell.style.backgroundColor = original; }, 300);
+        try {
+          await navigator.clipboard.writeText(coordText);
+          const original = coordCell.style.backgroundColor;
+          coordCell.style.backgroundColor = 'rgba(16, 185, 129, 0.3)';
+          setTimeout(() => { coordCell.style.backgroundColor = original; }, 300);
+        } catch (error) {
+          console.warn('Clipboard write failed', error);
+          window.prompt('Koordinaten kopieren:', coordText);
+        }
       };
       body.appendChild(row);
     });
@@ -964,7 +1025,9 @@
 
       const visible = payload.meta?.visiblePoints || 0;
       const total = payload.meta?.totalPoints || 0;
-      statsText.innerText = visible ? `${total.toLocaleString('de-DE')} Punkte gesamt · ${visible.toLocaleString('de-DE')} im geladenen Kartenmodell` : 'Keine Punkte im gewählten Zeitraum.';
+      const baseText = visible ? `${total.toLocaleString('de-DE')} Punkte gesamt · ${visible.toLocaleString('de-DE')} im geladenen Kartenmodell` : 'Keine Punkte im gewählten Zeitraum.';
+      statsText.innerText = mapRuntimeWarnings.length ? `${baseText} · Hinweise: ${mapRuntimeWarnings.join(', ')}` : baseText;
+      statsText.style.color = mapRuntimeWarnings.length ? 'var(--orange)' : 'var(--text-muted)';
       badge.textContent = `${visible.toLocaleString('de-DE')} geladen`;
       badge.style.display = visible ? 'inline' : 'none';
       document.getElementById('api-info-points').textContent = `${visible.toLocaleString('de-DE')} / ${total.toLocaleString('de-DE')} gesamt`;
@@ -993,14 +1056,22 @@
 
   function initMap() {
     MAP_MAX_POINTS = clampMapMaxPoints(MAP_MAX_POINTS);
-    map = L.map('map-container').setView([52.52, 13.405], 10);
+    map = L.map('map-container', { preferCanvas: true }).setView([52.52, 13.405], 10);
     canvasRenderer = L.canvas({ padding: 0.5 });
 
     const tileUrl = darkMode
       ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
       : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-    tileLayer = L.tileLayer(tileUrl, { maxZoom: 19, attribution: '© OpenStreetMap & CartoDB' }).addTo(map);
-    markerClusterGroup = L.markerClusterGroup({ chunkedLoading: true }).addTo(map);
+    tileLayer = L.tileLayer(tileUrl, { maxZoom: 19, updateWhenIdle: true, keepBuffer: 3, attribution: '© OpenStreetMap & CartoDB' }).addTo(map);
+    markerClusterAvailable = typeof L.markerClusterGroup === 'function';
+    markerClusterGroup = markerClusterAvailable
+      ? L.markerClusterGroup({
+          chunkedLoading: true,
+          showCoverageOnHover: false,
+          removeOutsideVisibleBounds: true,
+          spiderfyOnMaxZoom: false,
+        }).addTo(map)
+      : null;
     pointsLayer = L.featureGroup().addTo(map);
     polylineLayer = L.featureGroup().addTo(map);
     accuracyLayer = L.featureGroup().addTo(map);
@@ -1009,7 +1080,8 @@
     stopsLayer = L.featureGroup().addTo(map);
     daytrackLayer = L.featureGroup().addTo(map);
     snapLayer = L.featureGroup().addTo(map);
-    if (typeof L.heatLayer === 'function') {
+    heatmapPluginAvailable = typeof L.heatLayer === 'function';
+    if (heatmapPluginAvailable) {
       heatLayer = L.heatLayer([], {
         radius: 14, blur: 12, maxZoom: 19, minOpacity: 0.25, max: 1.0,
         gradient: { 0.00: 'rgba(0,100,255,0)', 0.15: 'rgba(0,100,255,0.6)', 0.35: '#0A84FF', 0.55: '#30D158', 0.72: '#FF9F0A', 0.88: '#FF453A', 1.00: '#FFD60A' }
@@ -1017,13 +1089,12 @@
     } else {
       heatLayer = null;
       heatmapActive = false;
-      const heatToggle = document.getElementById('heatmap-toggle');
-      if (heatToggle) {
-        heatToggle.checked = false;
-        heatToggle.disabled = true;
-        heatToggle.title = 'Heatmap-Plugin nicht verfügbar';
-      }
+      setToggleAvailability('heatmap-toggle', false, 'Heatmap-Plugin nicht verfügbar');
       console.warn('leaflet.heat is unavailable; heatmap layer disabled');
+    }
+    if (!markerClusterAvailable) {
+      rememberPersistentWarning('Marker-Cluster nicht verfügbar');
+      console.warn('leaflet.markercluster is unavailable; using plain point rendering');
     }
 
     document.getElementById('map-max-points').max = String(MAP_CONFIG.pointsPageSizeMax || 2000);
