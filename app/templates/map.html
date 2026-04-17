@@ -159,6 +159,7 @@
           <input type="checkbox" id="fit-bounds-toggle"><span>⊡</span>
         </label>
         <div class="mqc-sep"></div>
+        <button id="legend-toggle-btn" class="mqc-btn" title="Legende ein-/ausblenden">ℹ</button>
         <button id="dark-mode-btn" class="mqc-btn" title="Darkmode umschalten">🌙</button>
         <button id="fullscreen-btn" class="mqc-btn" title="Vollbild">⛶</button>
       </div>
@@ -190,13 +191,13 @@
           <div class="mlc-row"><label class="mlc-lbl" title="GPS-Punkte an Straßen anpassen via OSRM"><input type="checkbox" id="snap-toggle"> Snap</label></div>
         </div>
       </div>
+
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;flex-wrap:wrap;gap:8px;">
       <p id="map-stats-text" class="eyebrow" style="margin:0;color:var(--text-muted);">Initialisiere Karte…</p>
       <span id="map-points-badge" style="display:none;font-size:0.72rem;font-weight:600;color:var(--mint);background:var(--mint-dim);border:1px solid var(--mint-border);border-radius:999px;padding:2px 10px;"></span>
     </div>
 
-    {# Legende — Sektionen werden per JS ein-/ausgeblendet je nach aktivem Layer #}
     <div id="map-legend" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--separator);display:flex;flex-wrap:wrap;gap:18px;font-size:0.78rem;color:var(--text-3);">
 
       <div id="legend-points" style="display:none;min-width:110px;">
@@ -437,6 +438,7 @@
   let mapRuntimeWarnings = [];
   let heatmapPluginAvailable = false;
   let markerClusterAvailable = false;
+  let legendVisible = localStorage.getItem('map-legend-visible') !== '0';
 
   let heatmapActive = false;
   let pointsActive = true;
@@ -475,6 +477,45 @@
     if (diffMs < 3600000) return `vor ${Math.floor(diffMs / 60000)}m`;
     if (diffMs < 86400000) return `vor ${Math.floor(diffMs / 3600000)}h`;
     return `vor ${Math.floor(diffMs / 86400000)}d`;
+  }
+
+  function updateLegendPlacement() {
+    const legend = document.getElementById('map-legend');
+    if (!legend) return;
+    if (cssFsActive || document.fullscreenElement) {
+      legend.style.position = 'absolute';
+      legend.style.left = '12px';
+      legend.style.right = '12px';
+      legend.style.bottom = '78px';
+      legend.style.zIndex = '690';
+      legend.style.padding = '12px 14px';
+      legend.style.border = '1px solid var(--separator)';
+      legend.style.borderRadius = '12px';
+      legend.style.background = 'color-mix(in srgb, var(--surface-1) 88%, transparent)';
+      legend.style.backdropFilter = 'blur(10px)';
+      legend.style.boxShadow = '0 10px 30px rgba(0,0,0,0.22)';
+      legend.style.marginTop = '0';
+    } else {
+      legend.style.position = 'static';
+      legend.style.left = '';
+      legend.style.right = '';
+      legend.style.bottom = '';
+      legend.style.zIndex = '';
+      legend.style.padding = '';
+      legend.style.border = '';
+      legend.style.borderRadius = '';
+      legend.style.background = '';
+      legend.style.backdropFilter = '';
+      legend.style.boxShadow = '';
+      legend.style.marginTop = '14px';
+    }
+  }
+
+  function updateLegendToggleButton() {
+    const button = document.getElementById('legend-toggle-btn');
+    if (!button) return;
+    button.style.opacity = legendVisible ? '1' : '0.72';
+    button.title = legendVisible ? 'Legende ausblenden' : 'Legende einblenden';
   }
 
   function toggleFilterPanel(show) {
@@ -523,6 +564,7 @@
       wrap.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100dvh;z-index:9999;margin:0;background:#000;';
       container.style.cssText = 'width:100%;height:100%;border-radius:0;margin:0;';
       if (map) map.invalidateSize(false);
+      updateLegendPlacement();
       document.getElementById('fullscreen-btn').textContent = '✕';
       document.getElementById('fullscreen-btn').title = 'Vollbild beenden';
       return;
@@ -531,6 +573,7 @@
     wrap.style.cssText = 'position:relative;';
     container.style.cssText = '';
     if (map) map.invalidateSize(false);
+    updateLegendPlacement();
     document.getElementById('fullscreen-btn').textContent = '⛶';
     document.getElementById('fullscreen-btn').title = 'Vollbild';
   }
@@ -658,7 +701,9 @@
     document.getElementById('legend-daytrack').style.display = daytrackActive ? '' : 'none';
     document.getElementById('legend-snap').style.display = snapActive ? '' : 'none';
     const anyActive = heatmapActive || pointsActive || polylineActive || accuracyActive || labelsActive || speedActive || stopsActive || daytrackActive || snapActive;
-    document.getElementById('map-legend').style.display = anyActive ? 'flex' : 'none';
+    document.getElementById('map-legend').style.display = legendVisible && anyActive ? 'flex' : 'none';
+    updateLegendPlacement();
+    updateLegendToggleButton();
   }
 
   function setToggleAvailability(toggleId, available, unavailableTitle = 'Funktion derzeit nicht verfügbar') {
@@ -1129,6 +1174,8 @@
     L.control.scale().addTo(map);
 
     updateLegend();
+    updateLegendPlacement();
+    updateLegendToggleButton();
     updateMap();
     updateInterval = setInterval(updateMap, POLLING_INTERVAL);
     barTickTimer = setInterval(tickRefreshBar, 1000);
@@ -1149,6 +1196,7 @@
     document.getElementById('fullscreen-btn').textContent = active ? '✕' : '⛶';
     document.getElementById('fullscreen-btn').title = active ? 'Vollbild beenden' : 'Vollbild';
     if (map) map.invalidateSize(false);
+    updateLegendPlacement();
   });
 
   document.getElementById('refresh-map-btn').onclick = () => {
@@ -1211,6 +1259,11 @@
       : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
     map.removeLayer(tileLayer);
     tileLayer = L.tileLayer(nextTileUrl, { maxZoom: 19, attribution: '© OpenStreetMap & CartoDB' }).addTo(map);
+  };
+  document.getElementById('legend-toggle-btn').onclick = () => {
+    legendVisible = !legendVisible;
+    localStorage.setItem('map-legend-visible', legendVisible ? '1' : '0');
+    updateLegend();
   };
   document.getElementById('fullscreen-btn').onclick = toggleFullscreen;
   document.getElementById('export-geojson-btn').onclick = exportGeoJSON;
