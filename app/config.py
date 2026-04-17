@@ -127,8 +127,8 @@ class Settings:
             local_timezone=_read_timezone_env("LOCAL_TIMEZONE", default="UTC"),
             log_level=_read_non_empty_env("LOG_LEVEL", default="INFO").upper(),
             request_body_max_bytes=_read_int_env("REQUEST_BODY_MAX_BYTES", default=262144, minimum=1024),
-            points_page_size_default=_read_int_env("POINTS_PAGE_SIZE_DEFAULT", default=50, minimum=1, maximum=100000),
-            points_page_size_max=_read_int_env("POINTS_PAGE_SIZE_MAX", default=2000, minimum=1, maximum=100000),
+            points_page_size_default=_read_int_env("POINTS_PAGE_SIZE_DEFAULT", default=50, minimum=1),
+            points_page_size_max=_read_int_env("POINTS_PAGE_SIZE_MAX", default=2000, minimum=1),
             rate_limit_requests_per_minute=_read_int_env("RATE_LIMIT_REQUESTS_PER_MINUTE", default=0, minimum=0),
             trust_proxy_headers=_read_bool_env("TRUST_PROXY_HEADERS", default=True),
         )
