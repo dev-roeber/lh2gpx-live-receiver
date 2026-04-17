@@ -108,7 +108,7 @@
       </div>
 
       {# Quick-Control-Bar — floating am unteren Kartenrand #}
-      <div id="map-quick-ctrl">
+      <div id="map-quick-ctrl" style="z-index:700;">
         <select id="time-range-select" class="mqc-select" title="Zeitraum">
           <option value="2m">2 Min</option>
           <option value="5m">5 Min</option>
@@ -164,7 +164,7 @@
       </div>
 
       {# Layer-Control — floating auf der Karte (oben rechts) #}
-      <div id="map-layer-ctrl">
+      <div id="map-layer-ctrl" style="z-index:710;">
         <button id="mlc-btn" title="Layer ein-/ausblenden" onclick="document.getElementById('map-layer-ctrl').classList.toggle('mlc-open')">⊞ Layer</button>
         <div id="mlc-panel">
           <div class="mlc-row"><label class="mlc-lbl" title="Dichteverteilung aller Punkte als Wärmebild"><input type="checkbox" id="heatmap-toggle"> Heatmap</label></div>
@@ -516,16 +516,19 @@
   }
 
   function activateCssFullscreen() {
+    const wrap = document.getElementById('map-wrap');
     const container = document.getElementById('map-container');
     if (!cssFsActive) {
       cssFsActive = true;
-      container.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100dvh;z-index:9999;border-radius:0;margin:0;';
+      wrap.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100dvh;z-index:9999;margin:0;background:#000;';
+      container.style.cssText = 'width:100%;height:100%;border-radius:0;margin:0;';
       if (map) map.invalidateSize(false);
       document.getElementById('fullscreen-btn').textContent = '✕';
       document.getElementById('fullscreen-btn').title = 'Vollbild beenden';
       return;
     }
     cssFsActive = false;
+    wrap.style.cssText = 'position:relative;';
     container.style.cssText = '';
     if (map) map.invalidateSize(false);
     document.getElementById('fullscreen-btn').textContent = '⛶';
@@ -533,10 +536,10 @@
   }
 
   function toggleFullscreen() {
-    const container = document.getElementById('map-container');
+    const wrap = document.getElementById('map-wrap');
     if (!isIOS && supportsNativeFullscreen) {
       if (!document.fullscreenElement) {
-        container.requestFullscreen().catch(() => activateCssFullscreen());
+        wrap.requestFullscreen().catch(() => activateCssFullscreen());
       } else {
         document.exitFullscreen();
       }
@@ -1138,6 +1141,14 @@
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && cssFsActive) activateCssFullscreen();
+  });
+
+  document.addEventListener('fullscreenchange', () => {
+    if (cssFsActive) return;
+    const active = !!document.fullscreenElement;
+    document.getElementById('fullscreen-btn').textContent = active ? '✕' : '⛶';
+    document.getElementById('fullscreen-btn').title = active ? 'Vollbild beenden' : 'Vollbild';
+    if (map) map.invalidateSize(false);
   });
 
   document.getElementById('refresh-map-btn').onclick = () => {
