@@ -850,7 +850,7 @@ label {
 /* ── Map Layer Control (floating, oben rechts auf der Karte) ── */
 #map-layer-ctrl {
   position: absolute;
-  top: 18px;
+  top: 72px;
   right: 10px;
   z-index: 450;
   font-family: inherit;
@@ -900,126 +900,128 @@ label {
 .mlc-lbl:hover { color: var(--text); }
 .mlc-lbl input[type="checkbox"] { cursor: pointer; }
 
-/* ── Map Quick-Control-Bar (unten zentriert auf der Karte) ── */
+/* ── Map Quick-Control (Dropdown über Layer-Menü) ── */
 #map-quick-ctrl {
   position: absolute;
-  bottom: 28px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 450;
-  background: rgba(28, 28, 30, 0.68);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 10px;
-  box-shadow: 0 1px 5px rgba(0,0,0,0.25);
-  padding: 6px 12px;
-  white-space: nowrap;
+  top: 18px;
+  right: 10px;
+  z-index: 460;
   font-family: inherit;
-  width: clamp(320px, calc(100% - 24px), 920px);
-  max-width: calc(100% - 24px);
-  overflow-x: auto;
-  overflow-y: hidden;
-  -webkit-overflow-scrolling: touch;
-  touch-action: pan-x;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.28) transparent;
 }
-#map-quick-ctrl-inner {
+#mqc-btn {
+  display: block;
+  background: var(--surface-1);
+  border: 2px solid rgba(0,0,0,0.2);
+  border-radius: 4px;
+  padding: 5px 9px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-2);
+  cursor: pointer;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.3);
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+  transition: background 0.12s;
+}
+#mqc-btn:hover { background: var(--surface-2); }
+#mqc-panel {
+  display: none;
+  margin-top: 4px;
+  background: var(--surface-1);
+  border: 2px solid rgba(0,0,0,0.2);
+  border-radius: 4px;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.3);
+  padding: 10px;
+  min-width: 220px;
+  width: min(280px, calc(100vw - 28px));
+}
+#map-quick-ctrl.mqc-open #mqc-panel { display: block; }
+.mqc-row {
   display: flex;
-  align-items: center;
-  gap: 4px;
-  width: max-content;
-  min-width: 100%;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 8px;
 }
-#map-quick-ctrl::-webkit-scrollbar { height: 6px; }
-#map-quick-ctrl::-webkit-scrollbar-track { background: transparent; }
-#map-quick-ctrl::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.22);
-  border-radius: 999px;
+.mqc-row:last-of-type { margin-bottom: 10px; }
+.mqc-field-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: 0.01em;
 }
 .mqc-select {
-  background: transparent;
-  border: none;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
   outline: none;
   font-size: 0.82rem;
   color: var(--text-2);
   cursor: pointer;
-  padding: 6px 4px;
+  padding: 8px 10px;
   font-family: inherit;
-  max-width: 130px;
-  min-width: 96px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 .mqc-btn {
-  background: none;
-  border: none;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
   cursor: pointer;
-  padding: 6px 8px;
-  font-size: 0.88rem;
-  color: rgba(255,255,255,0.5);
+  padding: 7px 10px;
+  font-size: 0.8rem;
+  color: var(--text-2);
   border-radius: 6px;
   transition: background 0.12s, color 0.12s;
   line-height: 1;
   font-family: inherit;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
-.mqc-btn:hover { background: rgba(255,255,255,0.1); color: var(--text-2); }
+.mqc-btn:hover { background: var(--surface-3); color: var(--text); }
 .mqc-toggle {
   cursor: pointer;
-  padding: 6px 8px;
+  padding: 8px 10px;
   border-radius: 6px;
-  font-size: 0.88rem;
-  color: rgba(255,255,255,0.35);
+  font-size: 0.8rem;
+  color: var(--text-2);
   transition: background 0.12s, color 0.12s;
   display: flex;
   align-items: center;
   user-select: none;
-  flex-shrink: 0;
+  flex: 1 1 0;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
 }
-.mqc-toggle:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.6); }
+.mqc-toggle:hover { background: var(--surface-3); color: var(--text); }
 .mqc-toggle:has(input:checked) { color: var(--mint, #30D158); }
 .mqc-toggle input { display: none; }
-.mqc-sep {
-  width: 1px;
-  height: 14px;
-  background: rgba(255,255,255,0.12);
-  margin: 0 4px;
-  flex-shrink: 0;
+.mqc-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
 }
-
-@media (max-width: 860px) {
-  #map-quick-ctrl {
-    width: calc(100% - 20px);
-    max-width: calc(100% - 20px);
-    padding: 6px 10px;
-    gap: 3px;
-  }
-
-  .mqc-select {
-    min-width: 88px;
-    max-width: 116px;
-  }
+.mqc-switches {
+  display: flex;
+  gap: 8px;
 }
 
 @media (max-width: 560px) {
-  #map-quick-ctrl {
-    bottom: 18px;
-    width: calc(100% - 16px);
-    max-width: calc(100% - 16px);
-    padding: 6px 8px;
-    border-radius: 8px;
+  #mqc-panel {
+    min-width: 0;
+    width: min(260px, calc(100vw - 24px));
   }
 
-  .mqc-select {
-    font-size: 0.78rem;
-    min-width: 82px;
-    max-width: 108px;
+  .mqc-actions {
+    grid-template-columns: 1fr;
   }
 
-  .mqc-btn,
-  .mqc-toggle {
-    padding: 6px 7px;
-    font-size: 0.84rem;
+  .mqc-switches {
+    flex-direction: column;
   }
 }
 
