@@ -21,7 +21,28 @@ from urllib.parse import parse_qs, urlencode
 from urllib.request import urlopen
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, WebSocket, WebSocketDisconnect, status
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                # Verbindung bereits tot
+                pass
+
+manager = ConnectionManager()
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response as RawResponse
 from fastapi.staticfiles import StaticFiles
@@ -550,7 +571,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "storage_target": str(_storage(request).sqlite_path),
         }
         response.headers["Cache-Control"] = "no-store"
+        # Phase 4: Echtzeit-Push via WebSocket
+        await manager.broadcast({"type": "new_location", "sessionId": str(payload.sessionID)})
         return {"status": "accepted", "requestId": metadata.request_id, **storage_summary}
+
+    @app.websocket("/ws/map")
+    async def websocket_endpoint(websocket: WebSocket):
+        await manager.connect(websocket)
+        try:
+            while True:
+                # Wir warten nur auf das Schließen der Verbindung
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            manager.disconnect(websocket)
+        except Exception:
+            manager.disconnect(websocket)
 
     @app.get("/api/stats", dependencies=[Depends(_require_admin_access)])
     async def api_stats(request: Request) -> dict[str, Any]:

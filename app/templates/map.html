@@ -1757,7 +1757,43 @@
 
   let pitch3DActive = localStorage.getItem('map-pitch-3d') !== '0';
 
+  let socket = null;
+  let socketReconnectTimer = null;
+
+  function initWebSocket() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/map`;
+    
+    if (socket) socket.close();
+    socket = new WebSocket(wsUrl);
+
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'new_location') {
+        console.log('Echtzeit-Update empfangen...');
+        // Sofortiges Update triggern
+        debouncedMapRefresh();
+      }
+    };
+
+    socket.onclose = () => {
+      console.warn('WebSocket geschlossen. Reconnect in 5s...');
+      clearTimeout(socketReconnectTimer);
+      socketReconnectTimer = setTimeout(initWebSocket, 5000);
+    };
+
+    socket.onerror = (err) => {
+      console.error('WebSocket Fehler:', err);
+      socket.close();
+    };
+  }
+
   function initMap() {
+    // Phase 4: Polling auf Minimum reduzieren (Fallback falls WS ausfällt)
+    // Wir setzen es auf 30s statt 5s, da wir jetzt Push nutzen.
+    POLLING_INTERVAL = 30000; 
+    initWebSocket();
+    
     MAP_MAX_POINTS = clampMapMaxPoints(MAP_MAX_POINTS);
     
     const style = {
