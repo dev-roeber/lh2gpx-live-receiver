@@ -208,6 +208,7 @@
             <button id="browser-location-btn" class="mqc-btn" title="Aktuellen Browser-Standort abrufen">◎ <span>Standort</span></button>
             <button id="legend-toggle-btn" class="mqc-btn" title="Legende ein-/ausblenden">ℹ <span>Legende</span></button>
             <button id="dark-mode-btn" class="mqc-btn" title="Darkmode umschalten">🌙 <span>Dark</span></button>
+            <button id="pitch-toggle-btn" class="mqc-btn" title="3D-Ansicht umschalten">🧊 <span>3D</span></button>
             <button id="fullscreen-btn" class="mqc-btn" title="Vollbild">⛶ <span>Vollbild</span></button>
           </div>
           <div class="mqc-switches">
@@ -1754,6 +1755,8 @@
     updateMap();
   }, FILTER_DEBOUNCE);
 
+  let pitch3DActive = localStorage.getItem('map-pitch-3d') !== '0';
+
   function initMap() {
     MAP_MAX_POINTS = clampMapMaxPoints(MAP_MAX_POINTS);
     
@@ -1779,7 +1782,7 @@
       style: style,
       center: [13.405, 52.52],
       zoom: 10,
-      pitch: 45,
+      pitch: pitch3DActive ? 45 : 0,
       hash: false,
       antialias: true
     });
@@ -1982,6 +1985,11 @@
   document.getElementById('browser-location-btn').onclick = (event) => {
     event.stopPropagation();
     toggleLocationMenu();
+  };
+  document.getElementById('pitch-toggle-btn').onclick = () => {
+    pitch3DActive = !pitch3DActive;
+    localStorage.setItem('map-pitch-3d', pitch3DActive ? '1' : '0');
+    map.easeTo({ pitch: pitch3DActive ? 45 : 0, duration: 800 });
   };
   document.getElementById('fullscreen-btn').onclick = toggleFullscreen;
   document.getElementById('export-geojson-btn').onclick = exportGeoJSON;
