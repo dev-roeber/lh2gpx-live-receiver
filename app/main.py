@@ -114,6 +114,10 @@ _MAP_DATA_CACHE: dict[str, tuple[float, str, bytes]] = {}
 _MAP_DATA_CACHE_TTL = 2.0
 _HEATMAP_LAYER_CACHE: dict[str, tuple[float, list[list[float]]]] = {}
 _HEATMAP_LAYER_CACHE_TTL = 10.0
+_TRACK_CONTEXT_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_TRACK_CONTEXT_CACHE_TTL = 10.0
+_TRACK_LAYER_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_TRACK_LAYER_CACHE_TTL = 10.0
 _MAP_DATA_PAGE_SIZE_MAX = 20_000
 _SNAP_CACHE: dict[str, tuple[float, list[list[float]] | None]] = {}
 _SNAP_CACHE_TTL = 300.0
@@ -726,6 +730,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         include_snap: bool = Query(default=False),
     ) -> Response:
         configured_max = max(1, _settings(request).points_page_size_max)
+        viewport_bbox = _parse_bbox(bbox)
         effective_page_size = min(
             page_size or configured_max,
             configured_max,
@@ -733,7 +738,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         effective_log_limit = min(log_limit or effective_page_size, effective_page_size)
         effective_zoom = max(1, min(22, round(zoom)))
-        viewport_bbox = _parse_bbox(bbox)
         padded_bbox = _expand_bbox(viewport_bbox, zoom=effective_zoom) if viewport_bbox else None
         filters = PointFilters(
             date_from=date_from,
@@ -754,13 +758,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 total_points = storage.count_points(filters)
                 visible_points = storage.count_points(filters, bbox=viewport_bbox)
                 viewport_items = storage.list_points_in_bbox(filters, bbox=viewport_bbox)
-                buffered_items = storage.list_points_in_bbox(filters, bbox=padded_bbox or viewport_bbox)
             else:
                 listed = storage.list_points(filters)
                 total_points = listed["total"]
                 visible_points = len(listed["items"])
                 viewport_items = listed["items"]
-                buffered_items = listed["items"]
+            buffered_items = viewport_items
             heatmap_entries = []
             if include_heatmap:
                 heatmap_entries = await asyncio.to_thread(
@@ -770,28 +773,59 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     bbox=viewport_bbox,
                     zoom=effective_zoom,
                 )
+            track_layers = {
+                "polylines": [],
+                "speed": [],
+                "stops": [],
+                "daytracks": [],
+                "snap": [],
+                "context_points_desc": viewport_items,
+                "segment_count": 0,
+            }
+            needs_track_context = include_polyline or include_labels or include_speed or include_stops or include_daytrack or include_snap
+            if needs_track_context:
+                track_context = await asyncio.to_thread(
+                    _resolve_track_context,
+                    storage,
+                    filters,
+                    bbox=padded_bbox or viewport_bbox,
+                    zoom=effective_zoom,
+                    route_time_gap_min=route_time_gap_min,
+                    route_dist_gap_m=route_dist_gap_m,
+                )
+                track_layers = await asyncio.to_thread(
+                    _resolve_track_layers,
+                    track_context,
+                    zoom=effective_zoom,
+                    include_polyline=include_polyline,
+                    include_labels=include_labels,
+                    include_speed=include_speed,
+                    include_stops=include_stops,
+                    stop_min_duration_min=stop_min_duration_min,
+                    stop_radius_m=stop_radius_m,
+                    include_daytrack=include_daytrack,
+                    route_time_gap_min=route_time_gap_min,
+                    include_snap=include_snap,
+                )
+                buffered_items = track_layers["context_points_desc"]
             payload = await asyncio.to_thread(
                 _prepare_map_payload,
                 viewport_items,
                 buffered_items,
                 heatmap_entries=heatmap_entries,
+                polyline_entries=track_layers["polylines"],
+                speed_entries=track_layers["speed"],
+                stop_entries=track_layers["stops"],
+                daytrack_entries=track_layers["daytracks"],
+                snap_entries=track_layers["snap"],
                 total_points=total_points,
                 visible_points=visible_points,
-                zoom=effective_zoom,
+                segment_count=int(track_layers["segment_count"]),
                 log_limit=effective_log_limit,
-                route_time_gap_min=route_time_gap_min,
-                route_dist_gap_m=route_dist_gap_m,
-                stop_min_duration_min=stop_min_duration_min,
-                stop_radius_m=stop_radius_m,
+                zoom=effective_zoom,
                 include_points=include_points,
                 include_heatmap=include_heatmap,
-                include_polyline=include_polyline,
                 include_accuracy=include_accuracy,
-                include_labels=include_labels,
-                include_speed=include_speed,
-                include_stops=include_stops,
-                include_daytrack=include_daytrack,
-                include_snap=include_snap,
             )
             if viewport_bbox:
                 payload["meta"]["bbox"] = {
@@ -1445,23 +1479,19 @@ def _prepare_map_payload(
     buffered_points_desc: list[dict[str, Any]],
     *,
     heatmap_entries: list[list[float]],
+    polyline_entries: list[dict[str, Any]],
+    speed_entries: list[dict[str, Any]],
+    stop_entries: list[dict[str, Any]],
+    daytrack_entries: list[dict[str, Any]],
+    snap_entries: list[dict[str, Any]],
     total_points: int,
     visible_points: int,
-    zoom: int,
+    segment_count: int,
     log_limit: int,
-    route_time_gap_min: int,
-    route_dist_gap_m: int,
-    stop_min_duration_min: int,
-    stop_radius_m: int,
+    zoom: int,
     include_points: bool,
     include_heatmap: bool,
-    include_polyline: bool,
     include_accuracy: bool,
-    include_labels: bool,
-    include_speed: bool,
-    include_stops: bool,
-    include_daytrack: bool,
-    include_snap: bool,
 ) -> dict[str, Any]:
     if not buffered_points_desc:
         return {
@@ -1484,11 +1514,6 @@ def _prepare_map_payload(
     visible_points_desc = viewport_points_desc
     stats_points_desc = visible_points_desc or buffered_points_desc
     sorted_points = list(reversed(buffered_points_desc))
-    segments = _segment_track(
-        sorted_points,
-        time_gap_ms=route_time_gap_min * 60000,
-        dist_gap_m=route_dist_gap_m,
-    )
     latest = stats_points_desc[0]
     avg_accuracy = sum(float(point["horizontal_accuracy_m"]) for point in stats_points_desc) / len(stats_points_desc)
 
@@ -1498,7 +1523,7 @@ def _prepare_map_payload(
             "visiblePoints": visible_points,
             "loadedPoints": len(buffered_points_desc),
             "serverPrepared": True,
-            "segmentCount": len(segments),
+            "segmentCount": segment_count,
         },
         "stats": {
             "pointsPerMinute": _points_per_minute(stats_points_desc),
@@ -1527,8 +1552,7 @@ def _prepare_map_payload(
     if include_heatmap:
         payload["layers"]["heatmap"] = heatmap_entries
 
-    if include_polyline or include_labels:
-        payload["layers"]["polylines"] = _serialize_polyline_segments(segments, zoom=zoom, include_labels=include_labels)
+    payload["layers"]["polylines"] = polyline_entries
 
     if include_accuracy:
         payload["layers"]["accuracy"] = [
@@ -1537,25 +1561,10 @@ def _prepare_map_payload(
             if 0 < float(point["horizontal_accuracy_m"]) < 5000
         ]
 
-    if include_speed:
-        payload["layers"]["speed"] = _serialize_speed_segments(sorted_points, zoom=zoom)
-
-    if include_stops:
-        payload["layers"]["stops"] = _detect_stops(
-            sorted_points,
-            stop_radius_m=stop_radius_m,
-            stop_min_duration_min=stop_min_duration_min,
-        )
-
-    if include_daytrack:
-        payload["layers"]["daytracks"] = _serialize_daytracks(
-            sorted_points,
-            zoom=zoom,
-            route_time_gap_min=route_time_gap_min,
-        )
-
-    if include_snap:
-        payload["layers"]["snap"] = _serialize_snap_segments(segments, zoom=zoom)
+    payload["layers"]["speed"] = speed_entries
+    payload["layers"]["stops"] = stop_entries
+    payload["layers"]["daytracks"] = daytrack_entries
+    payload["layers"]["snap"] = snap_entries
 
     return payload
 
@@ -1879,6 +1888,131 @@ def _resolve_heatmap_layer(
         cutoff = now - _HEATMAP_LAYER_CACHE_TTL
         for key in [key for key, value in _HEATMAP_LAYER_CACHE.items() if value[0] < cutoff]:
             del _HEATMAP_LAYER_CACHE[key]
+    return result
+
+
+def _resolve_track_context(
+    storage: ReceiverStorage,
+    filters: PointFilters,
+    *,
+    bbox: tuple[float, float, float, float] | None,
+    zoom: int,
+    route_time_gap_min: int,
+    route_dist_gap_m: int,
+) -> dict[str, Any]:
+    bucketed_bbox = _bucket_bbox_for_zoom(bbox, zoom=zoom)
+    cache_key = json.dumps(
+        {
+            "date_from": filters.date_from,
+            "date_to": filters.date_to,
+            "session_id": filters.session_id,
+            "capture_mode": filters.capture_mode,
+            "source": filters.source,
+            "search": filters.search,
+            "zoom": zoom,
+            "bbox": bucketed_bbox,
+            "route_time_gap_min": route_time_gap_min,
+            "route_dist_gap_m": route_dist_gap_m,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    now = time.time()
+    cached = _TRACK_CONTEXT_CACHE.get(cache_key)
+    if cached and (now - cached[0]) < _TRACK_CONTEXT_CACHE_TTL:
+        return cached[1]
+
+    if bbox:
+        points_desc = storage.list_points_in_bbox(filters, bbox=bbox)
+    else:
+        points_desc = storage.list_points(filters)["items"]
+    points_asc = list(reversed(points_desc))
+    segments = _segment_track(
+        points_asc,
+        time_gap_ms=route_time_gap_min * 60000,
+        dist_gap_m=route_dist_gap_m,
+    )
+    context = {
+        "cache_key": cache_key,
+        "points_desc": points_desc,
+        "points_asc": points_asc,
+        "segments": segments,
+    }
+    _TRACK_CONTEXT_CACHE[cache_key] = (now, context)
+    if len(_TRACK_CONTEXT_CACHE) > 300:
+        cutoff = now - _TRACK_CONTEXT_CACHE_TTL
+        for key in [key for key, value in _TRACK_CONTEXT_CACHE.items() if value[0] < cutoff]:
+            del _TRACK_CONTEXT_CACHE[key]
+    return context
+
+
+def _resolve_track_layers(
+    track_context: dict[str, Any],
+    *,
+    zoom: int,
+    include_polyline: bool,
+    include_labels: bool,
+    include_speed: bool,
+    include_stops: bool,
+    stop_min_duration_min: int,
+    stop_radius_m: int,
+    include_daytrack: bool,
+    route_time_gap_min: int,
+    include_snap: bool,
+) -> dict[str, Any]:
+    cache_key = json.dumps(
+        {
+            "context": track_context["cache_key"],
+            "zoom": zoom,
+            "include_polyline": include_polyline,
+            "include_labels": include_labels,
+            "include_speed": include_speed,
+            "include_stops": include_stops,
+            "stop_min_duration_min": stop_min_duration_min,
+            "stop_radius_m": stop_radius_m,
+            "include_daytrack": include_daytrack,
+            "route_time_gap_min": route_time_gap_min,
+            "include_snap": include_snap,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    now = time.time()
+    cached = _TRACK_LAYER_CACHE.get(cache_key)
+    if cached and (now - cached[0]) < _TRACK_LAYER_CACHE_TTL:
+        return cached[1]
+
+    points_desc = track_context["points_desc"]
+    points_asc = track_context["points_asc"]
+    segments = track_context["segments"]
+    result = {
+        "context_points_desc": points_desc,
+        "segment_count": len(segments),
+        "polylines": _serialize_polyline_segments(segments, zoom=zoom, include_labels=include_labels)
+        if (include_polyline or include_labels)
+        else [],
+        "speed": _serialize_speed_segments(points_asc, zoom=zoom) if include_speed else [],
+        "stops": _detect_stops(
+            points_asc,
+            stop_radius_m=stop_radius_m,
+            stop_min_duration_min=stop_min_duration_min,
+        )
+        if include_stops
+        else [],
+        "daytracks": _serialize_daytracks(
+            points_asc,
+            zoom=zoom,
+            route_time_gap_min=route_time_gap_min,
+        )
+        if include_daytrack
+        else [],
+        "snap": _serialize_snap_segments(segments, zoom=zoom) if include_snap else [],
+    }
+    _TRACK_LAYER_CACHE[cache_key] = (now, result)
+    if len(_TRACK_LAYER_CACHE) > 300:
+        cutoff = now - _TRACK_LAYER_CACHE_TTL
+        for key in [key for key, value in _TRACK_LAYER_CACHE.items() if value[0] < cutoff]:
+            del _TRACK_LAYER_CACHE[key]
     return result
 
 

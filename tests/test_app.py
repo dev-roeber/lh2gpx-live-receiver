@@ -12,7 +12,16 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.import_parsers import parse_file_report
-from app.main import _HEATMAP_LAYER_CACHE, _prepare_map_payload, _resolve_heatmap_layer, create_app
+from app.main import (
+    _HEATMAP_LAYER_CACHE,
+    _TRACK_CONTEXT_CACHE,
+    _TRACK_LAYER_CACHE,
+    _prepare_map_payload,
+    _resolve_heatmap_layer,
+    _resolve_track_context,
+    _resolve_track_layers,
+    create_app,
+)
 from app.models import PointFilters
 from app.storage import StorageWriteError
 
@@ -521,23 +530,19 @@ def test_prepare_map_payload_keeps_viewport_layers_separate_from_buffered_geomet
         [viewport_point],
         [viewport_point, buffered_only_point],
         heatmap_entries=[[52.5205, 13.4055, 1.0]],
+        polyline_entries=[{"coords": [[52.5205, 13.4055], [52.519, 13.404]], "color": "#0A84FF", "pointsCount": 2, "startLabel": "", "endLabel": "", "startPoint": [52.5205, 13.4055], "endPoint": [52.519, 13.404]}],
+        speed_entries=[{"coords": [[52.5205, 13.4055], [52.519, 13.404]], "kmh": 12.0, "color": "#0A84FF"}],
+        stop_entries=[],
+        daytrack_entries=[],
+        snap_entries=[],
         total_points=2,
         visible_points=1,
-        zoom=14,
+        segment_count=1,
         log_limit=10,
-        route_time_gap_min=15,
-        route_dist_gap_m=1200,
-        stop_min_duration_min=3,
-        stop_radius_m=40,
+        zoom=14,
         include_points=True,
         include_heatmap=True,
-        include_polyline=True,
         include_accuracy=True,
-        include_labels=False,
-        include_speed=True,
-        include_stops=False,
-        include_daytrack=False,
-        include_snap=False,
     )
 
     assert payload["meta"]["visiblePoints"] == 1
@@ -567,23 +572,19 @@ def test_prepare_map_payload_handles_empty_viewport_with_buffered_context() -> N
         [],
         [buffered_only_point],
         heatmap_entries=[],
+        polyline_entries=[],
+        speed_entries=[],
+        stop_entries=[],
+        daytrack_entries=[],
+        snap_entries=[],
         total_points=1,
         visible_points=0,
-        zoom=14,
+        segment_count=0,
         log_limit=10,
-        route_time_gap_min=15,
-        route_dist_gap_m=1200,
-        stop_min_duration_min=3,
-        stop_radius_m=40,
+        zoom=14,
         include_points=True,
         include_heatmap=True,
-        include_polyline=True,
         include_accuracy=True,
-        include_labels=False,
-        include_speed=True,
-        include_stops=False,
-        include_daytrack=False,
-        include_snap=False,
     )
 
     assert payload["meta"]["visiblePoints"] == 0
@@ -628,6 +629,88 @@ def test_resolve_heatmap_layer_uses_specialized_storage_and_cache(tmp_path: Path
     assert first
     assert second == first
     assert calls["count"] == 1
+
+
+def test_resolve_track_context_and_layers_use_specialized_caches(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    storage = client.app.state.storage
+    filters = PointFilters(page=1, page_size=50)
+    bbox = (13.3, 52.4, 13.5, 52.6)
+    calls = {"points": 0}
+    original = storage.list_points_in_bbox
+
+    def tracked_list_points_in_bbox(*args, **kwargs):  # type: ignore[no-untyped-def]
+        calls["points"] += 1
+        return original(*args, **kwargs)
+
+    storage.list_points_in_bbox = tracked_list_points_in_bbox
+    _TRACK_CONTEXT_CACHE.clear()
+    _TRACK_LAYER_CACHE.clear()
+
+    inside = valid_payload()
+    inside["points"] = [
+        {
+            "latitude": 52.5200,
+            "longitude": 13.4050,
+            "timestamp": "2026-03-20T12:00:00Z",
+            "horizontalAccuracyM": 5.0,
+        },
+        {
+            "latitude": 52.5204,
+            "longitude": 13.4054,
+            "timestamp": "2026-03-20T12:01:00Z",
+            "horizontalAccuracyM": 6.0,
+        },
+    ]
+    client.post("/live-location", json=inside)
+
+    first_context = _resolve_track_context(
+        storage,
+        filters,
+        bbox=bbox,
+        zoom=14,
+        route_time_gap_min=15,
+        route_dist_gap_m=1200,
+    )
+    second_context = _resolve_track_context(
+        storage,
+        filters,
+        bbox=bbox,
+        zoom=14,
+        route_time_gap_min=15,
+        route_dist_gap_m=1200,
+    )
+    first_layers = _resolve_track_layers(
+        first_context,
+        zoom=14,
+        include_polyline=True,
+        include_labels=False,
+        include_speed=True,
+        include_stops=True,
+        stop_min_duration_min=3,
+        stop_radius_m=40,
+        include_daytrack=True,
+        route_time_gap_min=15,
+        include_snap=False,
+    )
+    second_layers = _resolve_track_layers(
+        second_context,
+        zoom=14,
+        include_polyline=True,
+        include_labels=False,
+        include_speed=True,
+        include_stops=True,
+        stop_min_duration_min=3,
+        stop_radius_m=40,
+        include_daytrack=True,
+        route_time_gap_min=15,
+        include_snap=False,
+    )
+
+    assert first_context == second_context
+    assert first_layers == second_layers
+    assert calls["points"] == 1
+    assert "segment_count" in first_layers
 
 
 

@@ -85,10 +85,10 @@
 
     <p class="fp-section-label">Datenabruf</p>
     <div class="filter-group fp-row fp-numrow">
-      <label for="map-max-points" class="fp-num-label" title="Maximale Anzahl Punkte die von der API geladen werden">Max. Punkte</label>
+      <label for="map-max-points" class="fp-num-label" title="Fallback-Limit wenn noch kein Karten-Viewport verfügbar ist">Fallback-Punkte</label>
       <input type="number" id="map-max-points" min="1" class="fp-num-input">
     </div>
-    <small style="color:var(--text-3);font-size:0.72rem;margin:-2px 0 6px 0;display:block;">Mehr Punkte = mehr Detail, aber langsamer.</small>
+    <small style="color:var(--text-3);font-size:0.72rem;margin:-2px 0 6px 0;display:block;">Im normalen Kartenbetrieb lädt der Server viewport-basiert. Dieser Wert greift nur als Fallback.</small>
 
     <p class="fp-section-label">Aktionen</p>
     <div class="filter-actions">
@@ -163,6 +163,13 @@
               <option value="120000">2min</option>
               <option value="180000">3min</option>
               <option value="300000">5min</option>
+            </select>
+          </div>
+          <div class="mqc-row">
+            <label class="mqc-field-label" for="fit-bounds-mode">Fit Bounds</label>
+            <select id="fit-bounds-mode" class="mqc-select" title="Fit-Bounds-Modus">
+              <option value="global">Gesamt</option>
+              <option value="visible">Ansicht</option>
             </select>
           </div>
           <div class="mqc-actions">
@@ -427,6 +434,7 @@
 
   let POLLING_INTERVAL = parseInt(localStorage.getItem('map-polling-interval')) || 5000;
   let TIME_RANGE = localStorage.getItem('map-time-range') || '1h';
+  let FIT_BOUNDS_MODE = localStorage.getItem('map-fit-bounds-mode') || 'global';
   const MAP_PAGE_SIZE_SAFE_MAX = 20000;
   let MAP_MAX_POINTS = parseInt(localStorage.getItem('map-max-points')) || MAP_CONFIG.pointsPageSizeMax || 2000;
   let LOG_LIMIT = parseInt(localStorage.getItem('map-log-limit')) || 100;
@@ -754,7 +762,6 @@
         ? document.getElementById('import-select-dropdown').value
         : '';
     const params = new URLSearchParams();
-    params.set('page_size', clampMapMaxPoints(document.getElementById('map-max-points').value));
     params.set('log_limit', String(clampLogLimit(document.getElementById('log-limit').value)));
     params.set('zoom', String(normalizeMapZoom()));
     params.set('route_time_gap_min', String(ROUTE_TIME_GAP));
@@ -771,7 +778,11 @@
     params.set('include_daytrack', daytrackActive ? 'true' : 'false');
     params.set('include_snap', snapActive ? 'true' : 'false');
     const bbox = getViewportBbox();
-    if (bbox) params.set('bbox', bbox);
+    if (bbox) {
+      params.set('bbox', bbox);
+    } else {
+      params.set('page_size', clampMapMaxPoints(document.getElementById('map-max-points').value));
+    }
     if (sessionId) params.set('session_id', sessionId);
     if (TIME_RANGE !== 'all') params.set('date_from', buildDateFromIso());
     return params;
@@ -1136,8 +1147,9 @@
     const autoCenter = document.getElementById('auto-center-toggle').checked;
     const fitBounds = document.getElementById('fit-bounds-toggle').checked;
     if (fitBounds) {
-      const metaBounds = lastMetaPayload?.meta?.boundingBox;
-      if (metaBounds) {
+      const useGlobalBounds = FIT_BOUNDS_MODE === 'global';
+      const metaBounds = useGlobalBounds ? lastMetaPayload?.meta?.boundingBox : null;
+      if (metaBounds && useGlobalBounds) {
         suppressedViewportRefreshes = Math.max(suppressedViewportRefreshes, 2);
         map.fitBounds(
           L.latLngBounds(
@@ -1393,12 +1405,17 @@
 
       const visible = payload.meta?.visiblePoints || 0;
       const total = lastMetaPayload?.meta?.totalPoints ?? payload.meta?.totalPoints ?? 0;
-      const baseText = visible ? `${total.toLocaleString('de-DE')} Punkte gesamt · ${visible.toLocaleString('de-DE')} im geladenen Kartenmodell` : 'Keine Punkte im gewählten Zeitraum.';
+      const viewportMode = !!payload.meta?.bbox;
+      const baseText = visible
+        ? `${total.toLocaleString('de-DE')} Punkte gesamt · ${visible.toLocaleString('de-DE')} in der aktuellen Ansicht${viewportMode ? ' (viewport-basiert)' : ''}`
+        : 'Keine Punkte im gewählten Zeitraum.';
       statsText.innerText = mapRuntimeWarnings.length ? `${baseText} · Hinweise: ${mapRuntimeWarnings.join(', ')}` : baseText;
       statsText.style.color = mapRuntimeWarnings.length ? 'var(--orange)' : 'var(--text-muted)';
       badge.textContent = `${visible.toLocaleString('de-DE')} geladen`;
       badge.style.display = visible ? 'inline' : 'none';
-      document.getElementById('api-info-points').textContent = `${visible.toLocaleString('de-DE')} / ${total.toLocaleString('de-DE')} sichtbar/gesamt`;
+      document.getElementById('api-info-points').textContent = viewportMode
+        ? `${visible.toLocaleString('de-DE')} / ${total.toLocaleString('de-DE')} sichtbar/gesamt · viewport`
+        : `${visible.toLocaleString('de-DE')} / ${total.toLocaleString('de-DE')} sichtbar/gesamt · fallback`;
       document.getElementById('api-info-ms').textContent = `${fetchMs} ms`;
       document.getElementById('api-info-url').textContent = url.length > 48 ? `${url.slice(0, 48)}…` : url;
       apiStatus.textContent = '● ONLINE';
@@ -1481,6 +1498,7 @@
     document.getElementById('stop-min-duration').value = STOP_MIN_DUR;
     document.getElementById('stop-radius').value = STOP_RADIUS_M;
     document.getElementById('polling-interval').value = String(POLLING_INTERVAL);
+    document.getElementById('fit-bounds-mode').value = FIT_BOUNDS_MODE;
     document.getElementById('time-range-select').value = TIME_RANGE;
     if (darkMode) {
       document.getElementById('dark-mode-btn').innerHTML = '☀️ <span>Dark</span>';
@@ -1542,6 +1560,11 @@
     localStorage.setItem('map-polling-interval', POLLING_INTERVAL);
     scheduleNextMapUpdate(POLLING_INTERVAL);
     tickRefreshBar();
+  };
+  document.getElementById('fit-bounds-mode').onchange = (event) => {
+    FIT_BOUNDS_MODE = event.target.value === 'visible' ? 'visible' : 'global';
+    localStorage.setItem('map-fit-bounds-mode', FIT_BOUNDS_MODE);
+    if (document.getElementById('fit-bounds-toggle').checked) debouncedMapRefresh();
   };
   document.getElementById('map-max-points').onchange = (event) => {
     MAP_MAX_POINTS = clampMapMaxPoints(event.target.value);
