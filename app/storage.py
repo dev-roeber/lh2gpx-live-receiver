@@ -966,6 +966,34 @@ class ReceiverStorage:
             total = connection.execute(count_query, parameters).fetchone()["total"]
         return int(total or 0)
 
+    def latest_point_timestamp(
+        self,
+        filters: PointFilters,
+        *,
+        bbox: tuple[float, float, float, float] | None = None,
+    ) -> str | None:
+        self._require_ready()
+        where_clause, parameters = _build_shared_filters(
+            date_from=filters.date_from,
+            date_to=filters.date_to,
+            time_from=filters.time_from,
+            time_to=filters.time_to,
+            session_id=filters.session_id,
+            capture_mode=filters.capture_mode,
+            source=filters.source,
+            search=filters.search,
+            time_column="point_timestamp_utc",
+            local_date_column="point_date_local",
+            local_time_column="point_time_local",
+        )
+        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox)
+        query = f"SELECT MAX(point_timestamp_utc) AS latest_point_ts_utc FROM gps_points {where_clause}"
+        with self._connect() as connection:
+            row = connection.execute(query, parameters).fetchone()
+        if not row:
+            return None
+        return row["latest_point_ts_utc"]
+
     def list_points_in_bbox(
         self,
         filters: PointFilters,

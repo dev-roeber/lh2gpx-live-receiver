@@ -476,6 +476,8 @@
   let currentLogItems = [];
   let lastMapPayload = null;
   let lastMetaPayload = null;
+  let lastMapBaseQueryKey = null;
+  let lastVisiblePointTsUtc = null;
   let persistentRuntimeWarnings = [];
   let mapRuntimeWarnings = [];
   let heatmapPluginAvailable = false;
@@ -1348,6 +1350,10 @@
     const apiStatus = document.getElementById('api-status');
     const overlay = document.getElementById('map-loading-overlay');
     const params = buildCurrentFilters();
+    const baseQuery = params.toString();
+    if (!isManualRefresh && lastMapBaseQueryKey === baseQuery && lastVisiblePointTsUtc) {
+      params.set('latest_known_ts', lastVisiblePointTsUtc);
+    }
     const url = `/api/map-data?${params.toString()}`;
 
     try {
@@ -1369,7 +1375,8 @@
         overlay.style.display = 'none';
         apiStatus.textContent = '● ONLINE';
         apiStatus.style.color = 'var(--mint)';
-        document.getElementById('api-info-ms').textContent = `${fetchMs} ms (cached)`;
+        const deltaMode = response.headers.get('x-map-delta') === 'noop';
+        document.getElementById('api-info-ms').textContent = deltaMode ? `${fetchMs} ms (delta)` : `${fetchMs} ms (cached)`;
         lastRefreshTime = Date.now();
         nextRefreshTime = Date.now() + POLLING_INTERVAL;
         isManualRefresh = false;
@@ -1392,6 +1399,8 @@
       const text = await response.text();
       const payload = JSON.parse(text);
       lastMapPayload = payload;
+      lastMapBaseQueryKey = baseQuery;
+      lastVisiblePointTsUtc = payload.meta?.latestVisiblePointTsUtc || null;
       overlay.style.display = 'none';
       isManualRefresh = false;
       lastRefreshTime = Date.now();

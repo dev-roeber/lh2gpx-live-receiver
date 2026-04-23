@@ -109,15 +109,17 @@ class SimpleRateLimiter:
 
 
 _POINTS_CACHE: dict[str, tuple[float, str, bytes]] = {}  # key → (ts, etag, body)
-_POINTS_CACHE_TTL = 2.0  # Sekunden
+_POINTS_CACHE_TTL = 5.0  # Sekunden
+_MAP_META_CACHE: dict[str, tuple[float, str, bytes]] = {}
+_MAP_META_CACHE_TTL = 5.0
 _MAP_DATA_CACHE: dict[str, tuple[float, str, bytes]] = {}
 _MAP_DATA_CACHE_TTL = 2.0
 _HEATMAP_LAYER_CACHE: dict[str, tuple[float, list[list[float]]]] = {}
-_HEATMAP_LAYER_CACHE_TTL = 10.0
+_HEATMAP_LAYER_CACHE_TTL = 15.0
 _TRACK_CONTEXT_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
-_TRACK_CONTEXT_CACHE_TTL = 10.0
+_TRACK_CONTEXT_CACHE_TTL = 15.0
 _TRACK_LAYER_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
-_TRACK_LAYER_CACHE_TTL = 10.0
+_TRACK_LAYER_CACHE_TTL = 8.0
 _MAP_DATA_PAGE_SIZE_MAX = 20_000
 _SNAP_CACHE: dict[str, tuple[float, list[list[float]] | None]] = {}
 _SNAP_CACHE_TTL = 300.0
@@ -690,7 +692,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         date_from: str | None = Query(default=None),
         date_to: str | None = Query(default=None),
         session_id: str | None = Query(default=None),
-    ) -> dict[str, Any]:
+    ) -> Response:
         filters = PointFilters(
             date_from=date_from,
             date_to=date_to,
@@ -698,12 +700,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             page=1,
             page_size=1,
         )
-        summary = _storage(request).summarize_points(filters)
-        return {
-            "requestId": request.state.request_id,
-            "meta": summary,
-            "processing": _summarize_import_tasks(),
-        }
+        cache_key = str(request.url.query)
+        now = time.time()
+        cached = _MAP_META_CACHE.get(cache_key)
+        if cached and (now - cached[0]) < _MAP_META_CACHE_TTL:
+            _, etag, body = cached
+        else:
+            summary = _storage(request).summarize_points(filters)
+            result = {
+                "requestId": request.state.request_id,
+                "meta": summary,
+                "processing": _summarize_import_tasks(),
+            }
+            body = json.dumps(result, separators=(",", ":")).encode()
+            etag = hashlib.md5(body, usedforsecurity=False).hexdigest()
+            _MAP_META_CACHE[cache_key] = (now, etag, body)
+            if len(_MAP_META_CACHE) > 200:
+                cutoff = now - _MAP_META_CACHE_TTL
+                for key in [key for key, value in _MAP_META_CACHE.items() if value[0] < cutoff]:
+                    del _MAP_META_CACHE[key]
+
+        if request.headers.get("if-none-match") == f'"{etag}"':
+            return Response(status_code=304, headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"})
+
+        return Response(
+            content=body,
+            media_type="application/json",
+            headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"},
+        )
 
     @app.get("/api/map-data", dependencies=[Depends(_require_admin_access)])
     async def api_map_data(
@@ -714,6 +738,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         bbox: str | None = Query(default=None),
         page_size: int | None = Query(default=None, ge=1),
         log_limit: int | None = Query(default=None, ge=1),
+        latest_known_ts: str | None = Query(default=None),
         zoom: float = Query(default=12, ge=1, le=22),
         route_time_gap_min: int = Query(default=15, ge=1, le=1440),
         route_dist_gap_m: int = Query(default=1200, ge=10, le=50000),
@@ -754,6 +779,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             _, etag, body = cached
         else:
             storage = _storage(request)
+            if latest_known_ts:
+                latest_visible_ts = storage.latest_point_timestamp(filters, bbox=viewport_bbox)
+                latest_visible_dt = _parse_iso_timestamp(latest_visible_ts)
+                latest_known_dt = _parse_iso_timestamp(latest_known_ts)
+                if latest_visible_dt and latest_known_dt and latest_visible_dt <= latest_known_dt:
+                    return Response(
+                        status_code=304,
+                        headers={
+                            "Cache-Control": "no-cache",
+                            "X-Map-Delta": "noop",
+                            "X-Map-Latest-Ts": latest_visible_ts,
+                        },
+                    )
             if viewport_bbox:
                 total_points = storage.count_points(filters)
                 visible_points = storage.count_points(filters, bbox=viewport_bbox)
@@ -834,6 +872,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "maxLon": viewport_bbox[2],
                     "maxLat": viewport_bbox[3],
                 }
+            payload["meta"]["latestVisiblePointTsUtc"] = viewport_items[0]["point_timestamp_utc"] if viewport_items else None
             result = {"requestId": request.state.request_id, **payload}
             result["processing"] = _summarize_import_tasks()
             body = json.dumps(result, separators=(",", ":")).encode()
@@ -1571,6 +1610,18 @@ def _prepare_map_payload(
 
 def _point_dt(point: dict[str, Any]) -> datetime:
     return datetime.fromisoformat(str(point["point_timestamp_utc"]))
+
+
+def _parse_iso_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    normalized = value.strip().replace(" ", "+")
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
 
 
 def _track_duration_seconds(points_asc: list[dict[str, Any]]) -> int:

@@ -502,6 +502,45 @@ def test_map_meta_returns_global_summary(tmp_path: Path) -> None:
     assert payload["meta"]["boundingBox"]["maxLongitude"] == 13.406
 
 
+def test_map_meta_supports_etag_304(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    headers = basic_auth_headers("operator", "dashboard-pass")
+    client.post("/live-location", json=valid_payload())
+
+    first = client.get("/api/map-meta", headers=headers)
+
+    assert first.status_code == 200
+    etag = first.headers.get("etag")
+    assert etag
+
+    second = client.get("/api/map-meta", headers={**headers, "If-None-Match": etag})
+
+    assert second.status_code == 304
+
+
+def test_map_data_supports_latest_known_ts_delta_304(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    headers = basic_auth_headers("operator", "dashboard-pass")
+    client.post("/live-location", json=valid_payload())
+
+    first = client.get(
+        "/api/map-data?bbox=13.300000,52.400000,13.500000,52.600000&zoom=14",
+        headers=headers,
+    )
+
+    assert first.status_code == 200
+    latest_ts = first.json()["meta"]["latestVisiblePointTsUtc"]
+    assert latest_ts
+
+    second = client.get(
+        f"/api/map-data?bbox=13.300000,52.400000,13.500000,52.600000&zoom=14&latest_known_ts={latest_ts}",
+        headers=headers,
+    )
+
+    assert second.status_code == 304
+    assert second.headers.get("x-map-delta") == "noop"
+
+
 def test_prepare_map_payload_keeps_viewport_layers_separate_from_buffered_geometry() -> None:
     viewport_point = {
         "id": 2,
