@@ -378,6 +378,44 @@ def test_map_data_accepts_fractional_zoom_and_caps_page_size(tmp_path: Path) -> 
     assert captured["page_size"] == 250
 
 
+def test_import_session_list_collapses_mixed_capture_modes(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    storage = client.app.state.storage
+
+    storage.import_points(
+        [
+            {
+                "timestamp_utc": "2026-04-23T12:00:00Z",
+                "latitude": 52.52,
+                "longitude": 13.405,
+                "capture_mode": "google_visit",
+            },
+            {
+                "timestamp_utc": "2026-04-23T12:05:00Z",
+                "latitude": 52.5205,
+                "longitude": 13.4055,
+                "capture_mode": "google_activity",
+            },
+            {
+                "timestamp_utc": "2026-04-23T12:10:00Z",
+                "latitude": 52.521,
+                "longitude": 13.406,
+                "capture_mode": "google_path",
+            },
+        ],
+        source="import:test.zip",
+        session_id="import-test-session",
+        request_id="import-test-request",
+    )
+
+    sessions = storage.list_sessions()
+    import_sessions = [session for session in sessions if session["session_id"] == "import-test-session"]
+
+    assert len(import_sessions) == 1
+    assert import_sessions[0]["capture_mode"] == "mixed"
+    assert import_sessions[0]["points_count"] == 3
+
+
 def make_client(
     tmp_path: Path,
     *,

@@ -604,15 +604,18 @@ class ReceiverStorage:
                     """
                     SELECT
                         session_id,
-                        source,
-                        capture_mode,
+                        MIN(source) AS source,
+                        CASE
+                            WHEN COUNT(DISTINCT capture_mode) = 1 THEN MIN(capture_mode)
+                            ELSE 'mixed'
+                        END AS capture_mode,
                         COUNT(*) AS points_count,
                         COUNT(DISTINCT request_id) AS requests_count,
                         AVG(horizontal_accuracy_m) AS avg_accuracy_m,
                         MIN(point_timestamp_utc) AS first_point_ts_utc,
                         MAX(point_timestamp_utc) AS last_point_ts_utc
                     FROM gps_points
-                    GROUP BY session_id, source, capture_mode
+                    GROUP BY session_id
                     ORDER BY last_point_ts_utc DESC
                     LIMIT 10
                     """
@@ -625,15 +628,18 @@ class ReceiverStorage:
                     """
                     SELECT
                         session_id,
-                        source,
-                        capture_mode,
+                        MIN(source) AS source,
+                        CASE
+                            WHEN COUNT(DISTINCT capture_mode) = 1 THEN MIN(capture_mode)
+                            ELSE 'mixed'
+                        END AS capture_mode,
                         COUNT(*) AS points_count,
                         COUNT(DISTINCT request_id) AS requests_count,
                         AVG(horizontal_accuracy_m) AS avg_accuracy_m,
                         MIN(point_timestamp_utc) AS first_point_ts_utc,
                         MAX(point_timestamp_utc) AS last_point_ts_utc
                     FROM gps_points
-                    GROUP BY session_id, source, capture_mode
+                    GROUP BY session_id
                     ORDER BY points_count DESC, last_point_ts_utc DESC
                     LIMIT 5
                     """
@@ -1241,8 +1247,11 @@ class ReceiverStorage:
                 """
                 SELECT
                     session_id,
-                    source,
-                    capture_mode,
+                    MIN(source) AS source,
+                    CASE
+                        WHEN COUNT(DISTINCT capture_mode) = 1 THEN MIN(capture_mode)
+                        ELSE 'mixed'
+                    END AS capture_mode,
                     COUNT(*) AS points_count,
                     COUNT(DISTINCT request_id) AS requests_count,
                     AVG(horizontal_accuracy_m) AS avg_accuracy_m,
@@ -1253,7 +1262,7 @@ class ReceiverStorage:
                     MIN(longitude) AS min_longitude,
                     MAX(longitude) AS max_longitude
                 FROM gps_points
-                GROUP BY session_id, source, capture_mode
+                GROUP BY session_id
                 ORDER BY last_point_ts_utc DESC
                 """
             ).fetchall()
@@ -1301,8 +1310,11 @@ class ReceiverStorage:
                 """
                 SELECT
                     session_id,
-                    source,
-                    capture_mode,
+                    MIN(source) AS source,
+                    CASE
+                        WHEN COUNT(DISTINCT capture_mode) = 1 THEN MIN(capture_mode)
+                        ELSE 'mixed'
+                    END AS capture_mode,
                     COUNT(*) AS points_count,
                     COUNT(DISTINCT request_id) AS requests_count,
                     AVG(horizontal_accuracy_m) AS avg_accuracy_m,
@@ -1314,7 +1326,7 @@ class ReceiverStorage:
                     MAX(longitude) AS max_longitude
                 FROM gps_points
                 WHERE session_id = ?
-                GROUP BY session_id, source, capture_mode
+                GROUP BY session_id
                 """,
                 (session_id,),
             ).fetchone()
