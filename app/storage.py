@@ -1011,6 +1011,39 @@ class ReceiverStorage:
             rows = connection.execute(query, parameters).fetchall()
         return [dict(row) for row in rows]
 
+    def list_heatmap_points(
+        self,
+        filters: PointFilters,
+        *,
+        bbox: tuple[float, float, float, float] | None = None,
+    ) -> list[dict[str, Any]]:
+        self._require_ready()
+        where_clause, parameters = _build_shared_filters(
+            date_from=filters.date_from,
+            date_to=filters.date_to,
+            time_from=filters.time_from,
+            time_to=filters.time_to,
+            session_id=filters.session_id,
+            capture_mode=filters.capture_mode,
+            source=filters.source,
+            search=filters.search,
+            time_column="point_timestamp_utc",
+            local_date_column="point_date_local",
+            local_time_column="point_time_local",
+        )
+        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox)
+        query = f"""
+            SELECT
+                latitude,
+                longitude,
+                horizontal_accuracy_m
+            FROM gps_points
+            {where_clause}
+        """
+        with self._connect() as connection:
+            rows = connection.execute(query, parameters).fetchall()
+        return [dict(row) for row in rows]
+
     def list_points(self, filters: PointFilters) -> dict[str, Any]:
         self._require_ready()
         where_clause, parameters = _build_shared_filters(

@@ -12,7 +12,8 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.import_parsers import parse_file_report
-from app.main import _prepare_map_payload, create_app
+from app.main import _HEATMAP_LAYER_CACHE, _prepare_map_payload, _resolve_heatmap_layer, create_app
+from app.models import PointFilters
 from app.storage import StorageWriteError
 
 
@@ -519,6 +520,7 @@ def test_prepare_map_payload_keeps_viewport_layers_separate_from_buffered_geomet
     payload = _prepare_map_payload(
         [viewport_point],
         [viewport_point, buffered_only_point],
+        heatmap_entries=[[52.5205, 13.4055, 1.0]],
         total_points=2,
         visible_points=1,
         zoom=14,
@@ -564,6 +566,7 @@ def test_prepare_map_payload_handles_empty_viewport_with_buffered_context() -> N
     payload = _prepare_map_payload(
         [],
         [buffered_only_point],
+        heatmap_entries=[],
         total_points=1,
         visible_points=0,
         zoom=14,
@@ -591,6 +594,41 @@ def test_prepare_map_payload_handles_empty_viewport_with_buffered_context() -> N
     assert payload["layers"]["polylines"] == []
     assert payload["layers"]["latestPoint"]["lat"] == buffered_only_point["latitude"]
     assert payload["logItems"][0]["lat"] == buffered_only_point["latitude"]
+
+
+def test_resolve_heatmap_layer_uses_specialized_storage_and_cache(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    storage = client.app.state.storage
+    filters = PointFilters(page=1, page_size=50)
+    bbox = (13.3, 52.4, 13.5, 52.6)
+    calls = {"count": 0}
+    original = storage.list_heatmap_points
+
+    def tracked_list_heatmap_points(*args, **kwargs):  # type: ignore[no-untyped-def]
+        calls["count"] += 1
+        return original(*args, **kwargs)
+
+    storage.list_heatmap_points = tracked_list_heatmap_points
+    _HEATMAP_LAYER_CACHE.clear()
+
+    inside = valid_payload()
+    inside["points"] = [
+        {
+            "latitude": 52.5200,
+            "longitude": 13.4050,
+            "timestamp": "2026-03-20T12:00:00Z",
+            "horizontalAccuracyM": 5.0,
+        }
+    ]
+    client.post("/live-location", json=inside)
+
+    first = _resolve_heatmap_layer(storage, filters, bbox=bbox, zoom=14)
+    second = _resolve_heatmap_layer(storage, filters, bbox=bbox, zoom=14)
+
+    assert first
+    assert second == first
+    assert calls["count"] == 1
+
 
 
 def make_client(

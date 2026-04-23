@@ -112,6 +112,8 @@ _POINTS_CACHE: dict[str, tuple[float, str, bytes]] = {}  # key → (ts, etag, bo
 _POINTS_CACHE_TTL = 2.0  # Sekunden
 _MAP_DATA_CACHE: dict[str, tuple[float, str, bytes]] = {}
 _MAP_DATA_CACHE_TTL = 2.0
+_HEATMAP_LAYER_CACHE: dict[str, tuple[float, list[list[float]]]] = {}
+_HEATMAP_LAYER_CACHE_TTL = 10.0
 _MAP_DATA_PAGE_SIZE_MAX = 20_000
 _SNAP_CACHE: dict[str, tuple[float, list[list[float]] | None]] = {}
 _SNAP_CACHE_TTL = 300.0
@@ -759,10 +761,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 visible_points = len(listed["items"])
                 viewport_items = listed["items"]
                 buffered_items = listed["items"]
+            heatmap_entries = []
+            if include_heatmap:
+                heatmap_entries = await asyncio.to_thread(
+                    _resolve_heatmap_layer,
+                    storage,
+                    filters,
+                    bbox=viewport_bbox,
+                    zoom=effective_zoom,
+                )
             payload = await asyncio.to_thread(
                 _prepare_map_payload,
                 viewport_items,
                 buffered_items,
+                heatmap_entries=heatmap_entries,
                 total_points=total_points,
                 visible_points=visible_points,
                 zoom=effective_zoom,
@@ -1432,6 +1444,7 @@ def _prepare_map_payload(
     viewport_points_desc: list[dict[str, Any]],
     buffered_points_desc: list[dict[str, Any]],
     *,
+    heatmap_entries: list[list[float]],
     total_points: int,
     visible_points: int,
     zoom: int,
@@ -1512,7 +1525,7 @@ def _prepare_map_payload(
         payload["layers"]["points"] = [_serialize_map_point(point, latest["id"]) for point in sampled_points]
 
     if include_heatmap:
-        payload["layers"]["heatmap"] = _aggregate_heatmap(visible_points_desc, zoom=zoom)
+        payload["layers"]["heatmap"] = heatmap_entries
 
     if include_polyline or include_labels:
         payload["layers"]["polylines"] = _serialize_polyline_segments(segments, zoom=zoom, include_labels=include_labels)
@@ -1807,6 +1820,66 @@ def _aggregate_heatmap(points_desc: list[dict[str, Any]], *, zoom: int) -> list[
             ]
         )
     return aggregated
+
+
+def _bucket_float(value: float, *, step: float) -> float:
+    if step <= 0:
+        return value
+    return round(round(value / step) * step, 6)
+
+
+def _bucket_bbox_for_zoom(
+    bbox: tuple[float, float, float, float] | None,
+    *,
+    zoom: int,
+) -> tuple[float, float, float, float] | None:
+    if not bbox:
+        return None
+    lat_step = max((_heat_cell_m(zoom) / 111320.0) * 0.5, 1e-5)
+    min_lon, min_lat, max_lon, max_lat = bbox
+    return (
+        _bucket_float(min_lon, step=lat_step),
+        _bucket_float(min_lat, step=lat_step),
+        _bucket_float(max_lon, step=lat_step),
+        _bucket_float(max_lat, step=lat_step),
+    )
+
+
+def _resolve_heatmap_layer(
+    storage: ReceiverStorage,
+    filters: PointFilters,
+    *,
+    bbox: tuple[float, float, float, float] | None,
+    zoom: int,
+) -> list[list[float]]:
+    bucketed_bbox = _bucket_bbox_for_zoom(bbox, zoom=zoom)
+    cache_key = json.dumps(
+        {
+            "date_from": filters.date_from,
+            "date_to": filters.date_to,
+            "session_id": filters.session_id,
+            "capture_mode": filters.capture_mode,
+            "source": filters.source,
+            "search": filters.search,
+            "zoom": zoom,
+            "bbox": bucketed_bbox,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    now = time.time()
+    cached = _HEATMAP_LAYER_CACHE.get(cache_key)
+    if cached and (now - cached[0]) < _HEATMAP_LAYER_CACHE_TTL:
+        return cached[1]
+
+    rows = storage.list_heatmap_points(filters, bbox=bbox)
+    result = _aggregate_heatmap(rows, zoom=zoom)
+    _HEATMAP_LAYER_CACHE[cache_key] = (now, result)
+    if len(_HEATMAP_LAYER_CACHE) > 300:
+        cutoff = now - _HEATMAP_LAYER_CACHE_TTL
+        for key in [key for key, value in _HEATMAP_LAYER_CACHE.items() if value[0] < cutoff]:
+            del _HEATMAP_LAYER_CACHE[key]
+    return result
 
 
 def _detect_stops(
