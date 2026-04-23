@@ -15,21 +15,25 @@ class ImportError(ValueError):
 
 
 def parse_file(filename: str, data: bytes) -> list[dict[str, Any]]:
+    return parse_file_report(filename, data)["points"]
+
+
+def parse_file_report(filename: str, data: bytes) -> dict[str, Any]:
     name = filename.lower()
     if name.endswith(".zip"):
         return _parse_zip(data)
     if name.endswith(".kmz"):
-        return _parse_kmz(data)
+        return _wrap_report("kmz", _parse_kmz(data))
     if name.endswith(".gpx"):
-        return _parse_gpx(data)
+        return _wrap_report("gpx", _parse_gpx(data))
     if name.endswith(".kml"):
-        return _parse_kml(data)
+        return _wrap_report("kml", _parse_kml(data))
     if name.endswith(".geojson") or name.endswith(".geo.json"):
-        return _parse_geojson(data)
+        return _wrap_report("geojson", _parse_geojson(data))
     if name.endswith(".json"):
-        return _parse_json(data)
+        return _wrap_report("json", _parse_json(data))
     if name.endswith(".csv"):
-        return _parse_csv(data)
+        return _wrap_report("csv", _parse_csv(data))
     raise ImportError(f"Unbekanntes Dateiformat: {filename}")
 
 
@@ -86,6 +90,16 @@ def _parse_geo_uri(s: str) -> tuple[float, float] | None:
     """Extrahiert lat/lon aus 'geo:lat,lon' oder 'geo:lat,lon?...' Strings."""
     if not isinstance(s, str) or not s.startswith("geo:"):
         return None
+
+
+def _wrap_report(detected_format: str, points: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
+    report = {
+        "points": points,
+        "detected_format": detected_format,
+        "warnings": [],
+    }
+    report.update(extra)
+    return report
     try:
         coords = s[4:].split("?")[0]
         lat_s, lon_s = coords.split(",", 1)
@@ -490,9 +504,9 @@ def _parse_csv(data: bytes) -> list[dict[str, Any]]:
 
 # ── ZIP (Google Takeout und andere Archive) ───────────────────
 
-_SUPPORTED_EXT = (".json", ".gpx", ".kml", ".kmz", ".geojson", ".csv")
+_SUPPORTED_EXT = (".json", ".gpx", ".kml", ".kmz", ".geojson", ".geo.json", ".csv", ".zip")
 
-def _parse_zip(data: bytes) -> list[dict[str, Any]]:
+def _parse_zip(data: bytes) -> dict[str, Any]:
     try:
         zf_obj = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile:
@@ -519,12 +533,16 @@ def _parse_zip(data: bytes) -> list[dict[str, Any]]:
 
         all_points: list[dict[str, Any]] = []
         errors: list[str] = []
+        nested_warnings: list[str] = []
+        used_entries = 0
         for name in names:
             try:
                 file_data = zf.read(name)
                 basename = name.replace("\\", "/").split("/")[-1]
-                pts = parse_file(basename, file_data)
-                all_points.extend(pts)
+                report = parse_file_report(basename, file_data)
+                all_points.extend(report["points"])
+                nested_warnings.extend(report.get("warnings", []))
+                used_entries += 1
             except ImportError as e:
                 errors.append(f"{name.split('/')[-1]}: {e}")
             except Exception as e:
@@ -533,4 +551,12 @@ def _parse_zip(data: bytes) -> list[dict[str, Any]]:
     if not all_points:
         detail = "; ".join(errors[:5]) if errors else "Keine verwertbaren GPS-Daten"
         raise ImportError(f"ZIP: {detail}")
-    return all_points
+    warnings = nested_warnings + errors[:10]
+    return _wrap_report(
+        "zip",
+        all_points,
+        archive_entries_total=len(names),
+        archive_entries_used=used_entries,
+        archive_entries_failed=len(errors),
+        warnings=warnings,
+    )

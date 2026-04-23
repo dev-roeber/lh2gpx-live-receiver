@@ -48,6 +48,16 @@
 - Schlüsselkombination: `point_timestamp_utc + latitude + longitude`
 - Frontend-Polling über `GET /api/import/status/{task_id}`
 - Datei-Picker in `import.html` ist für Mobile Safari als echter Overlay-Input verdrahtet statt über einen programmgesteuerten Klick auf einen versteckten Input
+- Parserpfad liefert über `parse_file_report(...)` strukturierte Metadaten statt nur Punktlisten
+- Statusdaten enthalten:
+  - Dateiname, Dateigröße und erkanntes Format
+  - Warnungen und Fehlerkategorie
+  - Rohpunkte, ungültige Zeilen, Datei-Dedupe und DB-Dedupe
+  - erste/letzte Zeitstempel
+  - Parse-, Insert- und Gesamtdauer
+  - ZIP-spezifische Archivmetriken
+- `storage.import_points(...)` gibt dafür ein erweitertes Ergebnisobjekt zurück statt nur `inserted/skipped`
+- Tests nutzen optional `app.state.inline_import_tasks = True`, damit Import-Tasks im Testpfad deterministisch inline abgeschlossen werden
 
 ## Kartenmodell `/dashboard/map`
 

@@ -803,7 +803,7 @@ class ReceiverStorage:
         received_iso = isoformat_utc(now_utc)
 
         point_rows = []
-        skipped = 0
+        invalid_rows = 0
         for p in points:
             try:
                 ts_utc = p["timestamp_utc"]
@@ -822,7 +822,10 @@ class ReceiverStorage:
                     ts_local.isoformat(),
                 ))
             except Exception:
-                skipped += 1
+                invalid_rows += 1
+
+        valid_rows_before_dedupe = list(point_rows)
+        all_valid_timestamps = [row[3] for row in valid_rows_before_dedupe]
 
         # 1) Duplikate innerhalb der Importdatei entfernen (gleicher Timestamp+Coords)
         seen_keys: set[tuple] = set()
@@ -832,10 +835,11 @@ class ReceiverStorage:
             if key not in seen_keys:
                 seen_keys.add(key)
                 deduped.append(r)
-        skipped += len(point_rows) - len(deduped)
+        deduped_in_file = len(point_rows) - len(deduped)
         point_rows = deduped
 
         # 2) Bereits in der DB vorhandene Punkte herausfiltern (in Batches wegen SQLite-Variablenlimit)
+        already_existing = 0
         if point_rows:
             _BATCH = 500
             ts_values = list({r[3] for r in point_rows})
@@ -852,12 +856,15 @@ class ReceiverStorage:
                     existing.update((r[0], r[1], r[2]) for r in rows)
             before = len(point_rows)
             point_rows = [r for r in point_rows if (r[3], r[4], r[5]) not in existing]
-            skipped += before - len(point_rows)
+            already_existing = before - len(point_rows)
 
         inserted = len(point_rows)
+        skipped_total = invalid_rows + deduped_in_file + already_existing
+        first_ts = min(all_valid_timestamps) if all_valid_timestamps else None
+        last_ts = max(all_valid_timestamps) if all_valid_timestamps else None
         if point_rows:
             ts_list = [r[3] for r in point_rows]
-            first_ts, last_ts = min(ts_list), max(ts_list)
+            inserted_first_ts, inserted_last_ts = min(ts_list), max(ts_list)
             with self._locked_transaction() as connection:
                 connection.execute(
                     """INSERT OR IGNORE INTO ingest_requests (
@@ -867,7 +874,7 @@ class ReceiverStorage:
                         error_category, error_detail, raw_payload_json, raw_payload_reference
                     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (request_id, received_iso, received_iso, source, session_id,
-                     "imported", inserted, first_ts, last_ts,
+                     "imported", inserted, inserted_first_ts, inserted_last_ts,
                      "import", "", "", "accepted", 202, None, None, "{}", None),
                 )
                 connection.executemany(
@@ -878,7 +885,17 @@ class ReceiverStorage:
                     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     point_rows,
                 )
-        return {"inserted": inserted, "skipped": skipped, "request_id": request_id}
+        return {
+            "inserted": inserted,
+            "skipped_total": skipped_total,
+            "invalid_rows": invalid_rows,
+            "deduped_in_file": deduped_in_file,
+            "already_existing": already_existing,
+            "raw_points": len(points),
+            "request_id": request_id,
+            "first_timestamp_utc": first_ts,
+            "last_timestamp_utc": last_ts,
+        }
 
     def get_live_summary(self, *, limit: int) -> dict[str, Any]:
         self._require_ready()

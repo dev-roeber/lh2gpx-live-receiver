@@ -79,7 +79,7 @@ Unbekannte additive Zusatzfelder werden weiter toleriert und im Rohpayload gespe
 - `POST /api/import`
   - startet asynchronen Dateiimport für `json`, `gpx`, `kml`, `kmz`, `geojson`, `geo.json`, `csv`, `zip`.
 - `GET /api/import/status/{task_id}`
-  - Polling-Status für laufende Import-Tasks.
+  - Polling-Status für laufende Import-Tasks inkl. Phase, Dateimetadaten, Parser-/ZIP-Warnungen und Importmetriken.
 - `GET /api/points/{id}`
   - Punktdetail.
 - `GET /api/requests`
@@ -136,6 +136,7 @@ Interaktive GPS-Echtzeit-Karte mit:
 - **Live-Punkt-Log:** scrollbare Echtzeit-Tabelle direkt unter der Karte; reagiert direkt auf Filter- und Log-Limit-Änderungen; auf Mobile: Spalten `Genauigkeit`, `Modus`, `Request ID` ausgeblendet
 - **Session-Länge und Statistik:** kommen aus dem serverseitig vorbereiteten Kartenmodell statt aus der offenen Browser-Tab-Dauer
 - **iPhone-Import:** Datei-Picker ist für Mobile Safari gehärtet; der File-Input liegt als echter unsichtbarer Overlay-Input in der Drop-Zone statt über einen versteckten `display:none`-Input mit programmgesteuertem Klick
+- **Import-Transparenz:** Die Importseite zeigt serverseitige Verarbeitung live an, inklusive erkanntem Format, Rohpunkten, Dedupe-Zahlen, bereits vorhandenen Punkten, ZIP-Einträgen, Laufzeiten und Warnungen
 
 ### Responsive Layout
 

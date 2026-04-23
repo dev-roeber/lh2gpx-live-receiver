@@ -37,6 +37,14 @@
 - Dedupe erfolgt über `Zeitstempel + Latitude + Longitude`
 - doppelte Punkte werden übersprungen
 - auf iPhone/Mobile Safari ist der Datei-Picker speziell gehärtet
+- nach dem Upload zeigt die Seite den Serverfortschritt live an:
+  - Phase des Imports
+  - Dateiname, Dateigröße und erkanntes Format
+  - Rohpunkte, neu importierte Punkte und übersprungene Punkte
+  - Dedupe innerhalb der Datei und bereits vorhandene Punkte in der Datenbank
+  - bei ZIP auch Gesamtzahl, genutzte und fehlgeschlagene Einträge
+  - Parse-, Insert- und Gesamtdauer
+  - Warnungen oder Fehlerkategorie direkt aus dem Serverstatus
 
 ## Exporte
 

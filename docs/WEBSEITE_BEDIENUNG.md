@@ -32,3 +32,10 @@
 - Duplikate werden über `Zeitstempel + Latitude + Longitude` übersprungen
 - erfolgreiche Importe erscheinen als eigene Import-Session
 - Mobile Safari/iPhone nutzt einen gehärteten Datei-Picker ohne versteckten `display:none`-Input
+- unter dem Fortschrittsbalken zeigt die Importseite eine Server-Statuskarte mit:
+  - Importphase
+  - Dateiname, Größe und erkanntem Format
+  - Rohpunkten, neu importierten Punkten und übersprungenen Punkten
+  - Dedupe in Datei und bereits vorhandenen Punkten
+  - ZIP-Metadaten und Warnungen
+  - Laufzeiten für Parsing, Insert und Gesamtverarbeitung

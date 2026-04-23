@@ -28,9 +28,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .config import Settings
-from .import_parsers import ImportError as GpsImportError, parse_file as parse_import_file
+from .import_parsers import ImportError as GpsImportError, parse_file_report as parse_import_file_report
 from .models import LiveLocationRequest, PointFilters, RequestFilters, RequestMetadata
-from .storage import ReceiverStorage, StorageError
+from .storage import ReceiverStorage, StorageError, isoformat_utc
 
 
 LOGGER = logging.getLogger("lh2gpx_live_receiver")
@@ -119,29 +119,86 @@ _import_tasks: dict[str, dict] = {}  # task_id → {status, ...}
 
 
 async def _run_import_task(task_id: str, filename: str, data: bytes, storage: "ReceiverStorage") -> None:
+    started_at = time.perf_counter()
     try:
-        _import_tasks[task_id]["status"] = "parsing"
-        points = await asyncio.to_thread(parse_import_file, filename, data)
-        _import_tasks[task_id].update({"status": "inserting", "total": len(points)})
+        _import_tasks[task_id].update({"status": "parsing", "updated_at": isoformat_utc(datetime.now(timezone.utc))})
+        parse_started_at = time.perf_counter()
+        parse_report = await asyncio.to_thread(parse_import_file_report, filename, data)
+        points = parse_report["points"]
+        parse_duration_ms = round((time.perf_counter() - parse_started_at) * 1000, 2)
+        _import_tasks[task_id].update(
+            {
+                "status": "inserting",
+                "updated_at": isoformat_utc(datetime.now(timezone.utc)),
+                "detected_format": parse_report.get("detected_format", "unknown"),
+                "total": len(points),
+                "metrics": {
+                    "rawPoints": len(points),
+                    "parseDurationMs": parse_duration_ms,
+                    "archiveEntriesTotal": parse_report.get("archive_entries_total"),
+                    "archiveEntriesUsed": parse_report.get("archive_entries_used"),
+                    "archiveEntriesFailed": parse_report.get("archive_entries_failed"),
+                },
+                "warnings": parse_report.get("warnings", []),
+            }
+        )
         import_id = str(uuid4())
         session_id = f"import-{import_id[:8]}"
+        insert_started_at = time.perf_counter()
         result = await asyncio.to_thread(
             lambda: storage.import_points(
                 points, source=f"import:{filename}", session_id=session_id, request_id=import_id
             )
         )
+        insert_duration_ms = round((time.perf_counter() - insert_started_at) * 1000, 2)
         _import_tasks[task_id] = {
-            "status": "done", "filename": filename,
-            "inserted": result["inserted"], "skipped": result["skipped"],
+            "status": "done",
+            "filename": filename,
+            "file_size_bytes": len(data),
+            "detected_format": parse_report.get("detected_format", "unknown"),
+            "created_at": _import_tasks[task_id].get("created_at"),
+            "updated_at": isoformat_utc(datetime.now(timezone.utc)),
+            "inserted": result["inserted"],
+            "skipped": result["skipped_total"],
             "session_id": session_id,
+            "warnings": parse_report.get("warnings", []),
+            "metrics": {
+                "rawPoints": result["raw_points"],
+                "invalidRows": result["invalid_rows"],
+                "dedupedInFile": result["deduped_in_file"],
+                "alreadyExisting": result["already_existing"],
+                "inserted": result["inserted"],
+                "skippedTotal": result["skipped_total"],
+                "firstTimestampUtc": result["first_timestamp_utc"],
+                "lastTimestampUtc": result["last_timestamp_utc"],
+                "parseDurationMs": parse_duration_ms,
+                "insertDurationMs": insert_duration_ms,
+                "totalDurationMs": round((time.perf_counter() - started_at) * 1000, 2),
+                "archiveEntriesTotal": parse_report.get("archive_entries_total"),
+                "archiveEntriesUsed": parse_report.get("archive_entries_used"),
+                "archiveEntriesFailed": parse_report.get("archive_entries_failed"),
+            },
         }
     except GpsImportError as e:
-        _import_tasks[task_id] = {"status": "error", "error": str(e), "filename": filename}
+        _import_tasks[task_id] = {
+            "status": "error",
+            "filename": filename,
+            "file_size_bytes": len(data),
+            "updated_at": isoformat_utc(datetime.now(timezone.utc)),
+            "error": str(e),
+            "error_category": "parse_error",
+        }
     except Exception as e:
-        _import_tasks[task_id] = {"status": "error", "error": f"Interner Fehler: {type(e).__name__}: {e}", "filename": filename}
+        _import_tasks[task_id] = {
+            "status": "error",
+            "filename": filename,
+            "file_size_bytes": len(data),
+            "updated_at": isoformat_utc(datetime.now(timezone.utc)),
+            "error": f"Interner Fehler: {type(e).__name__}: {e}",
+            "error_category": "internal_error",
+        }
     finally:
-        await asyncio.sleep(300)  # 5 min vorhalten, dann bereinigen
-        _import_tasks.pop(task_id, None)
+        asyncio.get_running_loop().call_later(300, _import_tasks.pop, task_id, None)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -167,6 +224,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.storage.startup()
     app.state.rate_limiter = SimpleRateLimiter(resolved_settings.rate_limit_requests_per_minute)
     app.state.session_signing_key = _build_session_signing_key(resolved_settings)
+    app.state.inline_import_tasks = False
     app.state.started_at_utc = datetime.now(timezone.utc)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -826,9 +884,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=413, detail="Datei zu groß (max. 100 MB).")
         filename = file.filename or "upload"
         task_id = str(uuid4())
-        _import_tasks[task_id] = {"status": "queued", "filename": filename}
-        asyncio.create_task(_run_import_task(task_id, filename, data, _storage(request)))
-        return JSONResponse({"ok": True, "task_id": task_id})
+        _import_tasks[task_id] = {
+            "status": "queued",
+            "filename": filename,
+            "file_size_bytes": len(data),
+            "created_at": isoformat_utc(datetime.now(timezone.utc)),
+            "updated_at": isoformat_utc(datetime.now(timezone.utc)),
+            "metrics": {},
+            "warnings": [],
+        }
+        if request.app.state.inline_import_tasks:
+            await _run_import_task(task_id, filename, data, _storage(request))
+        else:
+            asyncio.create_task(_run_import_task(task_id, filename, data, _storage(request)))
+        return JSONResponse({"ok": True, "task_id": task_id, "filename": filename, "file_size_bytes": len(data)})
 
     @app.get("/api/import/status/{task_id}", dependencies=[Depends(_require_admin_access)])
     async def api_import_status(task_id: str) -> JSONResponse:

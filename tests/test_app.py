@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import sqlite3
+import time
+import zipfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from app.config import Settings
+from app.import_parsers import parse_file_report
 from app.main import create_app
 from app.storage import StorageWriteError
 
@@ -250,6 +254,71 @@ def test_logs_do_not_include_bearer_token(tmp_path: Path, caplog) -> None:
     assert response.status_code == 202
     joined = "\n".join(record.message for record in caplog.records)
     assert "secret-token" not in joined
+
+
+def test_import_status_exposes_server_metrics(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    client.app.state.inline_import_tasks = True
+    headers = basic_auth_headers("operator", "dashboard-pass")
+    gpx = (
+        b'<?xml version="1.0"?><gpx version="1.1" creator="t"><trk><trkseg>'
+        b'<trkpt lat="52.52" lon="13.405"><time>2026-04-23T12:00:00Z</time></trkpt>'
+        b'<trkpt lat="52.5201" lon="13.4051"><time>2026-04-23T12:01:00Z</time></trkpt>'
+        b'</trkseg></trk></gpx>'
+    )
+
+    response = client.post("/api/import", headers=headers, files={"file": ("track.gpx", gpx, "application/gpx+xml")})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["file_size_bytes"] == len(gpx)
+    task_id = body["task_id"]
+
+    task = None
+    for _ in range(50):
+        status_response = client.get(f"/api/import/status/{task_id}", headers=headers)
+        assert status_response.status_code == 200
+        task = status_response.json()
+        if task["status"] in {"done", "error"}:
+            break
+        time.sleep(0.01)
+
+    assert task is not None
+    assert task["status"] == "done"
+    assert task["detected_format"] == "gpx"
+    assert task["metrics"]["rawPoints"] == 2
+    assert task["metrics"]["inserted"] == 2
+    assert task["metrics"]["skippedTotal"] == 0
+    assert task["metrics"]["parseDurationMs"] >= 0
+    assert task["metrics"]["insertDurationMs"] >= 0
+    assert task["session_id"].startswith("import-")
+
+
+def test_parse_zip_supports_geo_dot_json_entries() -> None:
+    geojson = json.dumps(
+        {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [13.405, 52.52]},
+                    "properties": {"timestamp": "2026-04-23T12:00:00Z"},
+                }
+            ],
+        }
+    ).encode("utf-8")
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        zf.writestr("export.geo.json", geojson)
+
+    report = parse_file_report("archive.zip", buffer.getvalue())
+
+    assert report["detected_format"] == "zip"
+    assert report["archive_entries_total"] == 1
+    assert report["archive_entries_used"] == 1
+    assert report["archive_entries_failed"] == 0
+    assert len(report["points"]) == 1
 
 
 def make_client(

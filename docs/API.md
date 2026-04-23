@@ -128,6 +128,31 @@ Zusätzlich für Punkte:
   - `inserting`
   - `done`
   - `error`
+- `POST /api/import` antwortet direkt mit:
+  - `ok`
+  - `task_id`
+  - `filename`
+  - `file_size_bytes`
+- `GET /api/import/status/{task_id}` liefert zusätzlich strukturierte Serverdaten:
+  - `filename`
+  - `file_size_bytes`
+  - `detected_format`
+  - `warnings`
+  - `error_category`
+  - `metrics.rawPoints`
+  - `metrics.invalidRows`
+  - `metrics.dedupedInFile`
+  - `metrics.alreadyExisting`
+  - `metrics.inserted`
+  - `metrics.skippedTotal`
+  - `metrics.firstTimestampUtc`
+  - `metrics.lastTimestampUtc`
+  - `metrics.parseDurationMs`
+  - `metrics.insertDurationMs`
+  - `metrics.totalDurationMs`
+  - `metrics.archiveEntriesTotal`
+  - `metrics.archiveEntriesUsed`
+  - `metrics.archiveEntriesFailed`
 
 ## Dashboard-Routen
 

@@ -80,6 +80,16 @@
     <p id="progress-label" class="progress-label">Wird hochgeladen…</p>
   </div>
 
+  <div id="server-status-card" class="server-status-card" style="display:none;">
+    <div class="server-status-head">
+      <strong id="server-status-phase">Serverstatus</strong>
+      <span id="server-status-updated" class="server-status-updated">—</span>
+    </div>
+    <div id="server-status-summary" class="server-status-summary">—</div>
+    <div id="server-status-metrics" class="server-status-metrics"></div>
+    <div id="server-status-warnings" class="server-status-warnings" style="display:none;"></div>
+  </div>
+
   {# Status #}
   <div id="import-status" class="import-status" style="display:none;"></div>
 
@@ -221,6 +231,36 @@
 }
 .progress-label { font-size: 0.72rem; color: var(--text-3); margin: 6px 0 0; text-align: center; }
 
+.server-status-card {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.server-status-head {
+  display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap;
+}
+.server-status-head strong { font-size: 0.84rem; color: var(--text); }
+.server-status-updated { font-size: 0.72rem; color: var(--text-3); }
+.server-status-summary { font-size: 0.8rem; color: var(--text-2); line-height: 1.45; }
+.server-status-metrics {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px;
+}
+.server-metric {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 12px; min-width: 0;
+}
+.server-metric-label {
+  display: block; font-size: 0.68rem; color: var(--text-3); margin-bottom: 4px;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.server-metric-value {
+  display: block; font-size: 0.82rem; color: var(--text); font-weight: 600; word-break: break-word;
+}
+.server-status-warnings {
+  background: var(--orange-dim); border: 1px solid var(--orange-border);
+  color: var(--orange); border-radius: 10px; padding: 10px 12px; font-size: 0.78rem; line-height: 1.5;
+}
+
 .import-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
 /* ── Buttons ────────────────────────────────────────── */
@@ -281,6 +321,12 @@ const clearBtn     = document.getElementById('clear-file');
 const progressWrap = document.getElementById('progress-wrap');
 const progressFill = document.getElementById('progress-fill');
 const progressLabel= document.getElementById('progress-label');
+const serverStatusCard = document.getElementById('server-status-card');
+const serverStatusPhase = document.getElementById('server-status-phase');
+const serverStatusUpdated = document.getElementById('server-status-updated');
+const serverStatusSummary = document.getElementById('server-status-summary');
+const serverStatusMetrics = document.getElementById('server-status-metrics');
+const serverStatusWarnings = document.getElementById('server-status-warnings');
 
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 let selectedFile = null;
@@ -312,6 +358,7 @@ function clearFile(keepStatus = false) {
   dropZone.style.display = 'flex';
   importBtn.disabled = true;
   if (!keepStatus) statusBox.style.display = 'none';
+  if (!keepStatus) hideServerStatus();
 }
 
 function showStatus(msg, type) {
@@ -323,6 +370,75 @@ function showStatus(msg, type) {
 function setProgress(pct, label) {
   progressFill.style.width = pct + '%';
   progressLabel.textContent = label;
+}
+
+function hideServerStatus() {
+  serverStatusCard.style.display = 'none';
+  serverStatusMetrics.innerHTML = '';
+  serverStatusWarnings.style.display = 'none';
+  serverStatusWarnings.innerHTML = '';
+}
+
+function formatTimestamp(ts) {
+  if (!ts) return '—';
+  try {
+    return new Date(ts).toLocaleString('de-DE');
+  } catch {
+    return ts;
+  }
+}
+
+function metric(label, value) {
+  if (value === null || value === undefined || value === '') return '';
+  return `<div class="server-metric"><span class="server-metric-label">${label}</span><span class="server-metric-value">${value}</span></div>`;
+}
+
+function renderServerStatus(task) {
+  serverStatusCard.style.display = 'flex';
+  const phaseMap = {
+    queued: 'In Warteschlange',
+    parsing: 'Datei wird analysiert',
+    inserting: 'Einfügen in Datenbank',
+    done: 'Import abgeschlossen',
+    error: 'Import fehlgeschlagen',
+  };
+  const metrics = task.metrics || {};
+  serverStatusPhase.textContent = phaseMap[task.status] || task.status || 'Serverstatus';
+  serverStatusUpdated.textContent = `Aktualisiert: ${formatTimestamp(task.updated_at || task.created_at)}`;
+  serverStatusSummary.textContent = [
+    task.filename || '—',
+    task.detected_format ? `Format: ${task.detected_format}` : null,
+    task.file_size_bytes ? `Datei: ${formatBytes(task.file_size_bytes)}` : null,
+    task.error_category ? `Kategorie: ${task.error_category}` : null,
+  ].filter(Boolean).join(' · ');
+
+  serverStatusMetrics.innerHTML = [
+    metric('Task-ID', task.task_id),
+    metric('Rohpunkte', metrics.rawPoints?.toLocaleString('de-DE')),
+    metric('Neu importiert', metrics.inserted?.toLocaleString('de-DE')),
+    metric('Übersprungen', metrics.skippedTotal?.toLocaleString('de-DE')),
+    metric('In Datei dedupl.', metrics.dedupedInFile?.toLocaleString('de-DE')),
+    metric('Schon vorhanden', metrics.alreadyExisting?.toLocaleString('de-DE')),
+    metric('Ungültig', metrics.invalidRows?.toLocaleString('de-DE')),
+    metric('Format', task.detected_format),
+    metric('ZIP-Dateien', metrics.archiveEntriesTotal?.toLocaleString('de-DE')),
+    metric('ZIP genutzt', metrics.archiveEntriesUsed?.toLocaleString('de-DE')),
+    metric('ZIP Fehler', metrics.archiveEntriesFailed?.toLocaleString('de-DE')),
+    metric('Session', task.session_id),
+    metric('Erster Zeitstempel', metrics.firstTimestampUtc),
+    metric('Letzter Zeitstempel', metrics.lastTimestampUtc),
+    metric('Parse-Dauer', metrics.parseDurationMs ? `${metrics.parseDurationMs} ms` : null),
+    metric('Insert-Dauer', metrics.insertDurationMs ? `${metrics.insertDurationMs} ms` : null),
+    metric('Gesamtdauer', metrics.totalDurationMs ? `${metrics.totalDurationMs} ms` : null),
+  ].filter(Boolean).join('');
+
+  if (task.warnings && task.warnings.length) {
+    serverStatusWarnings.style.display = 'block';
+    serverStatusWarnings.innerHTML = `<strong>Hinweise</strong><br>${task.warnings.map(w => String(w)).join('<br>')}`;
+  } else {
+    serverStatusWarnings.style.display = 'none';
+    serverStatusWarnings.innerHTML = '';
+  }
 }
 
 fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
@@ -345,6 +461,7 @@ importBtn.addEventListener('click', () => {
   importBtn.disabled = true;
   statusBox.style.display = 'none';
   progressWrap.style.display = 'block';
+  hideServerStatus();
   setProgress(0, 'Upload wird vorbereitet…');
 
   const form = new FormData();
@@ -367,6 +484,12 @@ importBtn.addEventListener('click', () => {
     try { json = JSON.parse(xhr.responseText); } catch { json = {}; }
 
     if (xhr.status >= 200 && xhr.status < 300 && json.ok && json.task_id) {
+      renderServerStatus({
+        task_id: json.task_id,
+        filename: json.filename || selectedFile.name,
+        file_size_bytes: json.file_size_bytes || selectedFile.size,
+        status: 'queued',
+      });
       pollImportStatus(json.task_id);
     } else {
       progressWrap.style.display = 'none';
@@ -407,8 +530,16 @@ async function pollImportStatus(taskId) {
   const timer = setInterval(async () => {
     try {
       const res = await fetch(`/api/import/status/${taskId}`, { credentials: 'same-origin' });
-      if (!res.ok) { clearInterval(timer); return; }
+      if (!res.ok) {
+        clearInterval(timer);
+        progressWrap.style.display = 'none';
+        importBtn.disabled = false;
+        showStatus('✗ Importstatus konnte nicht mehr vom Server abgefragt werden.', 'error');
+        return;
+      }
       const t = await res.json();
+      t.task_id = taskId;
+      renderServerStatus(t);
 
       if (t.status === 'inserting') {
         const total = t.total ? t.total.toLocaleString('de-DE') : '…';
@@ -435,7 +566,12 @@ async function pollImportStatus(taskId) {
         showStatus(`✗ ${t.error || 'Import fehlgeschlagen'}`, 'error');
         importBtn.disabled = false;
       }
-    } catch { clearInterval(timer); }
+    } catch {
+      clearInterval(timer);
+      progressWrap.style.display = 'none';
+      importBtn.disabled = false;
+      showStatus('✗ Importstatus konnte wegen eines Netzwerkfehlers nicht aktualisiert werden.', 'error');
+    }
   }, 600);
 }
 
