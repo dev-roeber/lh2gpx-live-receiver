@@ -1039,6 +1039,55 @@ class ReceiverStorage:
             rows = connection.execute(query, parameters).fetchall()
         return [dict(row) for row in rows]
 
+    def list_points_since(
+        self,
+        filters: PointFilters,
+        *,
+        since_utc: str,
+        bbox: tuple[float, float, float, float] | None = None,
+    ) -> list[dict[str, Any]]:
+        self._require_ready()
+        where_clause, parameters = _build_shared_filters(
+            date_from=filters.date_from,
+            date_to=filters.date_to,
+            time_from=filters.time_from,
+            time_to=filters.time_to,
+            session_id=filters.session_id,
+            capture_mode=filters.capture_mode,
+            source=filters.source,
+            search=filters.search,
+            time_column="point_timestamp_utc",
+            local_date_column="point_date_local",
+            local_time_column="point_time_local",
+        )
+        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox)
+        clauses = [] if not where_clause else [where_clause.removeprefix("WHERE ").strip()]
+        clauses.append("point_timestamp_utc > ?")
+        parameters = [*parameters, since_utc]
+        query = f"""
+            SELECT
+                id,
+                request_id,
+                received_at_utc,
+                sent_at_utc,
+                point_timestamp_utc,
+                point_timestamp_local,
+                point_date_local,
+                point_time_local,
+                latitude,
+                longitude,
+                horizontal_accuracy_m,
+                session_id,
+                source,
+                capture_mode
+            FROM gps_points
+            WHERE {' AND '.join(clauses)}
+            ORDER BY point_timestamp_utc DESC, id DESC
+        """
+        with self._connect() as connection:
+            rows = connection.execute(query, parameters).fetchall()
+        return [dict(row) for row in rows]
+
     def list_heatmap_points(
         self,
         filters: PointFilters,

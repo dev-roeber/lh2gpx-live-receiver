@@ -802,6 +802,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 visible_points = len(listed["items"])
                 viewport_items = listed["items"]
             buffered_items = viewport_items
+            delta_viewport_items = []
+            delta_mode = False
+            if latest_known_ts:
+                latest_known_dt = _parse_iso_timestamp(latest_known_ts)
+                if latest_known_dt:
+                    delta_mode = True
+                    normalized_since = latest_known_dt.astimezone(timezone.utc).isoformat()
+                    delta_viewport_items = storage.list_points_since(filters, since_utc=normalized_since, bbox=viewport_bbox)
             heatmap_entries = []
             if include_heatmap:
                 heatmap_entries = await asyncio.to_thread(
@@ -846,25 +854,46 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     include_snap=include_snap,
                 )
                 buffered_items = track_layers["context_points_desc"]
-            payload = await asyncio.to_thread(
-                _prepare_map_payload,
-                viewport_items,
-                buffered_items,
-                heatmap_entries=heatmap_entries,
-                polyline_entries=track_layers["polylines"],
-                speed_entries=track_layers["speed"],
-                stop_entries=track_layers["stops"],
-                daytrack_entries=track_layers["daytracks"],
-                snap_entries=track_layers["snap"],
-                total_points=total_points,
-                visible_points=visible_points,
-                segment_count=int(track_layers["segment_count"]),
-                log_limit=effective_log_limit,
-                zoom=effective_zoom,
-                include_points=include_points,
-                include_heatmap=include_heatmap,
-                include_accuracy=include_accuracy,
-            )
+            if delta_mode:
+                payload = await asyncio.to_thread(
+                    _prepare_map_delta_payload,
+                    viewport_items,
+                    delta_viewport_items,
+                    buffered_items,
+                    heatmap_entries=heatmap_entries,
+                    polyline_entries=track_layers["polylines"],
+                    speed_entries=track_layers["speed"],
+                    stop_entries=track_layers["stops"],
+                    daytrack_entries=track_layers["daytracks"],
+                    snap_entries=track_layers["snap"],
+                    total_points=total_points,
+                    visible_points=visible_points,
+                    segment_count=int(track_layers["segment_count"]),
+                    log_limit=effective_log_limit,
+                    include_points=include_points,
+                    include_heatmap=include_heatmap,
+                    include_accuracy=include_accuracy,
+                )
+            else:
+                payload = await asyncio.to_thread(
+                    _prepare_map_payload,
+                    viewport_items,
+                    buffered_items,
+                    heatmap_entries=heatmap_entries,
+                    polyline_entries=track_layers["polylines"],
+                    speed_entries=track_layers["speed"],
+                    stop_entries=track_layers["stops"],
+                    daytrack_entries=track_layers["daytracks"],
+                    snap_entries=track_layers["snap"],
+                    total_points=total_points,
+                    visible_points=visible_points,
+                    segment_count=int(track_layers["segment_count"]),
+                    log_limit=effective_log_limit,
+                    zoom=effective_zoom,
+                    include_points=include_points,
+                    include_heatmap=include_heatmap,
+                    include_accuracy=include_accuracy,
+                )
             if viewport_bbox:
                 payload["meta"]["bbox"] = {
                     "minLon": viewport_bbox[0],
@@ -1594,17 +1623,86 @@ def _prepare_map_payload(
     payload["layers"]["polylines"] = polyline_entries
 
     if include_accuracy:
-        payload["layers"]["accuracy"] = [
-            {"lat": point["latitude"], "lon": point["longitude"], "radius": point["horizontal_accuracy_m"]}
-            for point in _downsample_points(list(reversed(visible_points_desc)), 300)
-            if 0 < float(point["horizontal_accuracy_m"]) < 5000
-        ]
+        payload["layers"]["accuracy"] = _serialize_accuracy_entries(visible_points_desc)
 
     payload["layers"]["speed"] = speed_entries
     payload["layers"]["stops"] = stop_entries
     payload["layers"]["daytracks"] = daytrack_entries
     payload["layers"]["snap"] = snap_entries
 
+    return payload
+
+
+def _serialize_accuracy_entries(points_desc: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {"lat": point["latitude"], "lon": point["longitude"], "radius": point["horizontal_accuracy_m"]}
+        for point in _downsample_points(list(reversed(points_desc)), 300)
+        if 0 < float(point["horizontal_accuracy_m"]) < 5000
+    ]
+
+
+def _prepare_map_delta_payload(
+    current_viewport_points_desc: list[dict[str, Any]],
+    new_viewport_points_desc: list[dict[str, Any]],
+    buffered_points_desc: list[dict[str, Any]],
+    *,
+    heatmap_entries: list[list[float]],
+    polyline_entries: list[dict[str, Any]],
+    speed_entries: list[dict[str, Any]],
+    stop_entries: list[dict[str, Any]],
+    daytrack_entries: list[dict[str, Any]],
+    snap_entries: list[dict[str, Any]],
+    total_points: int,
+    visible_points: int,
+    segment_count: int,
+    log_limit: int,
+    include_points: bool,
+    include_heatmap: bool,
+    include_accuracy: bool,
+) -> dict[str, Any]:
+    stats_points_desc = current_viewport_points_desc or buffered_points_desc
+    latest = stats_points_desc[0] if stats_points_desc else None
+    sorted_points = list(reversed(buffered_points_desc))
+    avg_accuracy = (
+        sum(float(point["horizontal_accuracy_m"]) for point in stats_points_desc) / len(stats_points_desc)
+        if stats_points_desc
+        else None
+    )
+    payload = {
+        "meta": {
+            "totalPoints": total_points,
+            "visiblePoints": visible_points,
+            "loadedPoints": len(buffered_points_desc),
+            "serverPrepared": True,
+            "segmentCount": segment_count,
+            "deltaMode": True,
+            "latestVisiblePointTsUtc": latest["point_timestamp_utc"] if latest else None,
+        },
+        "stats": {
+            "pointsPerMinute": _points_per_minute(stats_points_desc) if stats_points_desc else 0,
+            "avgAccuracyM": round(avg_accuracy, 2) if avg_accuracy is not None else None,
+            "sessionDurationSeconds": _track_duration_seconds(sorted_points),
+        },
+        "delta": {
+            "appendPoints": [],
+            "latestPoint": _serialize_latest_point(latest) if latest else None,
+            "appendLogItems": [_serialize_log_point(point) for point in new_viewport_points_desc[:max(1, log_limit)]],
+        },
+    }
+    if include_points:
+        latest_id = int(latest["id"]) if latest else -1
+        payload["delta"]["appendPoints"] = [
+            _serialize_map_point(point, latest_id) for point in list(reversed(new_viewport_points_desc))
+        ]
+    if include_heatmap:
+        payload["delta"]["replaceHeatmap"] = heatmap_entries
+    payload["delta"]["replacePolylines"] = polyline_entries
+    if include_accuracy:
+        payload["delta"]["replaceAccuracy"] = _serialize_accuracy_entries(current_viewport_points_desc)
+    payload["delta"]["replaceSpeed"] = speed_entries
+    payload["delta"]["replaceStops"] = stop_entries
+    payload["delta"]["replaceDaytracks"] = daytrack_entries
+    payload["delta"]["replaceSnap"] = snap_entries
     return payload
 
 

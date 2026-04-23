@@ -541,6 +541,43 @@ def test_map_data_supports_latest_known_ts_delta_304(tmp_path: Path) -> None:
     assert second.headers.get("x-map-delta") == "noop"
 
 
+def test_map_data_returns_delta_payload_for_newer_viewport_points(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    headers = basic_auth_headers("operator", "dashboard-pass")
+    client.post("/live-location", json=valid_payload())
+
+    first = client.get(
+        "/api/map-data?bbox=13.300000,52.400000,13.500000,52.600000&zoom=14&include_heatmap=true&include_speed=true",
+        headers=headers,
+    )
+    latest_ts = first.json()["meta"]["latestVisiblePointTsUtc"]
+
+    newer = valid_payload()
+    newer["sessionID"] = "123e4567-e89b-12d3-a456-426614174999"
+    newer["points"] = [
+        {
+            "latitude": 52.5208,
+            "longitude": 13.4058,
+            "timestamp": "2026-03-20T12:00:20Z",
+            "horizontalAccuracyM": 4.0,
+        }
+    ]
+    client.post("/live-location", json=newer)
+
+    second = client.get(
+        f"/api/map-data?bbox=13.300000,52.400000,13.500000,52.600000&zoom=14&include_heatmap=true&include_speed=true&latest_known_ts={latest_ts}",
+        headers=headers,
+    )
+
+    assert second.status_code == 200
+    payload = second.json()
+    assert payload["meta"]["deltaMode"] is True
+    assert len(payload["delta"]["appendPoints"]) == 1
+    assert len(payload["delta"]["appendLogItems"]) == 1
+    assert "replaceHeatmap" in payload["delta"]
+    assert "replaceSpeed" in payload["delta"]
+
+
 def test_prepare_map_payload_keeps_viewport_layers_separate_from_buffered_geometry() -> None:
     viewport_point = {
         "id": 2,

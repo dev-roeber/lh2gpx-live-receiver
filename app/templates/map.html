@@ -947,6 +947,20 @@
     if (heatLayer && map.hasLayer(heatLayer)) map.removeLayer(heatLayer);
   }
 
+  function clearPointsRender() {
+    if (markerClusterGroup) markerClusterGroup.clearLayers();
+    pointsLayer.clearLayers();
+  }
+
+  function clearHeatmapRender() {
+    if (heatLayer && map.hasLayer(heatLayer)) map.removeLayer(heatLayer);
+  }
+
+  function clearPolylineRender() {
+    polylineLayer.clearLayers();
+    labelsLayer.clearLayers();
+  }
+
   function escapeHtml(value) {
     return String(value ?? '')
       .replaceAll('&', '&amp;')
@@ -1131,20 +1145,7 @@
     });
   }
 
-  function renderMapPayload(data) {
-    mapRuntimeWarnings = [...persistentRuntimeWarnings];
-    clearRenderedLayers();
-    renderProcessingStatus(data.processing || null);
-    const layers = data.layers || {};
-    runLayerStage('Heatmap', () => renderHeatmap(layers.heatmap || []));
-    runLayerStage('Punkte', () => renderPoints(layers.points || [], layers.latestPoint || null));
-    runLayerStage('Linien', () => renderPolylines(layers.polylines || []));
-    runLayerStage('Radius', () => renderAccuracy(layers.accuracy || []));
-    runLayerStage('Tempo', () => renderSpeed(layers.speed || []));
-    runLayerStage('Stops', () => renderStops(layers.stops || []));
-    runLayerStage('Tage', () => renderDaytracks(layers.daytracks || []));
-    runLayerStage('Snap', () => renderSnap(layers.snap || []));
-
+  function applyMapFocus(layers) {
     const latest = layers.latestPoint;
     const autoCenter = document.getElementById('auto-center-toggle').checked;
     const fitBounds = document.getElementById('fit-bounds-toggle').checked;
@@ -1171,6 +1172,37 @@
       suppressedViewportRefreshes = Math.max(suppressedViewportRefreshes, 1);
       map.panTo([latest.lat, latest.lon], { animate: true });
     }
+  }
+
+  function renderMapPayload(data) {
+    mapRuntimeWarnings = [...persistentRuntimeWarnings];
+    clearRenderedLayers();
+    renderProcessingStatus(data.processing || null);
+    const layers = data.layers || {};
+    runLayerStage('Heatmap', () => renderHeatmap(layers.heatmap || []));
+    runLayerStage('Punkte', () => renderPoints(layers.points || [], layers.latestPoint || null));
+    runLayerStage('Linien', () => renderPolylines(layers.polylines || []));
+    runLayerStage('Radius', () => renderAccuracy(layers.accuracy || []));
+    runLayerStage('Tempo', () => renderSpeed(layers.speed || []));
+    runLayerStage('Stops', () => renderStops(layers.stops || []));
+    runLayerStage('Tage', () => renderDaytracks(layers.daytracks || []));
+    runLayerStage('Snap', () => renderSnap(layers.snap || []));
+    applyMapFocus(layers);
+  }
+
+  function mergePointItems(existing, appended, latestPoint) {
+    const merged = new Map((existing || []).map(item => [item.id, { ...item, isLatest: false }]));
+    (appended || []).forEach(item => merged.set(item.id, { ...item, isLatest: false }));
+    const latestId = latestPoint?.id ?? null;
+    const result = Array.from(merged.values()).sort((a, b) => String(b.timestampUtc || '').localeCompare(String(a.timestampUtc || '')));
+    if (latestId !== null) result.forEach(item => { item.isLatest = item.id === latestId; });
+    return result;
+  }
+
+  function mergeLogItems(existing, appended) {
+    const merged = new Map((existing || []).map(item => [item.id, item]));
+    (appended || []).forEach(item => merged.set(item.id, item));
+    return Array.from(merged.values()).sort((a, b) => String(b.timestampLocal || '').localeCompare(String(a.timestampLocal || '')));
   }
 
   function updateStatistics(stats, meta) {
@@ -1251,6 +1283,70 @@
       };
       body.appendChild(row);
     });
+  }
+
+  function applyMapDelta(payload) {
+    if (!lastMapPayload || !payload?.delta) {
+      renderMapPayload(payload);
+      return;
+    }
+    mapRuntimeWarnings = [...persistentRuntimeWarnings];
+    renderProcessingStatus(payload.processing || null);
+    const merged = JSON.parse(JSON.stringify(lastMapPayload));
+    merged.meta = payload.meta || merged.meta;
+    merged.stats = payload.stats || merged.stats;
+    merged.processing = payload.processing || merged.processing;
+    const delta = payload.delta || {};
+    merged.layers.latestPoint = delta.latestPoint || merged.layers.latestPoint || null;
+
+    if (Array.isArray(delta.appendPoints)) {
+      merged.layers.points = mergePointItems(merged.layers.points || [], delta.appendPoints, merged.layers.latestPoint);
+      clearPointsRender();
+      runLayerStage('Punkte', () => renderPoints(merged.layers.points || [], merged.layers.latestPoint || null));
+    }
+    if ('replaceHeatmap' in delta) {
+      merged.layers.heatmap = delta.replaceHeatmap || [];
+      clearHeatmapRender();
+      runLayerStage('Heatmap', () => renderHeatmap(merged.layers.heatmap || []));
+    }
+    if ('replacePolylines' in delta) {
+      merged.layers.polylines = delta.replacePolylines || [];
+      clearPolylineRender();
+      runLayerStage('Linien', () => renderPolylines(merged.layers.polylines || []));
+    }
+    if ('replaceAccuracy' in delta) {
+      merged.layers.accuracy = delta.replaceAccuracy || [];
+      accuracyLayer.clearLayers();
+      runLayerStage('Radius', () => renderAccuracy(merged.layers.accuracy || []));
+    }
+    if ('replaceSpeed' in delta) {
+      merged.layers.speed = delta.replaceSpeed || [];
+      speedLayer.clearLayers();
+      runLayerStage('Tempo', () => renderSpeed(merged.layers.speed || []));
+    }
+    if ('replaceStops' in delta) {
+      merged.layers.stops = delta.replaceStops || [];
+      stopsLayer.clearLayers();
+      runLayerStage('Stops', () => renderStops(merged.layers.stops || []));
+    }
+    if ('replaceDaytracks' in delta) {
+      merged.layers.daytracks = delta.replaceDaytracks || [];
+      daytrackLayer.clearLayers();
+      runLayerStage('Tage', () => renderDaytracks(merged.layers.daytracks || []));
+    }
+    if ('replaceSnap' in delta) {
+      merged.layers.snap = delta.replaceSnap || [];
+      snapLayer.clearLayers();
+      runLayerStage('Snap', () => renderSnap(merged.layers.snap || []));
+    }
+    if (Array.isArray(delta.appendLogItems)) {
+      merged.logItems = mergeLogItems(merged.logItems || currentLogItems || [], delta.appendLogItems);
+      renderLog(merged.logItems || []);
+    }
+
+    lastMapPayload = merged;
+    updateStatistics(merged.stats || {}, merged.meta || {});
+    applyMapFocus(merged.layers || {});
   }
 
   function updateTraffic(bytes, mbps) {
@@ -1398,7 +1494,6 @@
       lastETag = response.headers.get('etag') || null;
       const text = await response.text();
       const payload = JSON.parse(text);
-      lastMapPayload = payload;
       lastMapBaseQueryKey = baseQuery;
       lastVisiblePointTsUtc = payload.meta?.latestVisiblePointTsUtc || null;
       overlay.style.display = 'none';
@@ -1408,9 +1503,13 @@
       updateTraffic(text.length, fetchMs > 0 ? (text.length / 1024 / 1024) / (fetchMs / 1000) : 0);
       tickRefreshBar();
 
-      renderMapPayload(payload);
+      if (payload.meta?.deltaMode) applyMapDelta(payload);
+      else {
+        lastMapPayload = payload;
+        renderMapPayload(payload);
+      }
       updateStatistics(payload.stats || {}, payload.meta || {});
-      renderLog(payload.logItems || []);
+      if (!payload.meta?.deltaMode) renderLog(payload.logItems || []);
 
       const visible = payload.meta?.visiblePoints || 0;
       const total = lastMetaPayload?.meta?.totalPoints ?? payload.meta?.totalPoints ?? 0;
