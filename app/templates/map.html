@@ -111,20 +111,29 @@
   <article class="panel map-container-wrapper">
     <div id="map-wrap" style="position:relative;">
       <div id="map-container"></div>
-      <div id="map-loading-overlay" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.35);z-index:500;display:none;align-items:center;justify-content:center;border-radius:var(--radius-sm,8px);">
-        <div style="background:var(--surface-1,#1c1c1e);border:1px solid var(--border);border-radius:12px;padding:16px 18px;font-size:0.85rem;color:var(--text-2);display:flex;flex-direction:column;gap:10px;min-width:min(360px,calc(100vw - 48px));box-shadow:0 12px 36px rgba(0,0,0,0.35);">
+      <div id="map-loading-overlay" style="display:none;position:absolute;right:12px;bottom:12px;z-index:750;pointer-events:none;align-items:center;justify-content:center;">
+        <div style="background:rgba(28,28,30,0.72);backdrop-filter:blur(12px) saturate(180%);-webkit-backdrop-filter:blur(12px) saturate(180%);border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:14px 16px;font-size:0.82rem;color:var(--text-2);display:flex;flex-direction:column;gap:8px;width:320px;box-shadow:0 8px 32px rgba(0,0,0,0.45);pointer-events:auto;">
           <div style="display:flex;align-items:center;gap:10px;">
-            <span style="animation:spin 1s linear infinite;display:inline-block;">⟳</span>
-            <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
-              <strong style="font-size:0.9rem;color:var(--text-1);">Kartendaten werden geladen</strong>
-              <span id="map-loading-subtext" style="font-size:0.76rem;color:var(--text-3);">Verbindung wird aufgebaut…</span>
+            <span id="map-loading-spinner" style="animation:spin 1s linear infinite;display:inline-block;color:var(--0a84ff,#0A84FF);">⟳</span>
+            <div style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1;">
+              <strong id="map-loading-title" style="font-size:0.85rem;color:var(--text-1);">Synchronisierung läuft</strong>
+              <span id="map-loading-subtext" style="font-size:0.72rem;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Verbindung wird aufgebaut…</span>
             </div>
           </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:0.76rem;color:var(--text-3);">
+          
+          <div id="map-processing-info" style="display:none;flex-direction:column;gap:4px;padding:6px 0;border-top:1px solid rgba(255,255,255,0.08);margin-top:2px;">
+             <div style="display:flex;justify-content:space-between;font-size:0.72rem;">
+               <span id="map-processing-label" style="color:var(--orange);font-weight:500;">Server berechnet…</span>
+               <span id="map-processing-eta" style="color:var(--text-3);">noch ca. —s</span>
+             </div>
+             <div id="map-processing-detail" style="font-size:0.68rem;color:var(--text-3);line-height:1.2;"></div>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:0.72rem;color:var(--text-3);margin-top:2px;">
             <span id="map-loading-bytes">0 KB</span>
             <span id="map-loading-percent">0%</span>
           </div>
-          <div style="height:8px;border-radius:999px;background:rgba(255,255,255,0.08);overflow:hidden;">
+          <div style="height:6px;border-radius:999px;background:rgba(255,255,255,0.1);overflow:hidden;">
             <div id="map-loading-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#0A84FF,#30D158);transition:width 120ms linear;"></div>
           </div>
         </div>
@@ -491,6 +500,7 @@
   let lastMetaPayload = null;
   let lastMapBaseQueryKey = null;
   let lastVisiblePointTsUtc = null;
+  let loadingOverlayTimer = null;
   let persistentRuntimeWarnings = [];
   let mapRuntimeWarnings = [];
   let heatmapPluginAvailable = false;
@@ -1462,22 +1472,62 @@
     const percentLabel = document.getElementById('map-loading-percent');
     const bar = document.getElementById('map-loading-bar');
     if (!subtext || !bytesLabel || !percentLabel || !bar) return;
+
     const loaded = Math.max(0, Number(loadedBytes) || 0);
     const total = totalBytes !== null && Number.isFinite(Number(totalBytes)) && Number(totalBytes) > 0 ? Number(totalBytes) : null;
+
     bytesLabel.textContent = total ? `${formatBytes(loaded)} / ${formatBytes(total)}` : `${formatBytes(loaded)} geladen`;
+
     if (total) {
       const percent = Math.max(0, Math.min(100, (loaded / total) * 100));
       percentLabel.textContent = `${percent.toFixed(percent >= 10 ? 0 : 1)}%`;
       subtext.textContent = 'Antwort wird heruntergeladen…';
+      bar.style.opacity = '1';
       bar.style.width = `${percent}%`;
+      bar.style.background = 'linear-gradient(90deg, #0A84FF, #30D158)';
+      bar.style.backgroundPositionX = '0px';
+      bar.style.filter = 'none';
     } else {
       percentLabel.textContent = '—';
-      subtext.textContent = loaded ? 'Antwortgröße unbekannt, Datenstream läuft…' : 'Verbindung wird aufgebaut…';
-      bar.style.width = loaded ? '35%' : '0%';
+      subtext.textContent = loaded ? 'Datenstrom aktiv…' : 'Verbindung wird aufgebaut…';
+      bar.style.opacity = loaded ? '0.8' : '1';
+      bar.style.width = loaded ? '100%' : '0%';
+      
+      if (loaded > 0) {
+        // Visuelles Feedback nur bei Datenfluss:
+        // Das Muster verschiebt sich proportional zu den empfangenen Bytes.
+        // Ein Helligkeits-Pulse (Sinus) reagiert ebenfalls auf die Byte-Anzahl.
+        const shift = (loaded % 1000) / 10; 
+        const pulse = 1.0 + (Math.sin(loaded / 5000) * 0.1);
+        bar.style.background = 'repeating-linear-gradient(90deg, #0A84FF 0px, #0A84FF 20px, #30D158 20px, #30D158 40px)';
+        bar.style.backgroundPositionX = `${shift}px`;
+        bar.style.filter = `brightness(${pulse})`;
+      } else {
+        bar.style.background = 'linear-gradient(90deg, #0A84FF, #30D158)';
+      }
     }
   }
 
-  async function readResponseTextWithProgress(response, overlay) {
+  function showLoadingOverlay(immediate = false) {
+    const overlay = document.getElementById('map-loading-overlay');
+    if (!overlay) return;
+    clearTimeout(loadingOverlayTimer);
+    if (immediate) {
+      overlay.style.display = 'flex';
+      return;
+    }
+    loadingOverlayTimer = setTimeout(() => {
+      overlay.style.display = 'flex';
+    }, 350);
+  }
+
+  function hideLoadingOverlay() {
+    const overlay = document.getElementById('map-loading-overlay');
+    clearTimeout(loadingOverlayTimer);
+    if (overlay) overlay.style.display = 'none';
+  }
+
+  async function readResponseTextWithProgress(response) {
     const totalBytes = parseInt(response.headers.get('content-length') || '', 10);
     if (!response.body || !response.body.getReader) {
       const text = await response.text();
@@ -1497,7 +1547,6 @@
         updateLoadingOverlay(loadedBytes, Number.isFinite(totalBytes) ? totalBytes : null);
       }
     }
-    if (overlay) overlay.style.display = 'none';
     const merged = new Uint8Array(loadedBytes);
     let offset = 0;
     chunks.forEach(chunk => {
@@ -1515,7 +1564,6 @@
     const statsText = document.getElementById('map-stats-text');
     const badge = document.getElementById('map-points-badge');
     const apiStatus = document.getElementById('api-status');
-    const overlay = document.getElementById('map-loading-overlay');
     const params = buildCurrentFilters();
     const baseQuery = params.toString();
     if (!isManualRefresh && lastMapBaseQueryKey === baseQuery && lastVisiblePointTsUtc) {
@@ -1531,7 +1579,7 @@
       });
       apiStatus.textContent = '● LADEN';
       apiStatus.style.color = 'var(--orange)';
-      overlay.style.display = 'flex';
+      showLoadingOverlay(isManualRefresh);
       updateLoadingOverlay(0, null);
       currentFetchController = new AbortController();
       const fetchStart = Date.now();
@@ -1540,7 +1588,7 @@
       const fetchMs = Date.now() - fetchStart;
 
       if (response.status === 304 && lastMapPayload) {
-        overlay.style.display = 'none';
+        hideLoadingOverlay();
         apiStatus.textContent = '● ONLINE';
         apiStatus.style.color = 'var(--mint)';
         const deltaMode = response.headers.get('x-map-delta') === 'noop';
@@ -1564,11 +1612,10 @@
         throw new Error(`HTTP ${response.status}${errorDetail}`);
       }
       lastETag = response.headers.get('etag') || null;
-      const text = await readResponseTextWithProgress(response, overlay);
+      const text = await readResponseTextWithProgress(response);
       const payload = JSON.parse(text);
       lastMapBaseQueryKey = baseQuery;
       lastVisiblePointTsUtc = payload.meta?.latestVisiblePointTsUtc || null;
-      overlay.style.display = 'none';
       isManualRefresh = false;
       lastRefreshTime = Date.now();
       nextRefreshTime = Date.now() + POLLING_INTERVAL;
@@ -1600,10 +1647,11 @@
       document.getElementById('api-info-url').textContent = url.length > 48 ? `${url.slice(0, 48)}…` : url;
       apiStatus.textContent = '● ONLINE';
       apiStatus.style.color = 'var(--mint)';
+      hideLoadingOverlay();
     } catch (error) {
       if (error.name === 'AbortError') return;
       console.error('Map update error:', error);
-      overlay.style.display = 'none';
+      hideLoadingOverlay();
       statsText.innerText = `Fehler beim Laden der Kartendaten${error.message ? ` (${error.message})` : ''}.`;
       statsText.style.color = 'var(--c-crit)';
       apiStatus.textContent = '● FEHLER';
