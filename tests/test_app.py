@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.import_parsers import parse_file_report
-from app.main import create_app
+from app.main import _prepare_map_payload, create_app
 from app.storage import StorageWriteError
 
 
@@ -490,6 +490,107 @@ def test_map_meta_returns_global_summary(tmp_path: Path) -> None:
     assert payload["meta"]["totalPoints"] == 2
     assert payload["meta"]["boundingBox"]["minLatitude"] == 52.52
     assert payload["meta"]["boundingBox"]["maxLongitude"] == 13.406
+
+
+def test_prepare_map_payload_keeps_viewport_layers_separate_from_buffered_geometry() -> None:
+    viewport_point = {
+        "id": 2,
+        "point_timestamp_utc": "2026-04-23T12:01:00+00:00",
+        "point_timestamp_local": "2026-04-23 12:01:00 UTC",
+        "latitude": 52.5205,
+        "longitude": 13.4055,
+        "horizontal_accuracy_m": 8.0,
+        "source": "test",
+        "capture_mode": "live",
+        "request_id": "req-2",
+    }
+    buffered_only_point = {
+        "id": 1,
+        "point_timestamp_utc": "2026-04-23T12:00:00+00:00",
+        "point_timestamp_local": "2026-04-23 12:00:00 UTC",
+        "latitude": 52.5190,
+        "longitude": 13.4040,
+        "horizontal_accuracy_m": 6.0,
+        "source": "test",
+        "capture_mode": "live",
+        "request_id": "req-1",
+    }
+
+    payload = _prepare_map_payload(
+        [viewport_point],
+        [viewport_point, buffered_only_point],
+        total_points=2,
+        visible_points=1,
+        zoom=14,
+        log_limit=10,
+        route_time_gap_min=15,
+        route_dist_gap_m=1200,
+        stop_min_duration_min=3,
+        stop_radius_m=40,
+        include_points=True,
+        include_heatmap=True,
+        include_polyline=True,
+        include_accuracy=True,
+        include_labels=False,
+        include_speed=True,
+        include_stops=False,
+        include_daytrack=False,
+        include_snap=False,
+    )
+
+    assert payload["meta"]["visiblePoints"] == 1
+    assert payload["meta"]["loadedPoints"] == 2
+    assert len(payload["layers"]["points"]) == 1
+    assert len(payload["layers"]["heatmap"]) == 1
+    assert len(payload["layers"]["accuracy"]) == 1
+    assert payload["layers"]["latestPoint"]["lat"] == viewport_point["latitude"]
+    assert payload["logItems"][0]["lat"] == viewport_point["latitude"]
+    assert payload["layers"]["speed"]
+
+
+def test_prepare_map_payload_handles_empty_viewport_with_buffered_context() -> None:
+    buffered_only_point = {
+        "id": 1,
+        "point_timestamp_utc": "2026-04-23T12:00:00+00:00",
+        "point_timestamp_local": "2026-04-23 12:00:00 UTC",
+        "latitude": 52.5190,
+        "longitude": 13.4040,
+        "horizontal_accuracy_m": 6.0,
+        "source": "test",
+        "capture_mode": "live",
+        "request_id": "req-1",
+    }
+
+    payload = _prepare_map_payload(
+        [],
+        [buffered_only_point],
+        total_points=1,
+        visible_points=0,
+        zoom=14,
+        log_limit=10,
+        route_time_gap_min=15,
+        route_dist_gap_m=1200,
+        stop_min_duration_min=3,
+        stop_radius_m=40,
+        include_points=True,
+        include_heatmap=True,
+        include_polyline=True,
+        include_accuracy=True,
+        include_labels=False,
+        include_speed=True,
+        include_stops=False,
+        include_daytrack=False,
+        include_snap=False,
+    )
+
+    assert payload["meta"]["visiblePoints"] == 0
+    assert payload["meta"]["loadedPoints"] == 1
+    assert payload["layers"]["points"] == []
+    assert payload["layers"]["heatmap"] == []
+    assert payload["layers"]["accuracy"] == []
+    assert payload["layers"]["polylines"] == []
+    assert payload["layers"]["latestPoint"]["lat"] == buffered_only_point["latitude"]
+    assert payload["logItems"][0]["lat"] == buffered_only_point["latitude"]
 
 
 def make_client(

@@ -751,15 +751,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if viewport_bbox:
                 total_points = storage.count_points(filters)
                 visible_points = storage.count_points(filters, bbox=viewport_bbox)
-                listed_items = storage.list_points_in_bbox(filters, bbox=padded_bbox or viewport_bbox)
+                viewport_items = storage.list_points_in_bbox(filters, bbox=viewport_bbox)
+                buffered_items = storage.list_points_in_bbox(filters, bbox=padded_bbox or viewport_bbox)
             else:
                 listed = storage.list_points(filters)
                 total_points = listed["total"]
                 visible_points = len(listed["items"])
-                listed_items = listed["items"]
+                viewport_items = listed["items"]
+                buffered_items = listed["items"]
             payload = await asyncio.to_thread(
                 _prepare_map_payload,
-                listed_items,
+                viewport_items,
+                buffered_items,
                 total_points=total_points,
                 visible_points=visible_points,
                 zoom=effective_zoom,
@@ -1426,7 +1429,8 @@ def _expand_bbox(bbox: tuple[float, float, float, float], *, zoom: int) -> tuple
 
 
 def _prepare_map_payload(
-    points_desc: list[dict[str, Any]],
+    viewport_points_desc: list[dict[str, Any]],
+    buffered_points_desc: list[dict[str, Any]],
     *,
     total_points: int,
     visible_points: int,
@@ -1446,9 +1450,9 @@ def _prepare_map_payload(
     include_daytrack: bool,
     include_snap: bool,
 ) -> dict[str, Any]:
-    if not points_desc:
+    if not buffered_points_desc:
         return {
-            "meta": {"totalPoints": total_points, "visiblePoints": visible_points, "serverPrepared": True},
+            "meta": {"totalPoints": total_points, "visiblePoints": visible_points, "loadedPoints": 0, "serverPrepared": True},
             "stats": {"pointsPerMinute": 0, "avgAccuracyM": None, "sessionDurationSeconds": 0},
             "layers": {
                 "points": [],
@@ -1464,25 +1468,27 @@ def _prepare_map_payload(
             "logItems": [],
         }
 
-    sorted_points = list(reversed(points_desc))
+    visible_points_desc = viewport_points_desc
+    stats_points_desc = visible_points_desc or buffered_points_desc
+    sorted_points = list(reversed(buffered_points_desc))
     segments = _segment_track(
         sorted_points,
         time_gap_ms=route_time_gap_min * 60000,
         dist_gap_m=route_dist_gap_m,
     )
-    latest = points_desc[0]
-    avg_accuracy = sum(float(point["horizontal_accuracy_m"]) for point in points_desc) / len(points_desc)
+    latest = stats_points_desc[0]
+    avg_accuracy = sum(float(point["horizontal_accuracy_m"]) for point in stats_points_desc) / len(stats_points_desc)
 
     payload = {
         "meta": {
             "totalPoints": total_points,
             "visiblePoints": visible_points,
-            "loadedPoints": len(points_desc),
+            "loadedPoints": len(buffered_points_desc),
             "serverPrepared": True,
             "segmentCount": len(segments),
         },
         "stats": {
-            "pointsPerMinute": _points_per_minute(points_desc),
+            "pointsPerMinute": _points_per_minute(stats_points_desc),
             "avgAccuracyM": round(avg_accuracy, 2),
             "sessionDurationSeconds": _track_duration_seconds(sorted_points),
         },
@@ -1497,15 +1503,16 @@ def _prepare_map_payload(
             "daytracks": [],
             "snap": [],
         },
-        "logItems": [_serialize_log_point(point) for point in points_desc[:max(1, log_limit)]],
+        "logItems": [_serialize_log_point(point) for point in stats_points_desc[:max(1, log_limit)]],
     }
 
     if include_points:
-        sampled_points = _downsample_points(sorted_points, _target_point_limit(zoom, len(sorted_points)))
+        viewport_sorted_points = list(reversed(visible_points_desc))
+        sampled_points = _downsample_points(viewport_sorted_points, _target_point_limit(zoom, len(viewport_sorted_points)))
         payload["layers"]["points"] = [_serialize_map_point(point, latest["id"]) for point in sampled_points]
 
     if include_heatmap:
-        payload["layers"]["heatmap"] = _aggregate_heatmap(points_desc, zoom=zoom)
+        payload["layers"]["heatmap"] = _aggregate_heatmap(visible_points_desc, zoom=zoom)
 
     if include_polyline or include_labels:
         payload["layers"]["polylines"] = _serialize_polyline_segments(segments, zoom=zoom, include_labels=include_labels)
@@ -1513,7 +1520,7 @@ def _prepare_map_payload(
     if include_accuracy:
         payload["layers"]["accuracy"] = [
             {"lat": point["latitude"], "lon": point["longitude"], "radius": point["horizontal_accuracy_m"]}
-            for point in _downsample_points(sorted_points, 300)
+            for point in _downsample_points(list(reversed(visible_points_desc)), 300)
             if 0 < float(point["horizontal_accuracy_m"]) < 5000
         ]
 

@@ -1136,9 +1136,20 @@
     const autoCenter = document.getElementById('auto-center-toggle').checked;
     const fitBounds = document.getElementById('fit-bounds-toggle').checked;
     if (fitBounds) {
-      const boundsPoints = collectVisibleBoundsPoints(layers);
-      if (!boundsPoints.length && latest) boundsPoints.push([latest.lat, latest.lon]);
-      if (boundsPoints.length) {
+      const metaBounds = lastMetaPayload?.meta?.boundingBox;
+      if (metaBounds) {
+        suppressedViewportRefreshes = Math.max(suppressedViewportRefreshes, 2);
+        map.fitBounds(
+          L.latLngBounds(
+            [metaBounds.minLatitude, metaBounds.minLongitude],
+            [metaBounds.maxLatitude, metaBounds.maxLongitude]
+          ),
+          { padding: [50, 50], animate: true }
+        );
+      } else {
+        const boundsPoints = collectVisibleBoundsPoints(layers);
+        if (!boundsPoints.length && latest) boundsPoints.push([latest.lat, latest.lon]);
+        if (!boundsPoints.length) return;
         suppressedViewportRefreshes = Math.max(suppressedViewportRefreshes, 2);
         map.fitBounds(L.latLngBounds(boundsPoints), { padding: [50, 50], animate: true });
       }
