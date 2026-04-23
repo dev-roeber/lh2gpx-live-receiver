@@ -360,6 +360,24 @@ def test_parse_google_timeline_2024_json_with_geo_uris() -> None:
     }
 
 
+def test_map_data_accepts_fractional_zoom_and_caps_page_size(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    client.post("/live-location", json=valid_payload())
+    headers = basic_auth_headers("operator", "dashboard-pass")
+    captured: dict[str, int] = {}
+    original_list_points = client.app.state.storage.list_points
+
+    def capture_list_points(filters):  # type: ignore[no-untyped-def]
+        captured["page_size"] = filters.page_size
+        return original_list_points(filters)
+
+    client.app.state.storage.list_points = capture_list_points
+    response = client.get("/api/map-data?page_size=999999&zoom=11.7", headers=headers)
+
+    assert response.status_code == 200
+    assert captured["page_size"] == 250
+
+
 def make_client(
     tmp_path: Path,
     *,

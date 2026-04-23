@@ -427,6 +427,7 @@
 
   let POLLING_INTERVAL = parseInt(localStorage.getItem('map-polling-interval')) || 5000;
   let TIME_RANGE = localStorage.getItem('map-time-range') || '1h';
+  const MAP_PAGE_SIZE_SAFE_MAX = 20000;
   let MAP_MAX_POINTS = parseInt(localStorage.getItem('map-max-points')) || MAP_CONFIG.pointsPageSizeMax || 2000;
   let ROUTE_TIME_GAP = parseInt(localStorage.getItem('map-route-time-gap')) || 15;
   let ROUTE_DIST_GAP = parseInt(localStorage.getItem('map-route-dist-gap')) || 1200;
@@ -486,7 +487,14 @@
 
   function clampMapMaxPoints(value) {
     const serverMax = MAP_CONFIG.pointsPageSizeMax || 2000;
-    return Math.max(1, Math.min(serverMax, parseInt(value || serverMax, 10) || serverMax));
+    const effectiveMax = Math.max(1, Math.min(serverMax, MAP_PAGE_SIZE_SAFE_MAX));
+    return Math.max(1, Math.min(effectiveMax, parseInt(value || effectiveMax, 10) || effectiveMax));
+  }
+
+  function normalizeMapZoom() {
+    const currentZoom = map ? map.getZoom() : 10;
+    const roundedZoom = Number.isFinite(currentZoom) ? Math.round(currentZoom) : 10;
+    return Math.max(1, Math.min(22, roundedZoom));
   }
 
   function formatDuration(seconds) {
@@ -703,7 +711,7 @@
         : '';
     const params = new URLSearchParams();
     params.set('page_size', clampMapMaxPoints(document.getElementById('map-max-points').value));
-    params.set('zoom', map ? String(map.getZoom()) : '10');
+    params.set('zoom', String(normalizeMapZoom()));
     params.set('route_time_gap_min', String(ROUTE_TIME_GAP));
     params.set('route_dist_gap_m', String(ROUTE_DIST_GAP));
     params.set('stop_min_duration_min', String(STOP_MIN_DUR));
@@ -1257,7 +1265,16 @@
         return;
       }
 
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        let errorDetail = '';
+        try {
+          const errorPayload = await response.json();
+          if (errorPayload?.detail) errorDetail = `: ${JSON.stringify(errorPayload.detail)}`;
+        } catch {
+          errorDetail = '';
+        }
+        throw new Error(`HTTP ${response.status}${errorDetail}`);
+      }
       lastETag = response.headers.get('etag') || null;
       const text = await response.text();
       const payload = JSON.parse(text);
@@ -1289,7 +1306,7 @@
       if (error.name === 'AbortError') return;
       console.error('Map update error:', error);
       overlay.style.display = 'none';
-      statsText.innerText = 'Fehler beim Laden der Kartendaten.';
+      statsText.innerText = `Fehler beim Laden der Kartendaten${error.message ? ` (${error.message})` : ''}.`;
       statsText.style.color = 'var(--c-crit)';
       apiStatus.textContent = '● FEHLER';
       apiStatus.style.color = '#ef4444';
@@ -1347,7 +1364,7 @@
       console.warn('leaflet.markercluster is unavailable; using plain point rendering');
     }
 
-    document.getElementById('map-max-points').max = String(MAP_CONFIG.pointsPageSizeMax || 2000);
+    document.getElementById('map-max-points').max = String(Math.max(1, Math.min(MAP_CONFIG.pointsPageSizeMax || 2000, MAP_PAGE_SIZE_SAFE_MAX)));
     document.getElementById('map-max-points').value = MAP_MAX_POINTS;
     document.getElementById('route-time-gap').value = ROUTE_TIME_GAP;
     document.getElementById('route-dist-gap').value = ROUTE_DIST_GAP;

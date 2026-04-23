@@ -112,6 +112,7 @@ _POINTS_CACHE: dict[str, tuple[float, str, bytes]] = {}  # key → (ts, etag, bo
 _POINTS_CACHE_TTL = 2.0  # Sekunden
 _MAP_DATA_CACHE: dict[str, tuple[float, str, bytes]] = {}
 _MAP_DATA_CACHE_TTL = 2.0
+_MAP_DATA_PAGE_SIZE_MAX = 20_000
 _SNAP_CACHE: dict[str, tuple[float, list[list[float]] | None]] = {}
 _SNAP_CACHE_TTL = 300.0
 
@@ -684,7 +685,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         date_to: str | None = Query(default=None),
         session_id: str | None = Query(default=None),
         page_size: int | None = Query(default=None, ge=1),
-        zoom: int = Query(default=12, ge=1, le=22),
+        zoom: float = Query(default=12, ge=1, le=22),
         route_time_gap_min: int = Query(default=15, ge=1, le=1440),
         route_dist_gap_m: int = Query(default=1200, ge=10, le=50000),
         stop_min_duration_min: int = Query(default=5, ge=1, le=240),
@@ -699,7 +700,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         include_daytrack: bool = Query(default=False),
         include_snap: bool = Query(default=False),
     ) -> Response:
-        effective_page_size = min(page_size or _settings(request).points_page_size_max, _settings(request).points_page_size_max)
+        configured_max = max(1, _settings(request).points_page_size_max)
+        effective_page_size = min(
+            page_size or configured_max,
+            configured_max,
+            _MAP_DATA_PAGE_SIZE_MAX,
+        )
+        effective_zoom = max(1, min(22, round(zoom)))
         filters = PointFilters(
             date_from=date_from,
             date_to=date_to,
@@ -719,7 +726,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 _prepare_map_payload,
                 listed["items"],
                 total_points=listed["total"],
-                zoom=zoom,
+                zoom=effective_zoom,
                 route_time_gap_min=route_time_gap_min,
                 route_dist_gap_m=route_dist_gap_m,
                 stop_min_duration_min=stop_min_duration_min,
