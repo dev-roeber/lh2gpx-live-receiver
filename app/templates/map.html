@@ -1965,8 +1965,8 @@
       antialias: true
     });
 
-    map.addControl(new maplibregl.NavigationControl(), 'top-left');
-    map.addControl(new maplibregl.ScaleControl(), 'bottom-left');
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+    map.addControl(new maplibregl.ScaleControl({ maxWidth: 80, unit: 'metric' }));
 
     map.on('load', () => {
       // Sources initialisieren
