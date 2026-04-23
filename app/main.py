@@ -685,6 +685,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         date_to: str | None = Query(default=None),
         session_id: str | None = Query(default=None),
         page_size: int | None = Query(default=None, ge=1),
+        log_limit: int | None = Query(default=None, ge=1),
         zoom: float = Query(default=12, ge=1, le=22),
         route_time_gap_min: int = Query(default=15, ge=1, le=1440),
         route_dist_gap_m: int = Query(default=1200, ge=10, le=50000),
@@ -706,6 +707,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             configured_max,
             _MAP_DATA_PAGE_SIZE_MAX,
         )
+        effective_log_limit = min(log_limit or effective_page_size, effective_page_size)
         effective_zoom = max(1, min(22, round(zoom)))
         filters = PointFilters(
             date_from=date_from,
@@ -727,6 +729,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 listed["items"],
                 total_points=listed["total"],
                 zoom=effective_zoom,
+                log_limit=effective_log_limit,
                 route_time_gap_min=route_time_gap_min,
                 route_dist_gap_m=route_dist_gap_m,
                 stop_min_duration_min=stop_min_duration_min,
@@ -1351,6 +1354,7 @@ def _prepare_map_payload(
     *,
     total_points: int,
     zoom: int,
+    log_limit: int,
     route_time_gap_min: int,
     route_dist_gap_m: int,
     stop_min_duration_min: int,
@@ -1415,7 +1419,7 @@ def _prepare_map_payload(
             "daytracks": [],
             "snap": [],
         },
-        "logItems": [_serialize_log_point(point) for point in points_desc[:1000]],
+        "logItems": [_serialize_log_point(point) for point in points_desc[:max(1, log_limit)]],
     }
 
     if include_points:

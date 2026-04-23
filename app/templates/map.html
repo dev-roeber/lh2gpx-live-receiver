@@ -330,7 +330,7 @@
       <label for="log-search" style="margin: 0;">Suche:</label>
       <input type="text" id="log-search" placeholder="Koordinaten/Zeit..." style="padding: 5px 10px; width: 100%; max-width: 200px; border: 1px solid var(--text-muted); border-radius: 4px;">
       <label for="log-limit" style="margin: 0;">Zeigen:</label>
-      <input type="number" id="log-limit" value="100" min="1" max="1000" style="width: 80px; padding: 5px 10px;">
+      <input type="number" id="log-limit" value="100" min="1" style="width: 80px; padding: 5px 10px;">
       <span class="status-badge info" id="live-indicator">LIVE</span>
     </div>
   </div>
@@ -429,6 +429,7 @@
   let TIME_RANGE = localStorage.getItem('map-time-range') || '1h';
   const MAP_PAGE_SIZE_SAFE_MAX = 20000;
   let MAP_MAX_POINTS = parseInt(localStorage.getItem('map-max-points')) || MAP_CONFIG.pointsPageSizeMax || 2000;
+  let LOG_LIMIT = parseInt(localStorage.getItem('map-log-limit')) || 100;
   let ROUTE_TIME_GAP = parseInt(localStorage.getItem('map-route-time-gap')) || 15;
   let ROUTE_DIST_GAP = parseInt(localStorage.getItem('map-route-dist-gap')) || 1200;
   let STOP_MIN_DUR = parseInt(localStorage.getItem('map-stop-min-dur')) || 5;
@@ -488,6 +489,11 @@
   function clampMapMaxPoints(value) {
     const serverMax = MAP_CONFIG.pointsPageSizeMax || 2000;
     const effectiveMax = Math.max(1, Math.min(serverMax, MAP_PAGE_SIZE_SAFE_MAX));
+    return Math.max(1, Math.min(effectiveMax, parseInt(value || effectiveMax, 10) || effectiveMax));
+  }
+
+  function clampLogLimit(value) {
+    const effectiveMax = Math.max(1, MAP_MAX_POINTS);
     return Math.max(1, Math.min(effectiveMax, parseInt(value || effectiveMax, 10) || effectiveMax));
   }
 
@@ -711,6 +717,7 @@
         : '';
     const params = new URLSearchParams();
     params.set('page_size', clampMapMaxPoints(document.getElementById('map-max-points').value));
+    params.set('log_limit', String(clampLogLimit(document.getElementById('log-limit').value)));
     params.set('zoom', String(normalizeMapZoom()));
     params.set('route_time_gap_min', String(ROUTE_TIME_GAP));
     params.set('route_dist_gap_m', String(ROUTE_DIST_GAP));
@@ -1079,7 +1086,7 @@
     currentLogItems = items || [];
     const body = document.getElementById('live-log-body');
     body.innerHTML = '';
-    const limit = Math.max(1, parseInt(document.getElementById('log-limit').value, 10) || 100);
+    const limit = clampLogLimit(document.getElementById('log-limit').value);
     const query = document.getElementById('log-search').value.toLowerCase().trim();
     const filtered = currentLogItems.filter(item => {
       if (!query) return true;
@@ -1366,6 +1373,7 @@
 
     document.getElementById('map-max-points').max = String(Math.max(1, Math.min(MAP_CONFIG.pointsPageSizeMax || 2000, MAP_PAGE_SIZE_SAFE_MAX)));
     document.getElementById('map-max-points').value = MAP_MAX_POINTS;
+    document.getElementById('log-limit').value = clampLogLimit(LOG_LIMIT);
     document.getElementById('route-time-gap').value = ROUTE_TIME_GAP;
     document.getElementById('route-dist-gap').value = ROUTE_DIST_GAP;
     document.getElementById('stop-min-duration').value = STOP_MIN_DUR;
@@ -1432,6 +1440,7 @@
   document.getElementById('map-max-points').onchange = (event) => {
     MAP_MAX_POINTS = clampMapMaxPoints(event.target.value);
     event.target.value = MAP_MAX_POINTS;
+    document.getElementById('log-limit').value = clampLogLimit(document.getElementById('log-limit').value);
     localStorage.setItem('map-max-points', MAP_MAX_POINTS);
     debouncedMapRefresh();
   };
@@ -1455,7 +1464,12 @@
     localStorage.setItem('map-stop-radius', STOP_RADIUS_M);
     if (stopsActive) debouncedMapRefresh();
   };
-  document.getElementById('log-limit').onchange = () => renderLog(currentLogItems);
+  document.getElementById('log-limit').onchange = (event) => {
+    LOG_LIMIT = clampLogLimit(event.target.value);
+    event.target.value = LOG_LIMIT;
+    localStorage.setItem('map-log-limit', LOG_LIMIT);
+    debouncedMapRefresh();
+  };
   document.getElementById('log-search').oninput = () => renderLog(currentLogItems);
   document.getElementById('dark-mode-btn').onclick = () => {
     darkMode = !darkMode;

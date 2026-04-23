@@ -416,6 +416,29 @@ def test_import_session_list_collapses_mixed_capture_modes(tmp_path: Path) -> No
     assert import_sessions[0]["points_count"] == 3
 
 
+def test_map_data_respects_adjustable_log_limit(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    headers = basic_auth_headers("operator", "dashboard-pass")
+
+    for index in range(5):
+        payload = valid_payload()
+        payload["sessionID"] = f"123e4567-e89b-12d3-a456-4266141740{index:02d}"
+        payload["points"] = [
+            {
+                "latitude": 52.52 + (index * 0.001),
+                "longitude": 13.405 + (index * 0.001),
+                "timestamp": f"2026-03-20T12:00:0{index}Z",
+                "horizontalAccuracyM": 5.0,
+            }
+        ]
+        client.post("/live-location", json=payload)
+
+    response = client.get("/api/map-data?page_size=50&log_limit=3", headers=headers)
+
+    assert response.status_code == 200
+    assert len(response.json()["logItems"]) == 3
+
+
 def make_client(
     tmp_path: Path,
     *,
