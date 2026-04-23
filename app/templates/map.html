@@ -20,6 +20,16 @@
   <span style="color:var(--separator);">|</span>
   <span>Heute: <strong id="mbar-daily" style="color:var(--text-2);">—</strong></span>
 </div>
+<div id="map-processing-bar" style="display:flex;align-items:center;gap:10px;margin:-2px 0 14px 0;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--surface-1);font-size:0.78rem;color:var(--text-3);flex-wrap:wrap;">
+  <span>Server-Verarbeitung:</span>
+  <strong id="processing-status-label" style="color:var(--text-2);">—</strong>
+  <span style="color:var(--separator);">|</span>
+  <span id="processing-status-detail" style="color:var(--text-2);">—</span>
+  <span style="color:var(--separator);">|</span>
+  <span>Fehlend: <strong id="processing-remaining" style="color:var(--text-2);">—</strong></span>
+  <span style="color:var(--separator);">|</span>
+  <span>ETA: <strong id="processing-eta" style="color:var(--text-2);">—</strong></span>
+</div>
 
 <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css" />
 <link rel="stylesheet" href="/static/vendor/leaflet.markercluster/MarkerCluster.css" />
@@ -160,6 +170,7 @@
               <span id="btn-text">↻</span><span id="btn-spinner" style="display:none;">⌛</span>
               <span>Refresh</span>
             </button>
+            <button id="browser-location-btn" class="mqc-btn" title="Aktuellen Browser-Standort abrufen">◎ <span>Standort</span></button>
             <button id="legend-toggle-btn" class="mqc-btn" title="Legende ein-/ausblenden">ℹ <span>Legende</span></button>
             <button id="dark-mode-btn" class="mqc-btn" title="Darkmode umschalten">🌙 <span>Dark</span></button>
             <button id="fullscreen-btn" class="mqc-btn" title="Vollbild">⛶ <span>Vollbild</span></button>
@@ -434,6 +445,8 @@
   let daytrackLayer;
   let snapLayer;
   let heatLayer;
+  let browserLocationMarker;
+  let browserLocationAccuracyCircle;
   let canvasRenderer;
   let darkMode = localStorage.getItem('map-dark-mode') === 'true' || false;
   let cssFsActive = false;
@@ -481,6 +494,13 @@
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  }
+
+  function formatEta(seconds) {
+    if (seconds === null || seconds === undefined) return 'wird berechnet';
+    if (seconds <= 0) return '0s';
+    if (seconds < 60) return `${Math.round(seconds)}s`;
+    return formatDuration(seconds);
   }
 
   function getRelativeTime(timestamp) {
@@ -531,6 +551,39 @@
       legend.style.boxShadow = '';
       legend.style.marginTop = '14px';
     }
+  }
+
+  function renderProcessingStatus(processing) {
+    const statusLabel = document.getElementById('processing-status-label');
+    const detail = document.getElementById('processing-status-detail');
+    const remaining = document.getElementById('processing-remaining');
+    const eta = document.getElementById('processing-eta');
+    if (!processing || processing.allProcessed) {
+      statusLabel.textContent = 'vollständig';
+      statusLabel.style.color = 'var(--mint)';
+      detail.textContent = 'Alle verfügbaren Serverdaten verarbeitet';
+      remaining.textContent = '0 Punkte';
+      eta.textContent = '0s';
+      return;
+    }
+
+    statusLabel.textContent = processing.statusLabel || 'Verarbeitung läuft';
+    statusLabel.style.color = 'var(--orange)';
+    const parts = [];
+    if (processing.activeTasks) parts.push(`${processing.activeTasks} Task${processing.activeTasks !== 1 ? 's' : ''}`);
+    if (processing.knownTotalPoints) {
+      parts.push(`${(processing.processedPoints || 0).toLocaleString('de-DE')} / ${processing.knownTotalPoints.toLocaleString('de-DE')} Punkte`);
+    }
+    if (processing.unknownTasks) {
+      parts.push(`${processing.unknownTasks} Task${processing.unknownTasks !== 1 ? 's' : ''} noch in Analyse`);
+    }
+    detail.textContent = parts.join(' · ') || 'Server analysiert/verarbeitet noch Daten';
+    remaining.textContent = processing.unknownTasks
+      ? `${(processing.remainingPoints || 0).toLocaleString('de-DE')} Punkte + Analyse offen`
+      : `${(processing.remainingPoints || 0).toLocaleString('de-DE')} Punkte`;
+    eta.textContent = processing.unknownTasks && !processing.etaSeconds
+      ? 'nach Analyse verfügbar'
+      : formatEta(processing.etaSeconds);
   }
 
   function updateLegendToggleButton() {
@@ -982,6 +1035,7 @@
   function renderMapPayload(data) {
     mapRuntimeWarnings = [...persistentRuntimeWarnings];
     clearRenderedLayers();
+    renderProcessingStatus(data.processing || null);
     const layers = data.layers || {};
     runLayerStage('Heatmap', () => renderHeatmap(layers.heatmap || []));
     runLayerStage('Punkte', () => renderPoints(layers.points || [], layers.latestPoint || null));
@@ -1096,6 +1150,69 @@
     document.getElementById('mbar-daily').textContent = mb >= 1 ? `${mb.toFixed(1)} MB` : `${(dailyBytes / 1024).toFixed(0)} KB`;
   }
 
+  function resetBrowserLocationButton() {
+    const button = document.getElementById('browser-location-btn');
+    if (!button) return;
+    button.innerHTML = '◎ <span>Standort</span>';
+    button.disabled = false;
+    button.title = 'Aktuellen Browser-Standort abrufen';
+  }
+
+  function locateBrowserPosition() {
+    const button = document.getElementById('browser-location-btn');
+    if (!button) return;
+    if (!navigator.geolocation) {
+      alert('Der Browser unterstützt keine Standortabfrage.');
+      return;
+    }
+    button.disabled = true;
+    button.innerHTML = '⌛ <span>Standort</span>';
+    button.title = 'Standort wird abgerufen';
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        const accuracy = Math.max(0, Math.round(position.coords.accuracy || 0));
+        if (browserLocationMarker) map.removeLayer(browserLocationMarker);
+        if (browserLocationAccuracyCircle) map.removeLayer(browserLocationAccuracyCircle);
+        browserLocationAccuracyCircle = L.circle([lat, lon], {
+          radius: accuracy || 10,
+          color: '#FFD60A',
+          fillColor: '#FFD60A',
+          fillOpacity: 0.14,
+          weight: 1.5,
+          opacity: 0.7,
+          renderer: canvasRenderer
+        }).addTo(map);
+        browserLocationMarker = L.marker([lat, lon], {
+          icon: L.divIcon({
+            className: '',
+            html: '<div style="width:16px;height:16px;border-radius:50%;background:#FFD60A;border:2px solid #111;box-shadow:0 0 0 4px rgba(255,214,10,0.18);"></div>',
+            iconSize: [16, 16],
+            iconAnchor: [8, 8]
+          })
+        })
+          .bindPopup(`<b>Browser-Standort</b><br>${lat.toFixed(5)}, ${lon.toFixed(5)}<br>±${accuracy}m`)
+          .addTo(map);
+        map.flyTo([lat, lon], Math.max(map.getZoom(), 16), { animate: true, duration: 0.8 });
+        browserLocationMarker.openPopup();
+        resetBrowserLocationButton();
+      },
+      (error) => {
+        resetBrowserLocationButton();
+        const message = error.code === 1
+          ? 'Standortfreigabe wurde verweigert.'
+          : error.code === 2
+            ? 'Standort konnte nicht bestimmt werden.'
+            : error.code === 3
+              ? 'Standortabfrage hat zu lange gedauert.'
+              : 'Standortabfrage fehlgeschlagen.';
+        alert(message);
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 }
+    );
+  }
+
   function tickRefreshBar() {
     if (!lastRefreshTime) return;
     const now = Date.now();
@@ -1135,6 +1252,7 @@
         lastRefreshTime = Date.now();
         nextRefreshTime = Date.now() + POLLING_INTERVAL;
         isManualRefresh = false;
+        renderProcessingStatus(lastMapPayload.processing || null);
         renderLog(currentLogItems);
         return;
       }
@@ -1338,6 +1456,7 @@
     localStorage.setItem('map-legend-visible', legendVisible ? '1' : '0');
     updateLegend();
   };
+  document.getElementById('browser-location-btn').onclick = locateBrowserPosition;
   document.getElementById('fullscreen-btn').onclick = toggleFullscreen;
   document.getElementById('export-geojson-btn').onclick = exportGeoJSON;
   document.getElementById('fit-bounds-toggle').onchange = (event) => {

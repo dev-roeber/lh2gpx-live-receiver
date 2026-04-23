@@ -23,7 +23,7 @@ Receiver- und Operator-Server für optionale Live-Location-Uploads aus der `Loca
 ## Aktueller Stand
 
 - **Design-System (April 2026):** Vollständig auf iOS-inspiriertes Dark-Design umgestellt. OLED-Schwarz als Hintergrund, Mint `#30D158` als primärer Akzent, semantische Farben (Blau, Orange, Lila, Rot, Teal) für Status und Kategorien. Glasmorphismus-Header, Pill-Buttons, gerundete Karten.
-- **Interaktive Karte:** `/dashboard/map` mit Leaflet, serverseitig vorbereiteten Karten-Layern über `/api/map-data`, Live-Polling (2s–5min konfigurierbar), Zeitraumfilter (2min–gesamt), Session-/Import-Filter, Kartensteuerung als Dropdown-Menü, GeoJSON-Export, Copy-to-Clipboard.
+- **Interaktive Karte:** `/dashboard/map` mit Leaflet, serverseitig vorbereiteten Karten-Layern über `/api/map-data`, Live-Polling (2s–5min konfigurierbar), Zeitraumfilter (2min–gesamt), Session-/Import-Filter, Kartensteuerung als Dropdown-Menü, GeoJSON-Export, Copy-to-Clipboard, Browser-Standort und Server-Verarbeitungsstatus.
 - **Responsive:** CSS-Grid-basiertes 3-View-System. Desktop: Filter-Panel | Karte | Live-Log. Tablet: 2-Spalten. Mobile: vollständig gestackt, Filter einklappbar. Kartensteuerung und Layer-Menü sind auf kleinen Displays als getrennte Dropdowns nutzbar.
 - **Sichere Operator-UI:** Karten-Live-Log und Import-Status rendern server- bzw. ingestnahe Inhalte nicht mehr als ungefiltertes HTML.
 - **Login:** Bearer-basierter Dashboard-Login mit signiertem Session-Cookie. Nach Login Redirect auf `/dashboard/map`.
@@ -133,9 +133,11 @@ Interaktive GPS-Echtzeit-Karte mit:
 - **GeoJSON-Export** des aktuell geladenen Kartenmodells
 - **Copy-to-Clipboard** für Koordinaten
 - **Kartensteuerung:** separates Dropdown-Menü `☰ Karte` oberhalb des Layer-Menüs für Zeitraum, Polling, Refresh, Legende, Darkmode, Vollbild, Auto-Center und Fit-Bounds
+- **Browser-Standort:** eigener Button in der Kartensteuerung liest den aktuellen Browser-Standort aus, markiert ihn auf der Karte und zentriert dorthin
 - **Vollbild:** native API auf Desktop/Android; CSS-Fallback (`position:fixed; 100vw/100dvh`) auf iOS
 - **Live-Punkt-Log:** scrollbare Echtzeit-Tabelle direkt unter der Karte; reagiert direkt auf Filter- und Log-Limit-Änderungen; auf Mobile: Spalten `Genauigkeit`, `Modus`, `Request ID` ausgeblendet
 - **Session-Länge und Statistik:** kommen aus dem serverseitig vorbereiteten Kartenmodell statt aus der offenen Browser-Tab-Dauer
+- **Server-Verarbeitungsanzeige:** oberhalb der Karte wird angezeigt, ob alle verfügbaren Serverdaten verarbeitet sind, wie viele Punkte noch fehlen und welche Restdauer für laufende Importjobs geschätzt wird
 - **iPhone-Import:** Datei-Picker ist für Mobile Safari gehärtet; der File-Input liegt als echter unsichtbarer Overlay-Input in der Drop-Zone statt über einen versteckten `display:none`-Input mit programmgesteuertem Klick
 - **Import-Transparenz:** Die Importseite zeigt serverseitige Verarbeitung live an, inklusive erkanntem Format, Rohpunkten, Dedupe-Zahlen, bereits vorhandenen Punkten, ZIP-Einträgen, Laufzeiten und Warnungen
 - **Import-Manager:** Nach dem Löschen der letzten Import-Session wechselt die Seite sauber in den leeren Zustand statt eine leere Tabelle stehen zu lassen.

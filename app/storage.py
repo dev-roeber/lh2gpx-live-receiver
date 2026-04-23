@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha1
 from pathlib import Path
 from threading import Lock
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 from zoneinfo import ZoneInfo
 
 from .config import Settings
@@ -796,7 +796,15 @@ class ReceiverStorage:
             ],
         }
 
-    def import_points(self, points: list[dict[str, Any]], *, source: str, session_id: str, request_id: str) -> dict[str, Any]:
+    def import_points(
+        self,
+        points: list[dict[str, Any]],
+        *,
+        source: str,
+        session_id: str,
+        request_id: str,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         """Bulk-insert GPS points from an import operation."""
         self._require_ready()
         now_utc = datetime.now(timezone.utc)
@@ -862,6 +870,16 @@ class ReceiverStorage:
         skipped_total = invalid_rows + deduped_in_file + already_existing
         first_ts = min(all_valid_timestamps) if all_valid_timestamps else None
         last_ts = max(all_valid_timestamps) if all_valid_timestamps else None
+        if progress_callback:
+            progress_callback(
+                {
+                    "raw_points": len(points),
+                    "processed_points": skipped_total,
+                    "remaining_points": inserted,
+                    "inserted_points": 0,
+                    "skipped_total": skipped_total,
+                }
+            )
         if point_rows:
             ts_list = [r[3] for r in point_rows]
             inserted_first_ts, inserted_last_ts = min(ts_list), max(ts_list)
@@ -877,14 +895,29 @@ class ReceiverStorage:
                      "imported", inserted, inserted_first_ts, inserted_last_ts,
                      "import", "", "", "accepted", 202, None, None, "{}", None),
                 )
-                connection.executemany(
-                    """INSERT INTO gps_points (
-                        request_id, received_at_utc, sent_at_utc, point_timestamp_utc,
-                        latitude, longitude, horizontal_accuracy_m, source, session_id,
-                        capture_mode, point_date_local, point_time_local, point_timestamp_local
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    point_rows,
-                )
+                inserted_so_far = 0
+                batch_size = 500
+                for index in range(0, len(point_rows), batch_size):
+                    batch = point_rows[index : index + batch_size]
+                    connection.executemany(
+                        """INSERT INTO gps_points (
+                            request_id, received_at_utc, sent_at_utc, point_timestamp_utc,
+                            latitude, longitude, horizontal_accuracy_m, source, session_id,
+                            capture_mode, point_date_local, point_time_local, point_timestamp_local
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        batch,
+                    )
+                    inserted_so_far += len(batch)
+                    if progress_callback:
+                        progress_callback(
+                            {
+                                "raw_points": len(points),
+                                "processed_points": skipped_total + inserted_so_far,
+                                "remaining_points": max(0, inserted - inserted_so_far),
+                                "inserted_points": inserted_so_far,
+                                "skipped_total": skipped_total,
+                            }
+                        )
         return {
             "inserted": inserted,
             "skipped_total": skipped_total,

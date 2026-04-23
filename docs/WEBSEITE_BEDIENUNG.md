@@ -23,8 +23,10 @@
 - das Live-Log wird bei Filterwechseln sauber neu aufgebaut
 - das Live-Log rendert ingestnahe Texte nur noch als Text und nicht als HTML
 - die Kartensteuerung sitzt als eigenes Dropdown `☰ Karte` oberhalb des Layer-Menüs
+- die Kartensteuerung enthält zusätzlich einen Browser-Standort-Button
 - `Auto-Center` behält den aktuellen Nutzer-Zoom bei
 - normale `Linien` folgen Straßen deutlich näher, weil der Polyline-Layer bevorzugt serverseitig gesnappte Geometrie nutzt
+- oberhalb der Karte zeigt eine Verarbeitungsanzeige, ob alle aktuell verfügbaren Serverdaten verarbeitet sind oder noch Importpunkte fehlen
 
 ## Import-Verhalten
 

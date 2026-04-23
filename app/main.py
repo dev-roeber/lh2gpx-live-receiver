@@ -118,6 +118,74 @@ _SNAP_CACHE_TTL = 300.0
 _import_tasks: dict[str, dict] = {}  # task_id → {status, ...}
 
 
+def _summarize_import_tasks() -> dict[str, Any]:
+    active_tasks = [
+        {"task_id": task_id, **task}
+        for task_id, task in _import_tasks.items()
+        if task.get("status") in {"queued", "parsing", "inserting"}
+    ]
+    if not active_tasks:
+        return {
+            "allProcessed": True,
+            "activeTasks": 0,
+            "queuedTasks": 0,
+            "parsingTasks": 0,
+            "insertingTasks": 0,
+            "knownTotalPoints": 0,
+            "processedPoints": 0,
+            "remainingPoints": 0,
+            "unknownTasks": 0,
+            "etaSeconds": 0,
+            "statusLabel": "Alle verfügbaren Serverdaten verarbeitet",
+        }
+
+    queued_tasks = sum(1 for task in active_tasks if task.get("status") == "queued")
+    parsing_tasks = sum(1 for task in active_tasks if task.get("status") == "parsing")
+    inserting_tasks = sum(1 for task in active_tasks if task.get("status") == "inserting")
+    known_total_points = 0
+    processed_points = 0
+    remaining_points = 0
+    unknown_tasks = 0
+    eta_values: list[float] = []
+
+    for task in active_tasks:
+        metrics = task.get("metrics") or {}
+        raw_points = metrics.get("rawPoints")
+        if raw_points in {None, ""}:
+            unknown_tasks += 1
+            continue
+        raw_points = int(raw_points)
+        processed = int(metrics.get("processedPoints") or 0)
+        remaining = int(metrics.get("remainingPoints") or max(0, raw_points - processed))
+        known_total_points += raw_points
+        processed_points += processed
+        remaining_points += remaining
+        eta_seconds = metrics.get("estimatedRemainingSeconds")
+        if isinstance(eta_seconds, (int, float)) and eta_seconds > 0:
+            eta_values.append(float(eta_seconds))
+
+    if inserting_tasks:
+        status_label = "Server verarbeitet noch Daten"
+    elif parsing_tasks:
+        status_label = "Server analysiert Upload-Daten"
+    else:
+        status_label = "Server wartet auf Verarbeitung"
+
+    return {
+        "allProcessed": False,
+        "activeTasks": len(active_tasks),
+        "queuedTasks": queued_tasks,
+        "parsingTasks": parsing_tasks,
+        "insertingTasks": inserting_tasks,
+        "knownTotalPoints": known_total_points,
+        "processedPoints": processed_points,
+        "remainingPoints": remaining_points,
+        "unknownTasks": unknown_tasks,
+        "etaSeconds": round(sum(eta_values), 1) if eta_values else None,
+        "statusLabel": status_label,
+    }
+
+
 async def _run_import_task(task_id: str, filename: str, data: bytes, storage: "ReceiverStorage") -> None:
     started_at = time.perf_counter()
     try:
@@ -145,9 +213,43 @@ async def _run_import_task(task_id: str, filename: str, data: bytes, storage: "R
         import_id = str(uuid4())
         session_id = f"import-{import_id[:8]}"
         insert_started_at = time.perf_counter()
+        def report_import_progress(progress: dict[str, Any]) -> None:
+            task = _import_tasks.get(task_id)
+            if not task:
+                return
+            metrics = dict(task.get("metrics") or {})
+            raw_points = int(progress.get("raw_points") or metrics.get("rawPoints") or len(points))
+            processed_points = int(progress.get("processed_points") or 0)
+            remaining_points = max(0, int(progress.get("remaining_points") or max(0, raw_points - processed_points)))
+            elapsed_seconds = max(time.perf_counter() - insert_started_at, 0.001)
+            rows_per_second = round(processed_points / elapsed_seconds, 2) if processed_points > 0 else None
+            eta_seconds = round(remaining_points / rows_per_second, 1) if rows_per_second and remaining_points > 0 else 0 if remaining_points == 0 else None
+            metrics.update(
+                {
+                    "rawPoints": raw_points,
+                    "processedPoints": processed_points,
+                    "remainingPoints": remaining_points,
+                    "insertedPoints": int(progress.get("inserted_points") or 0),
+                    "progressPercent": round((processed_points / raw_points) * 100, 1) if raw_points > 0 else 100.0,
+                    "rowsPerSecond": rows_per_second,
+                    "estimatedRemainingSeconds": eta_seconds,
+                    "skippedTotal": int(progress.get("skipped_total") or metrics.get("skippedTotal") or 0),
+                }
+            )
+            task.update(
+                {
+                    "updated_at": isoformat_utc(datetime.now(timezone.utc)),
+                    "metrics": metrics,
+                }
+            )
+
         result = await asyncio.to_thread(
             lambda: storage.import_points(
-                points, source=f"import:{filename}", session_id=session_id, request_id=import_id
+                points,
+                source=f"import:{filename}",
+                session_id=session_id,
+                request_id=import_id,
+                progress_callback=report_import_progress,
             )
         )
         insert_duration_ms = round((time.perf_counter() - insert_started_at) * 1000, 2)
@@ -169,6 +271,11 @@ async def _run_import_task(task_id: str, filename: str, data: bytes, storage: "R
                 "alreadyExisting": result["already_existing"],
                 "inserted": result["inserted"],
                 "skippedTotal": result["skipped_total"],
+                "processedPoints": result["raw_points"],
+                "remainingPoints": 0,
+                "progressPercent": 100.0,
+                "rowsPerSecond": round(result["raw_points"] / max(time.perf_counter() - insert_started_at, 0.001), 2) if result["raw_points"] else None,
+                "estimatedRemainingSeconds": 0,
                 "firstTimestampUtc": result["first_timestamp_utc"],
                 "lastTimestampUtc": result["last_timestamp_utc"],
                 "parseDurationMs": parse_duration_ms,
@@ -628,6 +735,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 include_snap=include_snap,
             )
             result = {"requestId": request.state.request_id, **payload}
+            result["processing"] = _summarize_import_tasks()
             body = json.dumps(result, separators=(",", ":")).encode()
             etag = hashlib.md5(body, usedforsecurity=False).hexdigest()
             _MAP_DATA_CACHE[cache_key] = (now, etag, body)

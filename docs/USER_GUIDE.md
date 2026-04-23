@@ -21,9 +21,11 @@
   - Auto-Follow oder Fit-Bounds
   - Layer für Punkte, Heatmap, Linien, Genauigkeit, Labels, Tempo, Stops, Tages-Tracks und Snap
 - die Kartensteuerung liegt im Dropdown `☰ Karte`
+- im Kartenmenü gibt es einen Browser-Standort-Button für den aktuellen Gerätestandort
 - `Auto-Follow` behält den aktuellen Zoom
 - der normale Linien-Layer ist straßennäher, weil serverseitig gesnappte Geometrie bevorzugt wird
 - GeoJSON exportiert den aktuell geladenen Kartenstand
+- oberhalb der Karte zeigt eine Server-Verarbeitungsanzeige, ob laufende Importdaten schon vollständig verarbeitet sind, wie viele Punkte noch fehlen und welche ETA aktuell geschätzt wird
 
 ## Punkte, Requests, Sessions
 
