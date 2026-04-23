@@ -1435,35 +1435,41 @@
       alert('Der Browser unterstützt keine Standortabfrage.');
       return;
     }
+
+    if (!confirm('Darf dein aktueller Standort präzise abgerufen werden? (Dies kann einige Sekunden dauern)')) {
+      return;
+    }
+
     button.disabled = true;
     button.innerHTML = '⌛ <span>Standort</span>';
-    button.title = 'Standort wird abgerufen';
+    button.title = 'Präziser Standort wird abgerufen…';
+    
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const lat = position.coords.latitude;
         const lon = position.coords.longitude;
         const accuracy = Math.max(0, Math.round(position.coords.accuracy || 0));
         
-        // Browser-Standort als Feature in den LATEST Source (oder eigenen Source)
-        // Hier nutzen wir LATEST für die Einfachheit von Phase 2
         map.getSource(SOURCE_IDS.LATEST).setData({
           type: 'FeatureCollection',
           features: [{ 
             type: 'Feature', 
             geometry: { type: 'Point', coordinates: [lon, lat] }, 
-            properties: { isLatest: true, isBrowser: true } 
+            properties: { isLatest: true, isBrowser: true, accuracy: accuracy } 
           }]
         });
 
-        map.flyTo({ center: [lon, lat], zoom: 16, speed: 1.0, essential: true });
+        map.flyTo({ center: [lon, lat], zoom: 17, speed: 1.2, essential: true });
         resetBrowserLocationButton();
       },
       (error) => {
         resetBrowserLocationButton();
-        const message = error.code === 1 ? 'Standortfreigabe verweigert.' : 'Standortabfrage fehlgeschlagen.';
-        alert(message);
+        let msg = 'Standortabfrage fehlgeschlagen.';
+        if (error.code === 1) msg = 'Standortfreigabe im Browser verweigert.';
+        else if (error.code === 3) msg = 'Zeitüberschreitung (bitte erneut versuchen).';
+        alert(msg);
       },
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }
 
