@@ -534,12 +534,29 @@
     menu.style.display = nextState ? 'flex' : 'none';
   }
 
-  function focusLatestPoint() {
-    const latest = lastMapPayload?.layers?.latestPoint || (lastMapPayload?.layers?.points && lastMapPayload.layers.points.find(p => p.isLatest));
+  async function focusLatestPoint() {
+    let latest = lastMapPayload?.layers?.latestPoint || (lastMapPayload?.layers?.points && lastMapPayload.layers.points.find(p => p.isLatest));
+    
+    // Wenn lokal nichts gefunden wurde (z.B. wegen Zeitfilter), direkt vom Server abfragen
+    if (!latest) {
+      try {
+        const response = await fetch('/api/points?page_size=1', { credentials: 'same-origin' });
+        if (response.ok) {
+          const data = await response.json();
+          const point = data.points?.items?.[0];
+          if (point) {
+            latest = { lat: point.latitude, lon: point.longitude };
+          }
+        }
+      } catch (error) {
+        console.error('Fehler beim Abrufen des neuesten Punktes:', error);
+      }
+    }
+
     if (latest) {
       map.flyTo([latest.lat, latest.lon], 17, { animate: true, duration: 1.2 });
     } else {
-      alert('Kein aktueller Punkt verfügbar.');
+      alert('Kein aktueller Punkt auf dem Server gefunden.');
     }
   }
 
