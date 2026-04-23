@@ -46,6 +46,8 @@
 - asynchroner Import-Task
 - Dedupe innerhalb der Datei und gegen die Datenbank
 - Schlüsselkombination: `point_timestamp_utc + latitude + longitude`
+- Frontend-Polling über `GET /api/import/status/{task_id}`
+- Datei-Picker in `import.html` ist für Mobile Safari als echter Overlay-Input verdrahtet statt über einen programmgesteuerten Klick auf einen versteckten Input
 
 ## Kartenmodell `/dashboard/map`
 
@@ -54,10 +56,12 @@
 - serverseitig vorbereitet werden:
   - Punkte
   - Heatmap-Zellen
-  - vereinfachte Polylinien
+  - Polylinien, bevorzugt mit serverseitig gesnappter Straßen-Geometrie
   - Genauigkeitskreise
   - Geschwindigkeitssegmente
   - Stops
   - Tages-Tracks
   - optionaler OSRM-Snap
 - GeoJSON-Export nutzt das aktuell geladene Kartenmodell statt blind den gesamten Datenbestand zu exportieren
+- Kartensteuerung ist nicht mehr als untere Quick-Bar umgesetzt, sondern als separates Dropdown-Menü oberhalb des Layer-Menüs
+- Vollbildlayout wird über einen gemeinsamen Layoutpfad für nativen Fullscreen und CSS-Fallback synchronisiert

@@ -118,9 +118,16 @@ Zusätzlich für Punkte:
   - `kml`
   - `kmz`
   - `geojson`
+  - `geo.json`
   - `csv`
   - `zip`
 - Dedupe erfolgt über `timestamp + latitude + longitude`
+- Task-Status:
+  - `queued`
+  - `parsing`
+  - `inserting`
+  - `done`
+  - `error`
 
 ## Dashboard-Routen
 

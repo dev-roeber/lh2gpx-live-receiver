@@ -20,6 +20,9 @@
   - Session- oder Import-Filter
   - Auto-Follow oder Fit-Bounds
   - Layer für Punkte, Heatmap, Linien, Genauigkeit, Labels, Tempo, Stops, Tages-Tracks und Snap
+- die Kartensteuerung liegt im Dropdown `☰ Karte`
+- `Auto-Follow` behält den aktuellen Zoom
+- der normale Linien-Layer ist straßennäher, weil serverseitig gesnappte Geometrie bevorzugt wird
 - GeoJSON exportiert den aktuell geladenen Kartenstand
 
 ## Punkte, Requests, Sessions
@@ -30,9 +33,10 @@
 
 ## Import
 
-- unterstützt `json`, `gpx`, `kml`, `kmz`, `geojson`, `csv`, `zip`
+- unterstützt `json`, `gpx`, `kml`, `kmz`, `geojson`, `geo.json`, `csv`, `zip`
 - Dedupe erfolgt über `Zeitstempel + Latitude + Longitude`
 - doppelte Punkte werden übersprungen
+- auf iPhone/Mobile Safari ist der Datei-Picker speziell gehärtet
 
 ## Exporte
 
