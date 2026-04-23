@@ -25,6 +25,7 @@ Receiver- und Operator-Server für optionale Live-Location-Uploads aus der `Loca
 - **Design-System (April 2026):** Vollständig auf iOS-inspiriertes Dark-Design umgestellt. OLED-Schwarz als Hintergrund, Mint `#30D158` als primärer Akzent, semantische Farben (Blau, Orange, Lila, Rot, Teal) für Status und Kategorien. Glasmorphismus-Header, Pill-Buttons, gerundete Karten.
 - **Interaktive Karte:** `/dashboard/map` mit Leaflet, serverseitig vorbereiteten Karten-Layern über `/api/map-data`, Live-Polling (2s–5min konfigurierbar), Zeitraumfilter (2min–gesamt), Session-/Import-Filter, Kartensteuerung als Dropdown-Menü, GeoJSON-Export, Copy-to-Clipboard.
 - **Responsive:** CSS-Grid-basiertes 3-View-System. Desktop: Filter-Panel | Karte | Live-Log. Tablet: 2-Spalten. Mobile: vollständig gestackt, Filter einklappbar. Kartensteuerung und Layer-Menü sind auf kleinen Displays als getrennte Dropdowns nutzbar.
+- **Sichere Operator-UI:** Karten-Live-Log und Import-Status rendern server- bzw. ingestnahe Inhalte nicht mehr als ungefiltertes HTML.
 - **Login:** Bearer-basierter Dashboard-Login mit signiertem Session-Cookie. Nach Login Redirect auf `/dashboard/map`.
 - **Deutsche Oberfläche:** Alle Dashboard-Seiten vollständig auf Deutsch lokalisiert.
 - **iOS-Vollbild:** Native `requestFullscreen()` nicht auf iOS verfügbar → CSS-Fallback (`position:fixed; 100vw/100dvh`) per ⛶-Button. Einmaliger "Zum Home-Bildschirm"-Banner mit Anleitung. Android nutzt denselben Vollbild-Layoutpfad jetzt auch im nativen Fullscreen.
@@ -137,6 +138,8 @@ Interaktive GPS-Echtzeit-Karte mit:
 - **Session-Länge und Statistik:** kommen aus dem serverseitig vorbereiteten Kartenmodell statt aus der offenen Browser-Tab-Dauer
 - **iPhone-Import:** Datei-Picker ist für Mobile Safari gehärtet; der File-Input liegt als echter unsichtbarer Overlay-Input in der Drop-Zone statt über einen versteckten `display:none`-Input mit programmgesteuertem Klick
 - **Import-Transparenz:** Die Importseite zeigt serverseitige Verarbeitung live an, inklusive erkanntem Format, Rohpunkten, Dedupe-Zahlen, bereits vorhandenen Punkten, ZIP-Einträgen, Laufzeiten und Warnungen
+- **Import-Manager:** Nach dem Löschen der letzten Import-Session wechselt die Seite sauber in den leeren Zustand statt eine leere Tabelle stehen zu lassen.
+- **Tempo-Legende:** Die Kartenlegende beschreibt den aktiven Geschwindigkeits-Layer korrekt mit `0–100 km/h` in `5 km/h`-Stufen; darüber bleibt die Farbskala kontinuierlich.
 
 ### Responsive Layout
 

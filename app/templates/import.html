@@ -59,7 +59,7 @@
       id="file-input"
       accept=".json,.geojson,.geo.json,application/json,application/geo+json,.gpx,application/gpx+xml,.kml,application/vnd.google-earth.kml+xml,.kmz,application/vnd.google-earth.kmz,.csv,text/csv,.zip,application/zip,application/x-zip-compressed"
     >
-    <p class="drop-hint">.json · .gpx · .kml · .kmz · .geojson · .csv · .zip &nbsp;·&nbsp; max. 100 MB</p>
+    <p class="drop-hint">.json · .gpx · .kml · .kmz · .geojson · .geo.json · .csv · .zip &nbsp;·&nbsp; max. 100 MB</p>
   </div>
 
   {# Ausgewählte Datei #}
@@ -111,8 +111,9 @@
     </span>
   </div>
 
+  <div id="import-manager-content">
   {% if import_sessions %}
-  <div class="table-panel" style="overflow-x:auto;">
+  <div class="table-panel" id="import-manager-table-wrap" style="overflow-x:auto;">
     <table class="import-mgr-table">
       <thead>
         <tr>
@@ -140,8 +141,9 @@
     </table>
   </div>
   {% else %}
-  <p style="color:var(--text-3);font-size:0.85rem;padding:8px 0;">Noch keine Dateien importiert.</p>
+  <p id="import-manager-empty" style="color:var(--text-3);font-size:0.85rem;padding:8px 0;">Noch keine Dateien importiert.</p>
   {% endif %}
+  </div>
 </article>
 
 {# ── Hinweise ─────────────────────────────────────────────── #}
@@ -327,6 +329,7 @@ const serverStatusUpdated = document.getElementById('server-status-updated');
 const serverStatusSummary = document.getElementById('server-status-summary');
 const serverStatusMetrics = document.getElementById('server-status-metrics');
 const serverStatusWarnings = document.getElementById('server-status-warnings');
+const importManagerContent = document.getElementById('import-manager-content');
 
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 let selectedFile = null;
@@ -335,6 +338,15 @@ function formatBytes(b) {
   if (b < 1024) return b + ' B';
   if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
   return (b / 1048576).toFixed(1) + ' MB';
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 function setFile(file) {
@@ -361,8 +373,9 @@ function clearFile(keepStatus = false) {
   if (!keepStatus) hideServerStatus();
 }
 
-function showStatus(msg, type) {
-  statusBox.innerHTML = msg;
+function showStatus(msg, type, { allowHtml = false } = {}) {
+  if (allowHtml) statusBox.innerHTML = msg;
+  else statusBox.textContent = msg;
   statusBox.className = 'import-status ' + type;
   statusBox.style.display = 'block';
 }
@@ -390,7 +403,29 @@ function formatTimestamp(ts) {
 
 function metric(label, value) {
   if (value === null || value === undefined || value === '') return '';
-  return `<div class="server-metric"><span class="server-metric-label">${label}</span><span class="server-metric-value">${value}</span></div>`;
+  return `<div class="server-metric"><span class="server-metric-label">${escapeHtml(label)}</span><span class="server-metric-value">${escapeHtml(value)}</span></div>`;
+}
+
+function updateImportManagerEmptyState() {
+  if (!importManagerContent) return;
+  const body = document.getElementById('import-mgr-body');
+  const tableWrap = document.getElementById('import-manager-table-wrap');
+  const badge = document.getElementById('import-count-badge');
+  const count = body ? body.querySelectorAll('tr').length : 0;
+  if (badge) badge.textContent = count + ' Datei' + (count !== 1 ? 'en' : '');
+  let empty = document.getElementById('import-manager-empty');
+  if (count > 0) {
+    if (empty) empty.remove();
+    return;
+  }
+  if (tableWrap) tableWrap.remove();
+  if (!empty) {
+    empty = document.createElement('p');
+    empty.id = 'import-manager-empty';
+    empty.style.cssText = 'color:var(--text-3);font-size:0.85rem;padding:8px 0;';
+    empty.textContent = 'Noch keine Dateien importiert.';
+    importManagerContent.appendChild(empty);
+  }
 }
 
 function renderServerStatus(task) {
@@ -434,7 +469,7 @@ function renderServerStatus(task) {
 
   if (task.warnings && task.warnings.length) {
     serverStatusWarnings.style.display = 'block';
-    serverStatusWarnings.innerHTML = `<strong>Hinweise</strong><br>${task.warnings.map(w => String(w)).join('<br>')}`;
+    serverStatusWarnings.innerHTML = `<strong>Hinweise</strong><br>${task.warnings.map(w => escapeHtml(w)).join('<br>')}`;
   } else {
     serverStatusWarnings.style.display = 'none';
     serverStatusWarnings.innerHTML = '';
@@ -553,11 +588,12 @@ async function pollImportStatus(taskId) {
         clearInterval(timer);
         progressWrap.style.display = 'none';
         showStatus(
-          `✓ <strong>${t.inserted.toLocaleString('de-DE')} Punkte</strong> erfolgreich importiert` +
-          (t.skipped > 0 ? ` · ${t.skipped.toLocaleString('de-DE')} übersprungen` : '') +
-          ` · Session <code>${t.session_id}</code>` +
+          `✓ <strong>${escapeHtml(t.inserted.toLocaleString('de-DE'))} Punkte</strong> erfolgreich importiert` +
+          (t.skipped > 0 ? ` · ${escapeHtml(t.skipped.toLocaleString('de-DE'))} übersprungen` : '') +
+          ` · Session <code>${escapeHtml(t.session_id)}</code>` +
           `<br><a href="/dashboard/map" class="btn-pill primary sm" style="margin-top:10px;display:inline-block;">Auf Karte ansehen →</a>`,
-          'success'
+          'success',
+          { allowHtml: true }
         );
         clearFile(true);
       } else if (t.status === 'error') {
@@ -586,13 +622,7 @@ async function deleteSession(sessionId, btn) {
     if (res.ok && json.ok) {
       const row = document.getElementById('row-' + sessionId);
       if (row) row.remove();
-      // Badge aktualisieren
-      const body = document.getElementById('import-mgr-body');
-      const badge = document.getElementById('import-count-badge');
-      if (badge && body) {
-        const count = body.querySelectorAll('tr').length;
-        badge.textContent = count + ' Datei' + (count !== 1 ? 'en' : '');
-      }
+      updateImportManagerEmptyState();
     } else {
       alert('Fehler: ' + (json.detail || 'Unbekannter Fehler'));
       btn.disabled = false;
@@ -604,6 +634,8 @@ async function deleteSession(sessionId, btn) {
     btn.textContent = 'Löschen';
   }
 }
+
+updateImportManagerEmptyState();
 </script>
 
 {% endblock %}

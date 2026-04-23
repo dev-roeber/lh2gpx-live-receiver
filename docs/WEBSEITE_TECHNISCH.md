@@ -58,6 +58,8 @@
   - ZIP-spezifische Archivmetriken
 - `storage.import_points(...)` gibt dafür ein erweitertes Ergebnisobjekt zurück statt nur `inserted/skipped`
 - Tests nutzen optional `app.state.inline_import_tasks = True`, damit Import-Tasks im Testpfad deterministisch inline abgeschlossen werden
+- `import.html` escaped serverseitige Warnungen, Fehlerdetails und dynamische Statusmetriken vor dem Rendern
+- der Import-Manager zieht nach dem Löschen der letzten Datei clientseitig sauber den leeren Zustand nach
 
 ## Kartenmodell `/dashboard/map`
 
@@ -75,3 +77,5 @@
 - GeoJSON-Export nutzt das aktuell geladene Kartenmodell statt blind den gesamten Datenbestand zu exportieren
 - Kartensteuerung ist nicht mehr als untere Quick-Bar umgesetzt, sondern als separates Dropdown-Menü oberhalb des Layer-Menüs
 - Vollbildlayout wird über einen gemeinsamen Layoutpfad für nativen Fullscreen und CSS-Fallback synchronisiert
+- `map.html` baut das Live-Log DOM-basiert statt ingestnahe Felder per `innerHTML` einzusetzen
+- die Tempo-Legende beschreibt die aktive Backend-Quantisierung korrekt: `0–100 km/h` in `5 km/h`-Stufen, darüber kontinuierliche Farbskala

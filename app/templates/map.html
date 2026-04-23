@@ -260,12 +260,13 @@
         </div>
       </div>
 
-      <div id="legend-speed" style="display:none;min-width:180px;">
-        <div style="font-weight:600;color:var(--text-2);margin-bottom:6px;">Tempo — 0–300 km/h</div>
+      <div id="legend-speed" style="display:none;min-width:200px;">
+        <div style="font-weight:600;color:var(--text-2);margin-bottom:6px;">Tempo — 0–100 km/h in 5er Stufen</div>
         <div style="height:7px;border-radius:4px;background:linear-gradient(to right,hsl(240,95%,52%),hsl(180,95%,52%),hsl(120,95%,52%),hsl(60,95%,52%),hsl(30,95%,52%),hsl(0,95%,52%));margin-bottom:4px;"></div>
         <div style="display:flex;justify-content:space-between;font-size:0.68rem;color:var(--text-3);">
-          <span>0</span><span>60</span><span>120</span><span>180</span><span>240</span><span>300 km/h</span>
+          <span>0</span><span>20</span><span>40</span><span>60</span><span>80</span><span>100+</span>
         </div>
+        <div style="margin-top:5px;color:var(--text-3);font-size:0.72rem;">Oberhalb von 100 km/h bleibt die Farbskala kontinuierlich.</div>
       </div>
 
       <div id="legend-stops" style="display:none;min-width:130px;">
@@ -794,6 +795,15 @@
     if (heatLayer && map.hasLayer(heatLayer)) map.removeLayer(heatLayer);
   }
 
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
   function renderPoints(points, latestPoint) {
     if (!pointsActive) return;
     const useCluster = !!markerClusterGroup && points.length > CLUSTER_THRESHOLD;
@@ -805,11 +815,15 @@
           iconSize: [24, 24],
           iconAnchor: [12, 12]
         });
+        const latestTimestamp = escapeHtml(point.timestampLocal || point.timestampUtc || '—');
+        const latestSource = escapeHtml(point.source || '');
         L.marker([point.lat, point.lon], { icon, zIndexOffset: 1000 })
-          .bindPopup(`<b>📍 Letzte Position</b><br>${point.timestampLocal || point.timestampUtc}<br>±${Math.round(point.accuracyM)}m &nbsp; ${point.source || ''}`)
+          .bindPopup(`<b>📍 Letzte Position</b><br>${latestTimestamp}<br>±${Math.round(point.accuracyM)}m &nbsp; ${latestSource}`)
           .addTo(pointsLayer);
         return;
       }
+      const pointTimestamp = escapeHtml(point.timestampLocal || point.timestampUtc || '—');
+      const pointSource = escapeHtml(point.source || '');
       const marker = L.circleMarker([point.lat, point.lon], {
         radius: 3.5,
         color: '#1a5fa8',
@@ -817,7 +831,7 @@
         fillColor: '#0A84FF',
         fillOpacity: 0.72,
         renderer: canvasRenderer
-      }).bindPopup(`<b>GPS-Punkt</b><br>${point.timestampLocal || point.timestampUtc}<br>±${Math.round(point.accuracyM)}m &nbsp; ${point.source || ''}`);
+      }).bindPopup(`<b>GPS-Punkt</b><br>${pointTimestamp}<br>±${Math.round(point.accuracyM)}m &nbsp; ${pointSource}`);
       if (useCluster) markerClusterGroup.addLayer(marker);
       else marker.addTo(pointsLayer);
     });
@@ -1021,15 +1035,39 @@
       row.style.borderBottom = '1px solid var(--surface-2)';
       const coordText = `${item.lat.toFixed(5)}, ${item.lon.toFixed(5)}`;
       const timeText = new Date(item.timestampLocal).toLocaleTimeString('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      row.innerHTML = `
-        <td style="padding: 14px 10px; color: var(--text-2); font-size: 0.9rem;"><span style="color: var(--text-3);">${getRelativeTime(item.timestampLocal)}</span> • ${timeText}</td>
-        <td style="padding: 14px 10px; color: var(--blue); cursor: pointer; user-select: none; border-radius: 4px; font-weight: 500;" title="Klicken zum Kopieren">${coordText}</td>
-        <td class="log-col-accuracy" style="padding: 14px 10px; color: var(--mint); font-weight: 500;">${item.accuracyM}m</td>
-        <td style="padding: 14px 10px; color: var(--orange); font-size: 0.9rem;">${item.source || 'N/A'}</td>
-        <td class="log-col-mode" style="padding: 14px 10px; color: var(--teal); font-size: 0.85rem;">${item.captureMode || 'N/A'}</td>
-        <td class="log-col-request-id" style="padding: 14px 10px; color: var(--text-3); font-size: 0.8rem; font-family: monospace;" title="${item.requestId || 'N/A'}">${(item.requestId || 'N/A').substring(0, 12)}</td>
-      `;
-      const coordCell = row.querySelector('td:nth-child(2)');
+      const timeCell = document.createElement('td');
+      timeCell.style.cssText = 'padding: 14px 10px; color: var(--text-2); font-size: 0.9rem;';
+      const relativeSpan = document.createElement('span');
+      relativeSpan.style.color = 'var(--text-3)';
+      relativeSpan.textContent = getRelativeTime(item.timestampLocal);
+      timeCell.append(relativeSpan, ` • ${timeText}`);
+
+      const coordCell = document.createElement('td');
+      coordCell.style.cssText = 'padding: 14px 10px; color: var(--blue); cursor: pointer; user-select: none; border-radius: 4px; font-weight: 500;';
+      coordCell.title = 'Klicken zum Kopieren';
+      coordCell.textContent = coordText;
+
+      const accuracyCell = document.createElement('td');
+      accuracyCell.className = 'log-col-accuracy';
+      accuracyCell.style.cssText = 'padding: 14px 10px; color: var(--mint); font-weight: 500;';
+      accuracyCell.textContent = `${item.accuracyM}m`;
+
+      const sourceCell = document.createElement('td');
+      sourceCell.style.cssText = 'padding: 14px 10px; color: var(--orange); font-size: 0.9rem;';
+      sourceCell.textContent = item.source || 'N/A';
+
+      const modeCell = document.createElement('td');
+      modeCell.className = 'log-col-mode';
+      modeCell.style.cssText = 'padding: 14px 10px; color: var(--teal); font-size: 0.85rem;';
+      modeCell.textContent = item.captureMode || 'N/A';
+
+      const requestCell = document.createElement('td');
+      requestCell.className = 'log-col-request-id';
+      requestCell.style.cssText = 'padding: 14px 10px; color: var(--text-3); font-size: 0.8rem; font-family: monospace;';
+      requestCell.title = item.requestId || 'N/A';
+      requestCell.textContent = (item.requestId || 'N/A').substring(0, 12);
+
+      row.append(timeCell, coordCell, accuracyCell, sourceCell, modeCell, requestCell);
       coordCell.onclick = async (event) => {
         event.stopPropagation();
         try {
