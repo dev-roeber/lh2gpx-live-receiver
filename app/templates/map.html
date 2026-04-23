@@ -1755,7 +1755,7 @@
     updateMap();
   }, FILTER_DEBOUNCE);
 
-  let pitch3DActive = localStorage.getItem('map-pitch-3d') !== '0';
+  let pitch3DActive = localStorage.getItem('map-pitch-3d') === '1';
 
   let socket = null;
   let socketReconnectTimer = null;
