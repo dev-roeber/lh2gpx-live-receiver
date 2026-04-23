@@ -31,12 +31,8 @@
   <span>ETA: <strong id="processing-eta" style="color:var(--text-2);">—</strong></span>
 </div>
 
-<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css" />
-<link rel="stylesheet" href="/static/vendor/leaflet.markercluster/MarkerCluster.css" />
-<link rel="stylesheet" href="/static/vendor/leaflet.markercluster/MarkerCluster.Default.css" />
-<script src="/static/vendor/leaflet/leaflet.js"></script>
-<script src="/static/vendor/leaflet.markercluster/leaflet.markercluster.js"></script>
-<script src="/static/vendor/leaflet.heat/leaflet-heat.js"></script>
+<link rel='stylesheet' href='https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css' />
+<script src='https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js'></script>
 
 <div class="map-page-container">
   <button id="map-filter-toggle-btn" class="map-filter-toggle" style="display: none;">Filteroptionen ▼</button>
@@ -476,20 +472,6 @@
   let STOP_RADIUS_M = parseInt(localStorage.getItem('map-stop-radius')) || 100;
 
   let map;
-  let tileLayer;
-  let markerClusterGroup;
-  let pointsLayer;
-  let polylineLayer;
-  let accuracyLayer;
-  let labelsLayer;
-  let speedLayer;
-  let stopsLayer;
-  let daytrackLayer;
-  let snapLayer;
-  let heatLayer;
-  let browserLocationMarker;
-  let browserLocationAccuracyCircle;
-  let canvasRenderer;
   let darkMode = localStorage.getItem('map-dark-mode') === 'true' || false;
   let cssFsActive = false;
   let filtersExpanded = false;
@@ -513,8 +495,6 @@
   let loadingOverlayTimer = null;
   let persistentRuntimeWarnings = [];
   let mapRuntimeWarnings = [];
-  let heatmapPluginAvailable = false;
-  let markerClusterAvailable = false;
   let legendVisible = localStorage.getItem('map-legend-visible') !== '0';
 
   let heatmapActive = false;
@@ -527,6 +507,18 @@
   let daytrackActive = false;
   let snapActive = false;
 
+  const SOURCE_IDS = {
+    POINTS: 'src-points',
+    LATEST: 'src-latest',
+    LINES: 'src-lines',
+    ACCURACY: 'src-accuracy',
+    SPEED: 'src-speed',
+    STOPS: 'src-stops',
+    DAYTRACKS: 'src-daytracks',
+    SNAP: 'src-snap',
+    HEATMAP: 'src-heatmap'
+  };
+
   function toggleLocationMenu(forceState) {
     const menu = document.getElementById('location-selection-menu');
     if (!menu) return;
@@ -537,26 +529,21 @@
   async function focusLatestPoint() {
     let latest = lastMapPayload?.layers?.latestPoint || (lastMapPayload?.layers?.points && lastMapPayload.layers.points.find(p => p.isLatest));
     
-    // Wenn lokal nichts gefunden wurde (z.B. wegen Zeitfilter), direkt vom Server abfragen
     if (!latest) {
       try {
         const response = await fetch('/api/points?page_size=1', { credentials: 'same-origin' });
         if (response.ok) {
           const data = await response.json();
           const point = data.points?.items?.[0];
-          if (point) {
-            latest = { lat: point.latitude, lon: point.longitude };
-          }
+          if (point) latest = { lat: point.latitude, lon: point.longitude };
         }
-      } catch (error) {
-        console.error('Fehler beim Abrufen des neuesten Punktes:', error);
-      }
+      } catch (error) { console.error('Fokus-Fetch fehlgeschlagen:', error); }
     }
 
-    if (latest) {
-      map.flyTo([latest.lat, latest.lon], 17, { animate: true, duration: 1.2 });
+    if (latest && map) {
+      map.flyTo({ center: [latest.lon, latest.lat], zoom: 17, speed: 1.2, essential: true });
     } else {
-      alert('Kein aktueller Punkt auf dem Server gefunden.');
+      alert('Kein aktueller Punkt gefunden.');
     }
   }
 
@@ -737,7 +724,7 @@
     button.dataset.open = show ? '1' : '0';
     button.innerHTML = show ? '✕ Filter' : '☰ Filter';
     localStorage.setItem('map-fp-hidden', show ? '0' : '1');
-    if (map) setTimeout(() => map.invalidateSize(false), 250);
+    if (map) setTimeout(() => map.resize(), 250);
   }
 
   function setDropdown(id, active) {
@@ -781,7 +768,7 @@
       document.getElementById('fullscreen-btn').innerHTML = '⛶ <span>Vollbild</span>';
       document.getElementById('fullscreen-btn').title = 'Vollbild';
     }
-    if (map) map.invalidateSize(false);
+    if (map) map.resize();
     updateLegendPlacement();
   }
 
@@ -1114,101 +1101,18 @@
   function collectVisibleBoundsPoints(layers) {
     const points = [];
     if (pointsActive) {
-      (layers.points || []).forEach(point => points.push([point.lat, point.lon]));
-      if (!points.length && layers.latestPoint) points.push([layers.latestPoint.lat, layers.latestPoint.lon]);
+      (layers.points || []).forEach(p => points.push([p.lat, p.lon]));
+      if (layers.latestPoint) points.push([layers.latestPoint.lat, layers.latestPoint.lon]);
     }
-    if (polylineActive || labelsActive) {
-      (layers.polylines || []).forEach(segment => {
-        (segment.coords || []).forEach(coords => points.push(coords));
-        if (labelsActive) {
-          if (segment.startPoint) points.push(segment.startPoint);
-          if (segment.endPoint) points.push(segment.endPoint);
-        }
-      });
+    if (polylineActive) {
+      (layers.polylines || []).forEach(s => s.coords.forEach(c => points.push(c)));
     }
-    if (accuracyActive) (layers.accuracy || []).forEach(item => points.push([item.lat, item.lon]));
-    if (speedActive) (layers.speed || []).forEach(item => (item.coords || []).forEach(coords => points.push(coords)));
-    if (stopsActive) (layers.stops || []).forEach(item => points.push([item.lat, item.lon]));
-    if (daytrackActive) {
-      (layers.daytracks || []).forEach(daytrack => {
-        (daytrack.segments || []).forEach(segment => (segment || []).forEach(coords => points.push(coords)));
-        if (daytrack.labelPoint) points.push(daytrack.labelPoint);
-      });
-    }
-    if (snapActive) (layers.snap || []).forEach(item => (item.coords || []).forEach(coords => points.push(coords)));
-    if (heatmapActive) (layers.heatmap || []).forEach(item => points.push([item[0], item[1]]));
+    if (accuracyActive) (layers.accuracy || []).forEach(p => points.push([p.lat, p.lon]));
+    if (speedActive) (layers.speed || []).forEach(s => s.coords.forEach(c => points.push(c)));
+    if (stopsActive) (layers.stops || []).forEach(p => points.push([p.lat, p.lon]));
+    if (daytrackActive) (layers.daytracks || []).forEach(d => d.segments.forEach(seg => seg.forEach(c => points.push(c))));
+    if (snapActive) (layers.snap || []).forEach(s => s.coords.forEach(c => points.push(c)));
     return points;
-  }
-
-  function renderAccuracy(entries) {
-    entries.forEach(item => {
-      L.circle([item.lat, item.lon], {
-        radius: item.radius,
-        color: '#0A84FF',
-        fillColor: '#0A84FF',
-        fillOpacity: 0.06,
-        weight: 1,
-        opacity: 0.35,
-        renderer: canvasRenderer
-      }).addTo(accuracyLayer);
-    });
-  }
-
-  function renderSpeed(entries) {
-    entries.forEach(item => {
-      L.polyline(item.coords, { color: item.color, weight: 6, opacity: 0.18, lineCap: 'round', renderer: canvasRenderer, interactive: false }).addTo(speedLayer);
-      L.polyline(item.coords, { color: item.color, weight: 2.5, opacity: 0.92, lineCap: 'round', renderer: canvasRenderer })
-        .bindPopup(`${item.kmh.toFixed(1)} km/h`)
-        .addTo(speedLayer);
-    });
-  }
-
-  function renderStops(entries) {
-    entries.forEach(stop => {
-      L.circle([stop.lat, stop.lon], {
-        radius: stop.radius,
-        color: '#BF5AF2',
-        fillColor: '#BF5AF2',
-        fillOpacity: 0.15,
-        weight: 2,
-        opacity: 0.6,
-        renderer: canvasRenderer
-      }).addTo(stopsLayer);
-      L.marker([stop.lat, stop.lon], {
-        icon: L.divIcon({
-          className: '',
-          html: `<div style="background:#BF5AF2;color:#fff;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:6px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.5);">⏱ ${stop.durationMin}min</div>`,
-          iconAnchor: [0, 0]
-        })
-      }).bindPopup(`<b>Stop</b><br>${stop.startLabel} – ${stop.endLabel}<br>${stop.durationMin} Minuten · ${stop.pointsCount} Punkte`).addTo(stopsLayer);
-    });
-  }
-
-  function renderDaytracks(entries) {
-    entries.forEach(daytrack => {
-      daytrack.segments.forEach(segment => {
-        L.polyline(segment, { color: daytrack.color, weight: 3, opacity: 0.85, renderer: canvasRenderer })
-          .bindPopup(`${daytrack.day} · ${daytrack.pointsCount} Punkte`)
-          .addTo(daytrackLayer);
-      });
-      L.marker(daytrack.labelPoint, {
-        icon: L.divIcon({
-          className: '',
-          html: `<span style="background:${daytrack.color};color:#fff;font-size:0.65rem;font-weight:700;padding:1px 5px;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,0.4);">${daytrack.day.slice(5)}</span>`,
-          iconAnchor: [0, 0]
-        }),
-        interactive: false
-      }).addTo(daytrackLayer);
-    });
-  }
-
-  function renderSnap(entries) {
-    entries.forEach(item => {
-      L.polyline(item.coords, { color: 'rgba(0,0,0,0.3)', weight: 7, opacity: 1, renderer: canvasRenderer, interactive: false }).addTo(snapLayer);
-      L.polyline(item.coords, { color: '#30D158', weight: 4, opacity: 0.95, renderer: canvasRenderer })
-        .bindPopup('Straßen-Snap (serverseitig vorbereitet)')
-        .addTo(snapLayer);
-    });
   }
 
   function applyMapFocus(layers) {
@@ -1216,35 +1120,31 @@
     const autoCenter = document.getElementById('auto-center-toggle').checked;
     const fitBounds = document.getElementById('fit-bounds-toggle').checked;
 
-    // Spezieller Fokus beim ALLERERSTEN Laden der Seite
     if (isInitialLoad && latest) {
       isInitialLoad = false;
-      map.flyTo([latest.lat, latest.lon], 16, { animate: true, duration: 1.0 });
+      map.flyTo({ center: [latest.lon, latest.lat], zoom: 16, speed: 1.0 });
       return;
     }
 
     if (fitBounds) {
       const useGlobalBounds = FIT_BOUNDS_MODE === 'global';
       const metaBounds = useGlobalBounds ? lastMetaPayload?.meta?.boundingBox : null;
+      
       if (metaBounds && useGlobalBounds) {
-        suppressedViewportRefreshes = Math.max(suppressedViewportRefreshes, 2);
-        map.fitBounds(
-          L.latLngBounds(
-            [metaBounds.minLatitude, metaBounds.minLongitude],
-            [metaBounds.maxLatitude, metaBounds.maxLongitude]
-          ),
-          { padding: [50, 50], animate: true }
-        );
+        map.fitBounds([
+          [metaBounds.minLongitude, metaBounds.minLatitude],
+          [metaBounds.maxLongitude, metaBounds.maxLatitude]
+        ], { padding: 50, linear: false });
       } else {
-        const boundsPoints = collectVisibleBoundsPoints(layers);
-        if (!boundsPoints.length && latest) boundsPoints.push([latest.lat, latest.lon]);
-        if (!boundsPoints.length) return;
-        suppressedViewportRefreshes = Math.max(suppressedViewportRefreshes, 2);
-        map.fitBounds(L.latLngBounds(boundsPoints), { padding: [50, 50], animate: true });
+        const bounds = new maplibregl.LngLatBounds();
+        const pts = collectVisibleBoundsPoints(layers);
+        if (pts.length) {
+          pts.forEach(p => bounds.extend([p[1], p[0]]));
+          map.fitBounds(bounds, { padding: 50, linear: false });
+        }
       }
     } else if (autoCenter && latest) {
-      suppressedViewportRefreshes = Math.max(suppressedViewportRefreshes, 1);
-      map.panTo([latest.lat, latest.lon], { animate: true });
+      map.panTo([latest.lon, latest.lat]);
     }
   }
 
@@ -1262,6 +1162,99 @@
     runLayerStage('Tage', () => renderDaytracks(layers.daytracks || []));
     runLayerStage('Snap', () => renderSnap(layers.snap || []));
     applyMapFocus(layers);
+  }
+
+  function clearRenderedLayers() {
+    Object.values(SOURCE_IDS).forEach(id => {
+      const src = map.getSource(id);
+      if (src) src.setData({ type: 'FeatureCollection', features: [] });
+    });
+  }
+
+  function renderPoints(points, latestPoint) {
+    const features = points.map(p => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+      properties: { timestamp: p.timestampLocal || p.timestampUtc, accuracy: p.accuracyM, isLatest: !!p.isLatest }
+    }));
+    map.getSource(SOURCE_IDS.POINTS).setData({ type: 'FeatureCollection', features: features.filter(f => !f.properties.isLatest) });
+    
+    if (latestPoint) {
+      map.getSource(SOURCE_IDS.LATEST).setData({
+        type: 'FeatureCollection',
+        features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [latestPoint.lon, latestPoint.lat] }, properties: { isLatest: true } }]
+      });
+    }
+  }
+
+  function renderHeatmap(entries) {
+    const features = entries.map(e => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [e[1], e[0]] },
+      properties: { weight: e[2] || 0.5 }
+    }));
+    map.getSource(SOURCE_IDS.HEATMAP).setData({ type: 'FeatureCollection', features });
+  }
+
+  function renderPolylines(segments) {
+    const features = segments.map(s => ({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: s.coords.map(c => [c[1], c[0]]) },
+      properties: { color: s.color, label: `${s.startLabel} - ${s.endLabel}` }
+    }));
+    map.getSource(SOURCE_IDS.LINES).setData({ type: 'FeatureCollection', features });
+  }
+
+  function renderAccuracy(entries) {
+    // In MapLibre zeichnen wir Kreise mit radius-unit: pixels oder meters. 
+    // Hier nutzen wir circle-radius mit einer Interpolation oder vorberechneten Werten.
+    const features = entries.map(e => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [e.lon, e.lat] },
+      properties: { radius_m: e.radius, radius_px: 5 } // Vereinfacht für Phase 2
+    }));
+    map.getSource(SOURCE_IDS.ACCURACY).setData({ type: 'FeatureCollection', features });
+  }
+
+  function renderSpeed(entries) {
+    const features = entries.map(e => ({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: e.coords.map(c => [c[1], c[0]]) },
+      properties: { color: e.color, kmh: e.kmh }
+    }));
+    map.getSource(SOURCE_IDS.SPEED).setData({ type: 'FeatureCollection', features });
+  }
+
+  function renderStops(entries) {
+    const features = entries.map(e => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [e.lon, e.lat] },
+      properties: { label: `⏱ ${e.durationMin}min`, duration: e.durationMin }
+    }));
+    map.getSource(SOURCE_IDS.STOPS).setData({ type: 'FeatureCollection', features });
+  }
+
+  function renderDaytracks(entries) {
+    const features = [];
+    entries.forEach(d => {
+       d.segments.forEach(coords => {
+         features.push({
+           type: 'Feature',
+           geometry: { type: 'LineString', coordinates: coords.map(c => [c[1], c[0]]) },
+           properties: { color: d.color, day: d.day }
+         });
+       });
+    });
+    map.getSource(SOURCE_IDS.DAYTRACKS).setData({ type: 'FeatureCollection', features });
+  }
+
+  function renderSnap(entries) {
+    const features = entries.map(e => ({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: e.coords.map(c => [c[1], c[0]]) },
+      properties: { }
+    }));
+    map.getSource(SOURCE_IDS.SNAP).setData({ type: 'FeatureCollection', features });
   }
 
   function mergePointItems(existing, appended, latestPoint) {
@@ -1285,7 +1278,7 @@
     document.getElementById('stat-visible-points').innerText = (meta.visiblePoints || 0).toLocaleString('de-DE');
     document.getElementById('stat-total-points').innerText = (meta.totalPoints || 0).toLocaleString('de-DE');
     document.getElementById('stat-session-duration').innerText = formatDuration(stats.sessionDurationSeconds || 0);
-    document.getElementById('stat-zoom-level').innerText = map ? map.getZoom() : '-';
+    document.getElementById('stat-zoom-level').innerText = map ? Math.round(map.getZoom()) : '-';
   }
 
   function renderLog(items) {
@@ -1375,43 +1368,35 @@
 
     if (Array.isArray(delta.appendPoints)) {
       merged.layers.points = mergePointItems(merged.layers.points || [], delta.appendPoints, merged.layers.latestPoint);
-      clearPointsRender();
-      runLayerStage('Punkte', () => renderPoints(merged.layers.points || [], merged.layers.latestPoint || null));
+      renderPoints(merged.layers.points, merged.layers.latestPoint);
     }
     if ('replaceHeatmap' in delta) {
       merged.layers.heatmap = delta.replaceHeatmap || [];
-      clearHeatmapRender();
-      runLayerStage('Heatmap', () => renderHeatmap(merged.layers.heatmap || []));
+      renderHeatmap(merged.layers.heatmap);
     }
     if ('replacePolylines' in delta) {
       merged.layers.polylines = delta.replacePolylines || [];
-      clearPolylineRender();
-      runLayerStage('Linien', () => renderPolylines(merged.layers.polylines || []));
+      renderPolylines(merged.layers.polylines);
     }
     if ('replaceAccuracy' in delta) {
       merged.layers.accuracy = delta.replaceAccuracy || [];
-      accuracyLayer.clearLayers();
-      runLayerStage('Radius', () => renderAccuracy(merged.layers.accuracy || []));
+      renderAccuracy(merged.layers.accuracy);
     }
     if ('replaceSpeed' in delta) {
       merged.layers.speed = delta.replaceSpeed || [];
-      speedLayer.clearLayers();
-      runLayerStage('Tempo', () => renderSpeed(merged.layers.speed || []));
+      renderSpeed(merged.layers.speed);
     }
     if ('replaceStops' in delta) {
       merged.layers.stops = delta.replaceStops || [];
-      stopsLayer.clearLayers();
-      runLayerStage('Stops', () => renderStops(merged.layers.stops || []));
+      renderStops(merged.layers.stops);
     }
     if ('replaceDaytracks' in delta) {
       merged.layers.daytracks = delta.replaceDaytracks || [];
-      daytrackLayer.clearLayers();
-      runLayerStage('Tage', () => renderDaytracks(merged.layers.daytracks || []));
+      renderDaytracks(merged.layers.daytracks);
     }
     if ('replaceSnap' in delta) {
       merged.layers.snap = delta.replaceSnap || [];
-      snapLayer.clearLayers();
-      runLayerStage('Snap', () => renderSnap(merged.layers.snap || []));
+      renderSnap(merged.layers.snap);
     }
     if (Array.isArray(delta.appendLogItems)) {
       merged.logItems = mergeLogItems(merged.logItems || currentLogItems || [], delta.appendLogItems);
@@ -1458,40 +1443,24 @@
         const lat = position.coords.latitude;
         const lon = position.coords.longitude;
         const accuracy = Math.max(0, Math.round(position.coords.accuracy || 0));
-        if (browserLocationMarker) map.removeLayer(browserLocationMarker);
-        if (browserLocationAccuracyCircle) map.removeLayer(browserLocationAccuracyCircle);
-        browserLocationAccuracyCircle = L.circle([lat, lon], {
-          radius: accuracy || 10,
-          color: '#FFD60A',
-          fillColor: '#FFD60A',
-          fillOpacity: 0.14,
-          weight: 1.5,
-          opacity: 0.7,
-          renderer: canvasRenderer
-        }).addTo(map);
-        browserLocationMarker = L.marker([lat, lon], {
-          icon: L.divIcon({
-            className: '',
-            html: '<div style="width:16px;height:16px;border-radius:50%;background:#FFD60A;border:2px solid #111;box-shadow:0 0 0 4px rgba(255,214,10,0.18);"></div>',
-            iconSize: [16, 16],
-            iconAnchor: [8, 8]
-          })
-        })
-          .bindPopup(`<b>Browser-Standort</b><br>${lat.toFixed(5)}, ${lon.toFixed(5)}<br>±${accuracy}m`)
-          .addTo(map);
-        map.flyTo([lat, lon], Math.max(map.getZoom(), 16), { animate: true, duration: 0.8 });
-        browserLocationMarker.openPopup();
+        
+        // Browser-Standort als Feature in den LATEST Source (oder eigenen Source)
+        // Hier nutzen wir LATEST für die Einfachheit von Phase 2
+        map.getSource(SOURCE_IDS.LATEST).setData({
+          type: 'FeatureCollection',
+          features: [{ 
+            type: 'Feature', 
+            geometry: { type: 'Point', coordinates: [lon, lat] }, 
+            properties: { isLatest: true, isBrowser: true } 
+          }]
+        });
+
+        map.flyTo({ center: [lon, lat], zoom: 16, speed: 1.0, essential: true });
         resetBrowserLocationButton();
       },
       (error) => {
         resetBrowserLocationButton();
-        const message = error.code === 1
-          ? 'Standortfreigabe wurde verweigert.'
-          : error.code === 2
-            ? 'Standort konnte nicht bestimmt werden.'
-            : error.code === 3
-              ? 'Standortabfrage hat zu lange gedauert.'
-              : 'Standortabfrage fehlgeschlagen.';
+        const message = error.code === 1 ? 'Standortfreigabe verweigert.' : 'Standortabfrage fehlgeschlagen.';
         alert(message);
       },
       { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 }
@@ -1728,46 +1697,51 @@
 
   function initMap() {
     MAP_MAX_POINTS = clampMapMaxPoints(MAP_MAX_POINTS);
-    map = L.map('map-container', { preferCanvas: true }).setView([52.52, 13.405], 10);
-    canvasRenderer = L.canvas({ padding: 0.5 });
+    
+    const style = {
+      version: 8,
+      sources: {
+        'osm': {
+          type: 'raster',
+          tiles: [
+            darkMode 
+              ? 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
+              : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+          ],
+          tileSize: 256,
+          attribution: '&copy; OpenStreetMap Contributors'
+        }
+      },
+      layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
+    };
 
-    const tileUrl = darkMode
-      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-      : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-    tileLayer = L.tileLayer(tileUrl, { maxZoom: 19, updateWhenIdle: true, keepBuffer: 3, attribution: '© OpenStreetMap & CartoDB' }).addTo(map);
-    markerClusterAvailable = typeof L.markerClusterGroup === 'function';
-    markerClusterGroup = markerClusterAvailable
-      ? L.markerClusterGroup({
-          chunkedLoading: true,
-          showCoverageOnHover: false,
-          removeOutsideVisibleBounds: true,
-          spiderfyOnMaxZoom: false,
-        }).addTo(map)
-      : null;
-    pointsLayer = L.featureGroup().addTo(map);
-    polylineLayer = L.featureGroup().addTo(map);
-    accuracyLayer = L.featureGroup().addTo(map);
-    labelsLayer = L.featureGroup().addTo(map);
-    speedLayer = L.featureGroup().addTo(map);
-    stopsLayer = L.featureGroup().addTo(map);
-    daytrackLayer = L.featureGroup().addTo(map);
-    snapLayer = L.featureGroup().addTo(map);
-    heatmapPluginAvailable = typeof L.heatLayer === 'function';
-    if (heatmapPluginAvailable) {
-      heatLayer = L.heatLayer([], {
-        radius: 14, blur: 12, maxZoom: 19, minOpacity: 0.25, max: 1.0,
-        gradient: { 0.00: 'rgba(0,100,255,0)', 0.15: 'rgba(0,100,255,0.6)', 0.35: '#0A84FF', 0.55: '#30D158', 0.72: '#FF9F0A', 0.88: '#FF453A', 1.00: '#FFD60A' }
+    map = new maplibregl.Map({
+      container: 'map-container',
+      style: style,
+      center: [13.405, 52.52],
+      zoom: 10,
+      pitch: 45,
+      hash: false,
+      antialias: true
+    });
+
+    map.addControl(new maplibregl.NavigationControl(), 'top-left');
+    map.addControl(new maplibregl.ScaleControl(), 'bottom-left');
+
+    map.on('load', () => {
+      // Sources initialisieren
+      Object.values(SOURCE_IDS).forEach(id => {
+        map.addSource(id, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       });
-    } else {
-      heatLayer = null;
-      heatmapActive = false;
-      setToggleAvailability('heatmap-toggle', false, 'Heatmap-Plugin nicht verfügbar');
-      console.warn('leaflet.heat is unavailable; heatmap layer disabled');
-    }
-    if (!markerClusterAvailable) {
-      rememberPersistentWarning('Marker-Cluster nicht verfügbar');
-      console.warn('leaflet.markercluster is unavailable; using plain point rendering');
-    }
+
+      // Layer initialisieren (Reihenfolge ist wichtig für Z-Index)
+      setupMapLayers();
+      
+      updateLegend();
+      updateLegendPlacement();
+      updateLegendToggleButton();
+      updateMap();
+    });
 
     document.getElementById('map-max-points').max = String(Math.max(1, Math.min(MAP_CONFIG.pointsPageSizeMax || 2000, MAP_PAGE_SIZE_SAFE_MAX)));
     document.getElementById('map-max-points').value = MAP_MAX_POINTS;
@@ -1779,15 +1753,11 @@
     document.getElementById('polling-interval').value = String(POLLING_INTERVAL);
     document.getElementById('fit-bounds-mode').value = FIT_BOUNDS_MODE;
     document.getElementById('time-range-select').value = TIME_RANGE;
-    if (darkMode) {
-      document.getElementById('dark-mode-btn').innerHTML = '☀️ <span>Dark</span>';
-      document.getElementById('dark-mode-btn').title = 'Helle Karte';
-    }
 
-    const resizeObserver = new ResizeObserver(() => map.invalidateSize(false));
+    const resizeObserver = new ResizeObserver(() => map.resize());
     resizeObserver.observe(document.getElementById('map-container'));
-    L.control.scale().addTo(map);
-    map.on('moveend zoomend', () => {
+
+    map.on('moveend', () => {
       if (suppressedViewportRefreshes > 0) {
         suppressedViewportRefreshes -= 1;
         return;
@@ -1795,11 +1765,59 @@
       debouncedMapRefresh();
     });
 
-    updateLegend();
-    updateLegendPlacement();
-    updateLegendToggleButton();
-    updateMap();
     barTickTimer = setInterval(tickRefreshBar, 1000);
+  }
+
+  function setupMapLayers() {
+    // Heatmap Layer (Ganz unten)
+    map.addLayer({
+      id: 'layer-heatmap', type: 'heatmap', source: SOURCE_IDS.HEATMAP,
+      paint: {
+        'heatmap-weight': ['interpolate', ['linear'], ['get', 'weight'], 0, 0, 1, 1],
+        'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 1, 19, 3],
+        'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(0,100,255,0)', 0.2, '#0A84FF', 0.4, '#30D158', 0.6, '#FF9F0A', 0.8, '#FF453A', 1, '#FFD60A'],
+        'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 2, 19, 20],
+        'heatmap-opacity': 0.8
+      }
+    });
+
+    // Polylines
+    map.addLayer({
+      id: 'layer-lines-casing', type: 'line', source: SOURCE_IDS.LINES,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': ['get', 'color'], 'line-width': 8, 'line-opacity': 0.15 }
+    });
+    map.addLayer({
+      id: 'layer-lines', type: 'line', source: SOURCE_IDS.LINES,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-opacity': 0.9 }
+    });
+
+    // Accuracy Circles
+    map.addLayer({
+      id: 'layer-accuracy', type: 'circle', source: SOURCE_IDS.ACCURACY,
+      paint: { 'circle-radius': ['get', 'radius_px'], 'circle-color': '#0A84FF', 'circle-opacity': 0.1, 'circle-stroke-width': 1, 'circle-stroke-color': '#0A84FF', 'circle-stroke-opacity': 0.3 }
+    });
+
+    // Points
+    map.addLayer({
+      id: 'layer-points', type: 'circle', source: SOURCE_IDS.POINTS,
+      paint: { 'circle-radius': 4, 'circle-color': '#0A84FF', 'circle-stroke-width': 1, 'circle-stroke-color': '#fff', 'circle-opacity': 0.8 }
+    });
+
+    // Latest Point
+    map.addLayer({
+      id: 'layer-latest', type: 'circle', source: SOURCE_IDS.LATEST,
+      paint: { 'circle-radius': 8, 'circle-color': '#30D158', 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' }
+    });
+    
+    // Popups
+    map.on('click', 'layer-points', (e) => {
+      const p = e.features[0].properties;
+      new maplibregl.Popup().setLngLat(e.lngLat).setHTML(`<b>GPS-Punkt</b><br>${p.timestamp}<br>±${Math.round(p.accuracy)}m`).addTo(map);
+    });
+    map.on('mouseenter', 'layer-points', () => map.getCanvas().style.cursor = 'pointer');
+    map.on('mouseleave', 'layer-points', () => map.getCanvas().style.cursor = '');
   }
 
   document.addEventListener('click', (event) => {
@@ -1887,11 +1905,15 @@
     localStorage.setItem('map-dark-mode', darkMode);
     document.getElementById('dark-mode-btn').innerHTML = `${darkMode ? '☀️' : '🌙'} <span>Dark</span>`;
     document.getElementById('dark-mode-btn').title = darkMode ? 'Helle Karte' : 'Dunkle Karte';
+    
     const nextTileUrl = darkMode
-      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+      ? 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
       : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-    map.removeLayer(tileLayer);
-    tileLayer = L.tileLayer(nextTileUrl, { maxZoom: 19, attribution: '© OpenStreetMap & CartoDB' }).addTo(map);
+      
+    const osmSource = map.getSource('osm');
+    if (osmSource) {
+      osmSource.setTiles([nextTileUrl]);
+    }
   };
   document.getElementById('legend-toggle-btn').onclick = () => {
     legendVisible = !legendVisible;
