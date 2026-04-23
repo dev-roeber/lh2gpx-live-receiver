@@ -33,6 +33,7 @@
 
 <link rel='stylesheet' href='https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css' />
 <script src='https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js'></script>
+<script src="https://unpkg.com/dexie@4.0.1/dist/dexie.js"></script>
 
 <div class="map-page-container">
   <button id="map-filter-toggle-btn" class="map-filter-toggle" style="display: none;">Filteroptionen ▼</button>
@@ -460,6 +461,42 @@
   }
 
   let isInitialLoad = true;
+  
+  // Phase 3: IndexedDB Initialisierung
+  const db = new Dexie('MapReceiverDB');
+  db.version(1).stores({
+    points: 'id, timestampUtc, sessionId'
+  });
+
+  async function savePointsLocally(points) {
+    if (!points || !points.length) return;
+    try {
+      // Transformation für lokales Speicherformat falls nötig
+      const toSave = points.map(p => ({
+        id: p.id,
+        lat: p.lat,
+        lon: p.lon,
+        timestampUtc: p.timestampUtc || p.point_timestamp_utc,
+        timestampLocal: p.timestampLocal,
+        accuracyM: p.accuracyM,
+        source: p.source,
+        sessionId: p.session_id
+      }));
+      await db.points.bulkPut(toSave);
+    } catch (error) {
+      console.warn('Fehler beim lokalen Speichern:', error);
+    }
+  }
+
+  async function getLocalPoints(filters) {
+    // Einfache Implementierung für Phase 3 (Zeitfilter-basiert)
+    let query = db.points;
+    if (filters.date_from) {
+      query = query.where('timestampUtc').aboveOrEqual(filters.date_from);
+    }
+    return await query.toArray();
+  }
+
   let POLLING_INTERVAL = parseInt(localStorage.getItem('map-polling-interval')) || 5000;
   let TIME_RANGE = localStorage.getItem('map-time-range') || '1h';
   let FIT_BOUNDS_MODE = localStorage.getItem('map-fit-bounds-mode') || 'global';
@@ -1592,6 +1629,21 @@
     const apiStatus = document.getElementById('api-status');
     const params = buildCurrentFilters();
     const baseQuery = params.toString();
+
+    // Lokale Daten abrufen für sofortige Anzeige (nur wenn kein Delta-Mode oder beim ersten Laden)
+    if (!lastMapPayload) {
+      const localPoints = await getLocalPoints({ date_from: buildDateFromIso() });
+      if (localPoints.length > 0) {
+        const fakePayload = { 
+          layers: { points: localPoints, latestPoint: localPoints[0] },
+          meta: { visiblePoints: localPoints.length, totalPoints: localPoints.length },
+          stats: {} 
+        };
+        renderMapPayload(fakePayload);
+        statsText.innerText = 'Lade lokale Daten…';
+      }
+    }
+
     if (!isManualRefresh && lastMapBaseQueryKey === baseQuery && lastVisiblePointTsUtc) {
       params.set('latest_known_ts', lastVisiblePointTsUtc);
     }
@@ -1623,7 +1675,6 @@
         nextRefreshTime = Date.now() + POLLING_INTERVAL;
         isManualRefresh = false;
         renderProcessingStatus(lastMapPayload.processing || lastMetaPayload?.processing || null);
-        renderLog(currentLogItems);
         return;
       }
 
@@ -1632,9 +1683,7 @@
         try {
           const errorPayload = await response.json();
           if (errorPayload?.detail) errorDetail = `: ${JSON.stringify(errorPayload.detail)}`;
-        } catch {
-          errorDetail = '';
-        }
+        } catch { errorDetail = ''; }
         throw new Error(`HTTP ${response.status}${errorDetail}`);
       }
       lastETag = response.headers.get('etag') || null;
@@ -1647,6 +1696,10 @@
       nextRefreshTime = Date.now() + POLLING_INTERVAL;
       updateTraffic(text.length, fetchMs > 0 ? (text.length / 1024 / 1024) / (fetchMs / 1000) : 0);
       tickRefreshBar();
+
+      // Neu empfangene Punkte lokal speichern
+      if (payload.layers?.points) await savePointsLocally(payload.layers.points);
+      if (payload.delta?.appendPoints) await savePointsLocally(payload.delta.appendPoints);
 
       if (payload.meta?.deltaMode) applyMapDelta(payload);
       else {
