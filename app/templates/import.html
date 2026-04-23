@@ -54,7 +54,11 @@
     <p class="drop-title">Datei hierher ziehen</p>
     <p class="drop-sub">oder</p>
     <label class="btn-pill primary" for="file-input" style="cursor:pointer;">Datei auswählen</label>
-    <input type="file" id="file-input" accept=".json,.gpx,.kml,.kmz,.geojson,.csv,.zip" style="display:none;">
+    <input
+      type="file"
+      id="file-input"
+      accept=".json,.geojson,.geo.json,application/json,application/geo+json,.gpx,application/gpx+xml,.kml,application/vnd.google-earth.kml+xml,.kmz,application/vnd.google-earth.kmz,.csv,text/csv,.zip,application/zip,application/x-zip-compressed"
+    >
     <p class="drop-hint">.json · .gpx · .kml · .kmz · .geojson · .csv · .zip &nbsp;·&nbsp; max. 100 MB</p>
   </div>
 
@@ -172,6 +176,7 @@
   padding: 44px 24px; text-align: center;
   display: flex; flex-direction: column; align-items: center; gap: 10px;
   transition: border-color 0.2s, background 0.2s; cursor: pointer;
+  position: relative; overflow: hidden;
 }
 .drop-zone:hover { border-color: var(--mint); }
 .drop-zone.drag-over { border-color: var(--mint); background: var(--mint-dim); }
@@ -179,6 +184,15 @@
 .drop-title { font-size: 1rem; font-weight: 600; color: var(--text); margin: 0; }
 .drop-sub { font-size: 0.8rem; color: var(--text-3); margin: 0; }
 .drop-hint { font-size: 0.7rem; color: var(--text-3); margin: 0; }
+#file-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 2;
+}
 
 .file-selected {
   display: flex; align-items: center; gap: 12px;
@@ -313,7 +327,6 @@ function setProgress(pct, label) {
 
 fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
 clearBtn.addEventListener('click', () => clearFile());
-dropZone.addEventListener('click', () => fileInput.click());
 
 dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
 dropZone.addEventListener('dragleave', e => {

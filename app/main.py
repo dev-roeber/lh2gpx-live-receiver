@@ -1454,18 +1454,21 @@ def _serialize_polyline_segments(
     zoom: int,
     include_labels: bool,
 ) -> list[dict[str, Any]]:
-    return [
-        {
-            "color": _palette_color(index),
-            "coords": _simplify_segment(segment, zoom),
-            "pointsCount": len(segment),
-            "startLabel": (segment[0]["point_timestamp_local"] or "")[11:16] if include_labels else "",
-            "endLabel": (segment[-1]["point_timestamp_local"] or "")[11:16] if include_labels else "",
-            "startPoint": [float(segment[0]["latitude"]), float(segment[0]["longitude"])],
-            "endPoint": [float(segment[-1]["latitude"]), float(segment[-1]["longitude"])],
-        }
-        for index, segment in enumerate(segments)
-    ]
+    serialized = []
+    for index, segment in enumerate(segments):
+        coords = _snap_segment(segment, zoom=zoom) or _simplify_segment(segment, zoom)
+        serialized.append(
+            {
+                "color": _palette_color(index),
+                "coords": coords,
+                "pointsCount": len(segment),
+                "startLabel": (segment[0]["point_timestamp_local"] or "")[11:16] if include_labels else "",
+                "endLabel": (segment[-1]["point_timestamp_local"] or "")[11:16] if include_labels else "",
+                "startPoint": coords[0] if coords else [float(segment[0]["latitude"]), float(segment[0]["longitude"])],
+                "endPoint": coords[-1] if coords else [float(segment[-1]["latitude"]), float(segment[-1]["longitude"])],
+            }
+        )
+    return serialized
 
 
 def _speed_color(kmh: float) -> str:
