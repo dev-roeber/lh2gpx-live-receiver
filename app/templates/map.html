@@ -455,11 +455,13 @@
   let filtersExpanded = false;
   let currentFetchController = null;
   let lastETag = null;
-  let updateInterval = null;
+  let updateTimer = null;
   let barTickTimer = null;
   let lastRefreshTime = null;
   let nextRefreshTime = null;
   let isManualRefresh = false;
+  let mapUpdateInFlight = false;
+  let pendingMapRefresh = false;
   let currentLogItems = [];
   let lastMapPayload = null;
   let persistentRuntimeWarnings = [];
@@ -495,6 +497,30 @@
   function clampLogLimit(value) {
     const effectiveMax = Math.max(1, MAP_MAX_POINTS);
     return Math.max(1, Math.min(effectiveMax, parseInt(value || effectiveMax, 10) || effectiveMax));
+  }
+
+  function getRangeBucketMs() {
+    const rangeMinutes = RANGE_MINUTES[TIME_RANGE] || 0;
+    if (rangeMinutes <= 15) return 5000;
+    if (rangeMinutes <= 180) return 15000;
+    return 60000;
+  }
+
+  function buildDateFromIso(nowMs = Date.now()) {
+    const rangeMinutes = RANGE_MINUTES[TIME_RANGE];
+    if (!rangeMinutes) return null;
+    const bucketMs = getRangeBucketMs();
+    const bucketedNowMs = Math.floor(nowMs / bucketMs) * bucketMs;
+    return new Date(bucketedNowMs - rangeMinutes * 60000).toISOString();
+  }
+
+  function scheduleNextMapUpdate(delay = POLLING_INTERVAL) {
+    clearTimeout(updateTimer);
+    if (!Number.isFinite(delay) || delay <= 0) return;
+    nextRefreshTime = Date.now() + delay;
+    updateTimer = setTimeout(() => {
+      updateMap();
+    }, delay);
   }
 
   function normalizeMapZoom() {
@@ -733,9 +759,7 @@
     params.set('include_daytrack', daytrackActive ? 'true' : 'false');
     params.set('include_snap', snapActive ? 'true' : 'false');
     if (sessionId) params.set('session_id', sessionId);
-    if (TIME_RANGE !== 'all') {
-      params.set('date_from', new Date(Date.now() - RANGE_MINUTES[TIME_RANGE] * 60000).toISOString());
-    }
+    if (TIME_RANGE !== 'all') params.set('date_from', buildDateFromIso());
     return params;
   }
 
@@ -1241,6 +1265,10 @@
   }
 
   async function updateMap() {
+    if (mapUpdateInFlight) {
+      pendingMapRefresh = true;
+      return;
+    }
     const statsText = document.getElementById('map-stats-text');
     const badge = document.getElementById('map-points-badge');
     const apiStatus = document.getElementById('api-status');
@@ -1249,10 +1277,11 @@
     const url = `/api/map-data?${params.toString()}`;
 
     try {
+      mapUpdateInFlight = true;
+      pendingMapRefresh = false;
       apiStatus.textContent = '● LADEN';
       apiStatus.style.color = 'var(--orange)';
       if (isManualRefresh) overlay.style.display = 'flex';
-      if (currentFetchController) currentFetchController.abort();
       currentFetchController = new AbortController();
       const fetchStart = Date.now();
       const headers = lastETag && !isManualRefresh ? { 'If-None-Match': lastETag } : {};
@@ -1318,8 +1347,16 @@
       apiStatus.textContent = '● FEHLER';
       apiStatus.style.color = '#ef4444';
     } finally {
+      mapUpdateInFlight = false;
+      currentFetchController = null;
       document.getElementById('btn-text').style.display = 'inline';
       document.getElementById('btn-spinner').style.display = 'none';
+      if (pendingMapRefresh) {
+        pendingMapRefresh = false;
+        queueMicrotask(() => updateMap());
+      } else {
+        scheduleNextMapUpdate(POLLING_INTERVAL);
+      }
     }
   }
 
@@ -1393,7 +1430,6 @@
     updateLegendPlacement();
     updateLegendToggleButton();
     updateMap();
-    updateInterval = setInterval(updateMap, POLLING_INTERVAL);
     barTickTimer = setInterval(tickRefreshBar, 1000);
   }
 
@@ -1418,10 +1454,10 @@
   document.getElementById('refresh-map-btn').onclick = () => {
     isManualRefresh = true;
     lastETag = null;
-    clearInterval(updateInterval);
-    updateInterval = setInterval(updateMap, POLLING_INTERVAL);
+    clearTimeout(updateTimer);
     document.getElementById('btn-text').style.display = 'none';
     document.getElementById('btn-spinner').style.display = 'inline';
+    if (currentFetchController) currentFetchController.abort();
     updateMap();
   };
   document.getElementById('time-range-select').onchange = (event) => {
@@ -1432,9 +1468,7 @@
   document.getElementById('polling-interval').onchange = (event) => {
     POLLING_INTERVAL = parseInt(event.target.value, 10) || 5000;
     localStorage.setItem('map-polling-interval', POLLING_INTERVAL);
-    clearInterval(updateInterval);
-    updateInterval = setInterval(updateMap, POLLING_INTERVAL);
-    nextRefreshTime = Date.now() + POLLING_INTERVAL;
+    scheduleNextMapUpdate(POLLING_INTERVAL);
     tickRefreshBar();
   };
   document.getElementById('map-max-points').onchange = (event) => {
