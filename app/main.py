@@ -678,12 +678,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"},
         )
 
+    @app.get("/api/map-meta", dependencies=[Depends(_require_admin_access)])
+    async def api_map_meta(
+        request: Request,
+        date_from: str | None = Query(default=None),
+        date_to: str | None = Query(default=None),
+        session_id: str | None = Query(default=None),
+    ) -> dict[str, Any]:
+        filters = PointFilters(
+            date_from=date_from,
+            date_to=date_to,
+            session_id=session_id,
+            page=1,
+            page_size=1,
+        )
+        summary = _storage(request).summarize_points(filters)
+        return {
+            "requestId": request.state.request_id,
+            "meta": summary,
+            "processing": _summarize_import_tasks(),
+        }
+
     @app.get("/api/map-data", dependencies=[Depends(_require_admin_access)])
     async def api_map_data(
         request: Request,
         date_from: str | None = Query(default=None),
         date_to: str | None = Query(default=None),
         session_id: str | None = Query(default=None),
+        bbox: str | None = Query(default=None),
         page_size: int | None = Query(default=None, ge=1),
         log_limit: int | None = Query(default=None, ge=1),
         zoom: float = Query(default=12, ge=1, le=22),
@@ -709,6 +731,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         effective_log_limit = min(log_limit or effective_page_size, effective_page_size)
         effective_zoom = max(1, min(22, round(zoom)))
+        viewport_bbox = _parse_bbox(bbox)
+        padded_bbox = _expand_bbox(viewport_bbox, zoom=effective_zoom) if viewport_bbox else None
         filters = PointFilters(
             date_from=date_from,
             date_to=date_to,
@@ -723,11 +747,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if cached and (now - cached[0]) < _MAP_DATA_CACHE_TTL:
             _, etag, body = cached
         else:
-            listed = _storage(request).list_points(filters)
+            storage = _storage(request)
+            if viewport_bbox:
+                total_points = storage.count_points(filters)
+                visible_points = storage.count_points(filters, bbox=viewport_bbox)
+                listed_items = storage.list_points_in_bbox(filters, bbox=padded_bbox or viewport_bbox)
+            else:
+                listed = storage.list_points(filters)
+                total_points = listed["total"]
+                visible_points = len(listed["items"])
+                listed_items = listed["items"]
             payload = await asyncio.to_thread(
                 _prepare_map_payload,
-                listed["items"],
-                total_points=listed["total"],
+                listed_items,
+                total_points=total_points,
+                visible_points=visible_points,
                 zoom=effective_zoom,
                 log_limit=effective_log_limit,
                 route_time_gap_min=route_time_gap_min,
@@ -744,6 +778,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 include_daytrack=include_daytrack,
                 include_snap=include_snap,
             )
+            if viewport_bbox:
+                payload["meta"]["bbox"] = {
+                    "minLon": viewport_bbox[0],
+                    "minLat": viewport_bbox[1],
+                    "maxLon": viewport_bbox[2],
+                    "maxLat": viewport_bbox[3],
+                }
             result = {"requestId": request.state.request_id, **payload}
             result["processing"] = _summarize_import_tasks()
             body = json.dumps(result, separators=(",", ":")).encode()
@@ -1349,10 +1390,46 @@ def _storage(request: Request) -> ReceiverStorage:
     return request.app.state.storage
 
 
+def _parse_bbox(raw_bbox: str | None) -> tuple[float, float, float, float] | None:
+    if not raw_bbox:
+        return None
+    try:
+        min_lon, min_lat, max_lon, max_lat = [float(part.strip()) for part in raw_bbox.split(",")]
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid bbox: {raw_bbox}") from exc
+    if not (-180 <= min_lon <= 180 and -180 <= max_lon <= 180 and -90 <= min_lat <= 90 and -90 <= max_lat <= 90):
+        raise HTTPException(status_code=400, detail="Invalid bbox coordinates")
+    if min_lat > max_lat:
+        raise HTTPException(status_code=400, detail="Invalid bbox latitude ordering")
+    return (min_lon, min_lat, max_lon, max_lat)
+
+
+def _expand_bbox(bbox: tuple[float, float, float, float], *, zoom: int) -> tuple[float, float, float, float]:
+    min_lon, min_lat, max_lon, max_lat = bbox
+    lon_span = max(0.001, (max_lon - min_lon) % 360 if min_lon > max_lon else max_lon - min_lon)
+    lat_span = max(0.001, max_lat - min_lat)
+    factor = 0.35 if zoom <= 8 else 0.22 if zoom <= 11 else 0.12 if zoom <= 14 else 0.06
+    lon_pad = min(10.0, max(0.002, lon_span * factor))
+    lat_pad = min(10.0, max(0.002, lat_span * factor))
+    expanded_min_lon = min_lon - lon_pad
+    expanded_max_lon = max_lon + lon_pad
+    while expanded_min_lon < -180:
+        expanded_min_lon += 360
+    while expanded_max_lon > 180:
+        expanded_max_lon -= 360
+    return (
+        expanded_min_lon,
+        max(-90.0, min_lat - lat_pad),
+        expanded_max_lon,
+        min(90.0, max_lat + lat_pad),
+    )
+
+
 def _prepare_map_payload(
     points_desc: list[dict[str, Any]],
     *,
     total_points: int,
+    visible_points: int,
     zoom: int,
     log_limit: int,
     route_time_gap_min: int,
@@ -1371,7 +1448,7 @@ def _prepare_map_payload(
 ) -> dict[str, Any]:
     if not points_desc:
         return {
-            "meta": {"totalPoints": total_points, "visiblePoints": 0, "serverPrepared": True},
+            "meta": {"totalPoints": total_points, "visiblePoints": visible_points, "serverPrepared": True},
             "stats": {"pointsPerMinute": 0, "avgAccuracyM": None, "sessionDurationSeconds": 0},
             "layers": {
                 "points": [],
@@ -1399,7 +1476,8 @@ def _prepare_map_payload(
     payload = {
         "meta": {
             "totalPoints": total_points,
-            "visiblePoints": len(points_desc),
+            "visiblePoints": visible_points,
+            "loadedPoints": len(points_desc),
             "serverPrepared": True,
             "segmentCount": len(segments),
         },

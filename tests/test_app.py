@@ -439,6 +439,59 @@ def test_map_data_respects_adjustable_log_limit(tmp_path: Path) -> None:
     assert len(response.json()["logItems"]) == 3
 
 
+def test_map_data_uses_viewport_bbox_filters(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    headers = basic_auth_headers("operator", "dashboard-pass")
+
+    inside = valid_payload()
+    inside["points"] = [
+        {
+            "latitude": 52.5200,
+            "longitude": 13.4050,
+            "timestamp": "2026-03-20T12:00:00Z",
+            "horizontalAccuracyM": 5.0,
+        }
+    ]
+    outside = valid_payload()
+    outside["sessionID"] = "123e4567-e89b-12d3-a456-426614174999"
+    outside["points"] = [
+        {
+            "latitude": 48.1372,
+            "longitude": 11.5756,
+            "timestamp": "2026-03-20T12:01:00Z",
+            "horizontalAccuracyM": 5.0,
+        }
+    ]
+
+    client.post("/live-location", json=inside)
+    client.post("/live-location", json=outside)
+
+    response = client.get(
+        "/api/map-data?page_size=50&bbox=13.300000,52.400000,13.500000,52.600000&zoom=14",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["meta"]["totalPoints"] == 2
+    assert payload["meta"]["visiblePoints"] == 1
+    assert payload["layers"]["latestPoint"]["lat"] == 52.52
+
+
+def test_map_meta_returns_global_summary(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    headers = basic_auth_headers("operator", "dashboard-pass")
+    client.post("/live-location", json=valid_payload())
+
+    response = client.get("/api/map-meta", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["meta"]["totalPoints"] == 2
+    assert payload["meta"]["boundingBox"]["minLatitude"] == 52.52
+    assert payload["meta"]["boundingBox"]["maxLongitude"] == 13.406
+
+
 def make_client(
     tmp_path: Path,
     *,

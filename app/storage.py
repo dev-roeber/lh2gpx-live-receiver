@@ -945,6 +945,72 @@ class ReceiverStorage:
             "recentPoints": self.list_points(PointFilters(page=1, page_size=capped_limit))["items"],
         }
 
+    def count_points(self, filters: PointFilters, *, bbox: tuple[float, float, float, float] | None = None) -> int:
+        self._require_ready()
+        where_clause, parameters = _build_shared_filters(
+            date_from=filters.date_from,
+            date_to=filters.date_to,
+            time_from=filters.time_from,
+            time_to=filters.time_to,
+            session_id=filters.session_id,
+            capture_mode=filters.capture_mode,
+            source=filters.source,
+            search=filters.search,
+            time_column="point_timestamp_utc",
+            local_date_column="point_date_local",
+            local_time_column="point_time_local",
+        )
+        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox)
+        count_query = f"SELECT COUNT(*) AS total FROM gps_points {where_clause}"
+        with self._connect() as connection:
+            total = connection.execute(count_query, parameters).fetchone()["total"]
+        return int(total or 0)
+
+    def list_points_in_bbox(
+        self,
+        filters: PointFilters,
+        *,
+        bbox: tuple[float, float, float, float],
+    ) -> list[dict[str, Any]]:
+        self._require_ready()
+        where_clause, parameters = _build_shared_filters(
+            date_from=filters.date_from,
+            date_to=filters.date_to,
+            time_from=filters.time_from,
+            time_to=filters.time_to,
+            session_id=filters.session_id,
+            capture_mode=filters.capture_mode,
+            source=filters.source,
+            search=filters.search,
+            time_column="point_timestamp_utc",
+            local_date_column="point_date_local",
+            local_time_column="point_time_local",
+        )
+        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox)
+        query = f"""
+            SELECT
+                id,
+                request_id,
+                received_at_utc,
+                sent_at_utc,
+                point_timestamp_utc,
+                point_timestamp_local,
+                point_date_local,
+                point_time_local,
+                latitude,
+                longitude,
+                horizontal_accuracy_m,
+                session_id,
+                source,
+                capture_mode
+            FROM gps_points
+            {where_clause}
+            ORDER BY point_timestamp_utc DESC, id DESC
+        """
+        with self._connect() as connection:
+            rows = connection.execute(query, parameters).fetchall()
+        return [dict(row) for row in rows]
+
     def list_points(self, filters: PointFilters) -> dict[str, Any]:
         self._require_ready()
         where_clause, parameters = _build_shared_filters(
@@ -1090,6 +1156,51 @@ class ReceiverStorage:
             writer.writerows(listed)
             return output.getvalue(), "text/csv; charset=utf-8"
         raise ValueError(f"Unsupported export format: {export_format}")
+
+    def summarize_points(self, filters: PointFilters) -> dict[str, Any]:
+        self._require_ready()
+        where_clause, parameters = _build_shared_filters(
+            date_from=filters.date_from,
+            date_to=filters.date_to,
+            time_from=filters.time_from,
+            time_to=filters.time_to,
+            session_id=filters.session_id,
+            capture_mode=filters.capture_mode,
+            source=filters.source,
+            search=filters.search,
+            time_column="point_timestamp_utc",
+            local_date_column="point_date_local",
+            local_time_column="point_time_local",
+        )
+        query = f"""
+            SELECT
+                COUNT(*) AS total_points,
+                MIN(point_timestamp_utc) AS first_point_ts_utc,
+                MAX(point_timestamp_utc) AS last_point_ts_utc,
+                MIN(latitude) AS min_latitude,
+                MAX(latitude) AS max_latitude,
+                MIN(longitude) AS min_longitude,
+                MAX(longitude) AS max_longitude
+            FROM gps_points
+            {where_clause}
+        """
+        with self._connect() as connection:
+            row = dict(connection.execute(query, parameters).fetchone())
+        total_points = int(row["total_points"] or 0)
+        bounding_box = None
+        if total_points:
+            bounding_box = {
+                "minLatitude": float(row["min_latitude"]),
+                "maxLatitude": float(row["max_latitude"]),
+                "minLongitude": float(row["min_longitude"]),
+                "maxLongitude": float(row["max_longitude"]),
+            }
+        return {
+            "totalPoints": total_points,
+            "firstPointTsUtc": row["first_point_ts_utc"],
+            "lastPointTsUtc": row["last_point_ts_utc"],
+            "boundingBox": bounding_box,
+        }
 
     def get_point(self, point_id: int) -> dict[str, Any] | None:
         self._require_ready()
@@ -1643,6 +1754,26 @@ def _build_shared_filters(
 
     if not clauses:
         return "", parameters
+    return f"WHERE {' AND '.join(clauses)}", parameters
+
+
+def _append_bbox_filter(
+    where_clause: str,
+    parameters: list[Any],
+    bbox: tuple[float, float, float, float] | None,
+) -> tuple[str, list[Any]]:
+    if not bbox:
+        return where_clause, parameters
+    min_lon, min_lat, max_lon, max_lat = bbox
+    clauses = [] if not where_clause else [where_clause.removeprefix("WHERE ").strip()]
+    if min_lon <= max_lon:
+        clauses.append("longitude BETWEEN ? AND ?")
+        parameters = [*parameters, min_lon, max_lon]
+    else:
+        clauses.append("(longitude >= ? OR longitude <= ?)")
+        parameters = [*parameters, min_lon, max_lon]
+    clauses.append("latitude BETWEEN ? AND ?")
+    parameters = [*parameters, min_lat, max_lat]
     return f"WHERE {' AND '.join(clauses)}", parameters
 
 

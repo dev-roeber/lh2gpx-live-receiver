@@ -454,7 +454,9 @@
   let cssFsActive = false;
   let filtersExpanded = false;
   let currentFetchController = null;
+  let currentMetaFetchController = null;
   let lastETag = null;
+  let lastMetaEtag = null;
   let updateTimer = null;
   let barTickTimer = null;
   let lastRefreshTime = null;
@@ -462,8 +464,10 @@
   let isManualRefresh = false;
   let mapUpdateInFlight = false;
   let pendingMapRefresh = false;
+  let suppressedViewportRefreshes = 0;
   let currentLogItems = [];
   let lastMapPayload = null;
+  let lastMetaPayload = null;
   let persistentRuntimeWarnings = [];
   let mapRuntimeWarnings = [];
   let heatmapPluginAvailable = false;
@@ -521,6 +525,14 @@
     updateTimer = setTimeout(() => {
       updateMap();
     }, delay);
+  }
+
+  function getViewportBbox() {
+    if (!map) return null;
+    const bounds = map.getBounds();
+    const southWest = bounds.getSouthWest();
+    const northEast = bounds.getNorthEast();
+    return `${southWest.lng.toFixed(6)},${southWest.lat.toFixed(6)},${northEast.lng.toFixed(6)},${northEast.lat.toFixed(6)}`;
   }
 
   function normalizeMapZoom() {
@@ -758,6 +770,8 @@
     params.set('include_stops', stopsActive ? 'true' : 'false');
     params.set('include_daytrack', daytrackActive ? 'true' : 'false');
     params.set('include_snap', snapActive ? 'true' : 'false');
+    const bbox = getViewportBbox();
+    if (bbox) params.set('bbox', bbox);
     if (sessionId) params.set('session_id', sessionId);
     if (TIME_RANGE !== 'all') params.set('date_from', buildDateFromIso());
     return params;
@@ -780,6 +794,39 @@
     params.delete('include_daytrack');
     params.delete('include_snap');
     return `/api/points?${params.toString()}`;
+  }
+
+  function buildMetaFilters() {
+    const sessionActive = document.getElementById('session-filter-toggle').checked;
+    const importActive = document.getElementById('import-filter-toggle').checked;
+    const sessionId = sessionActive
+      ? document.getElementById('session-select-dropdown').value
+      : importActive
+        ? document.getElementById('import-select-dropdown').value
+        : '';
+    const params = new URLSearchParams();
+    if (sessionId) params.set('session_id', sessionId);
+    if (TIME_RANGE !== 'all') params.set('date_from', buildDateFromIso());
+    return params;
+  }
+
+  async function updateMapMeta() {
+    const params = buildMetaFilters();
+    const url = `/api/map-meta?${params.toString()}`;
+    const headers = lastMetaEtag ? { 'If-None-Match': lastMetaEtag } : {};
+    if (currentMetaFetchController) currentMetaFetchController.abort();
+    currentMetaFetchController = new AbortController();
+    const response = await fetch(url, { credentials: 'same-origin', signal: currentMetaFetchController.signal, headers });
+    if (response.status === 304 && lastMetaPayload) {
+      renderProcessingStatus(lastMetaPayload.processing || null);
+      return lastMetaPayload;
+    }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    lastMetaEtag = response.headers.get('etag') || null;
+    const payload = await response.json();
+    lastMetaPayload = payload;
+    renderProcessingStatus(payload.processing || null);
+    return payload;
   }
 
   async function exportGeoJSON() {
@@ -1091,8 +1138,12 @@
     if (fitBounds) {
       const boundsPoints = collectVisibleBoundsPoints(layers);
       if (!boundsPoints.length && latest) boundsPoints.push([latest.lat, latest.lon]);
-      if (boundsPoints.length) map.fitBounds(L.latLngBounds(boundsPoints), { padding: [50, 50], animate: true });
+      if (boundsPoints.length) {
+        suppressedViewportRefreshes = Math.max(suppressedViewportRefreshes, 2);
+        map.fitBounds(L.latLngBounds(boundsPoints), { padding: [50, 50], animate: true });
+      }
     } else if (autoCenter && latest) {
+      suppressedViewportRefreshes = Math.max(suppressedViewportRefreshes, 1);
       map.panTo([latest.lat, latest.lon], { animate: true });
     }
   }
@@ -1279,6 +1330,9 @@
     try {
       mapUpdateInFlight = true;
       pendingMapRefresh = false;
+      updateMapMeta().catch(error => {
+        if (error.name !== 'AbortError') console.warn('Map meta update failed', error);
+      });
       apiStatus.textContent = '● LADEN';
       apiStatus.style.color = 'var(--orange)';
       if (isManualRefresh) overlay.style.display = 'flex';
@@ -1296,7 +1350,7 @@
         lastRefreshTime = Date.now();
         nextRefreshTime = Date.now() + POLLING_INTERVAL;
         isManualRefresh = false;
-        renderProcessingStatus(lastMapPayload.processing || null);
+        renderProcessingStatus(lastMapPayload.processing || lastMetaPayload?.processing || null);
         renderLog(currentLogItems);
         return;
       }
@@ -1327,13 +1381,13 @@
       renderLog(payload.logItems || []);
 
       const visible = payload.meta?.visiblePoints || 0;
-      const total = payload.meta?.totalPoints || 0;
+      const total = lastMetaPayload?.meta?.totalPoints ?? payload.meta?.totalPoints ?? 0;
       const baseText = visible ? `${total.toLocaleString('de-DE')} Punkte gesamt · ${visible.toLocaleString('de-DE')} im geladenen Kartenmodell` : 'Keine Punkte im gewählten Zeitraum.';
       statsText.innerText = mapRuntimeWarnings.length ? `${baseText} · Hinweise: ${mapRuntimeWarnings.join(', ')}` : baseText;
       statsText.style.color = mapRuntimeWarnings.length ? 'var(--orange)' : 'var(--text-muted)';
       badge.textContent = `${visible.toLocaleString('de-DE')} geladen`;
       badge.style.display = visible ? 'inline' : 'none';
-      document.getElementById('api-info-points').textContent = `${visible.toLocaleString('de-DE')} / ${total.toLocaleString('de-DE')} gesamt`;
+      document.getElementById('api-info-points').textContent = `${visible.toLocaleString('de-DE')} / ${total.toLocaleString('de-DE')} sichtbar/gesamt`;
       document.getElementById('api-info-ms').textContent = `${fetchMs} ms`;
       document.getElementById('api-info-url').textContent = url.length > 48 ? `${url.slice(0, 48)}…` : url;
       apiStatus.textContent = '● ONLINE';
@@ -1425,6 +1479,13 @@
     const resizeObserver = new ResizeObserver(() => map.invalidateSize(false));
     resizeObserver.observe(document.getElementById('map-container'));
     L.control.scale().addTo(map);
+    map.on('moveend zoomend', () => {
+      if (suppressedViewportRefreshes > 0) {
+        suppressedViewportRefreshes -= 1;
+        return;
+      }
+      debouncedMapRefresh();
+    });
 
     updateLegend();
     updateLegendPlacement();
