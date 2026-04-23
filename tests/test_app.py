@@ -321,6 +321,45 @@ def test_parse_zip_supports_geo_dot_json_entries() -> None:
     assert len(report["points"]) == 1
 
 
+def test_parse_google_timeline_2024_json_with_geo_uris() -> None:
+    payload = json.dumps(
+        [
+            {
+                "startTime": "2026-04-23T12:00:00Z",
+                "visit": {
+                    "topCandidate": {
+                        "placeLocation": "geo:52.52,13.405"
+                    }
+                },
+            },
+            {
+                "startTime": "2026-04-23T12:10:00Z",
+                "activity": {
+                    "start": "geo:52.5205,13.4055",
+                    "end": "geo:52.5210,13.4060",
+                },
+            },
+            {
+                "startTime": "2026-04-23T12:20:00Z",
+                "timelinePath": [
+                    {"point": "geo:52.5220,13.4070", "durationMinutesOffsetFromStartTime": 0},
+                    {"point": "geo:52.5230,13.4080", "durationMinutesOffsetFromStartTime": 5},
+                ],
+            },
+        ]
+    ).encode("utf-8")
+
+    report = parse_file_report("23_04_2026_location-history.json", payload)
+
+    assert report["detected_format"] == "json"
+    assert len(report["points"]) == 5
+    assert {point["capture_mode"] for point in report["points"]} == {
+        "google_visit",
+        "google_activity",
+        "google_path",
+    }
+
+
 def make_client(
     tmp_path: Path,
     *,

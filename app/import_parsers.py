@@ -90,6 +90,12 @@ def _parse_geo_uri(s: str) -> tuple[float, float] | None:
     """Extrahiert lat/lon aus 'geo:lat,lon' oder 'geo:lat,lon?...' Strings."""
     if not isinstance(s, str) or not s.startswith("geo:"):
         return None
+    try:
+        coords = s[4:].split("?")[0]
+        lat_s, lon_s = coords.split(",", 1)
+        return float(lat_s), float(lon_s)
+    except Exception:
+        return None
 
 
 def _wrap_report(detected_format: str, points: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
@@ -100,12 +106,6 @@ def _wrap_report(detected_format: str, points: list[dict[str, Any]], **extra: An
     }
     report.update(extra)
     return report
-    try:
-        coords = s[4:].split("?")[0]
-        lat_s, lon_s = coords.split(",", 1)
-        return float(lat_s), float(lon_s)
-    except Exception:
-        return None
 
 
 # ── JSON (Google Maps Timeline, diverse Formate) ─────────────
