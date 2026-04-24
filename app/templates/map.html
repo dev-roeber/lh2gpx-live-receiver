@@ -675,6 +675,7 @@
   let legendVisible = storageGet('map-legend-visible', '1') !== '0';
   let initialGlobalLatestFocusDone = false;
   let forceGlobalLatestFocus = false;
+  let suppressMapFocusUntil = 0;
 
   let heatmapActive = false;
   let pointsActive = true;
@@ -744,6 +745,7 @@
     }
     if (latest && map) {
       suppressedViewportRefreshes += 1;
+      suppressMapFocusUntil = Date.now() + 2500;
       map.flyTo({ center: [latest.lon, latest.lat], zoom: 16, speed: 1.0, essential: true });
     }
   }
@@ -1323,6 +1325,7 @@
   }
 
   function applyMapFocus(layers) {
+    if (Date.now() < suppressMapFocusUntil) return;
     const latest = layers.latestPoint;
     const autoCenter = document.getElementById('auto-center-toggle').checked;
     const fitBounds = document.getElementById('fit-bounds-toggle').checked;
