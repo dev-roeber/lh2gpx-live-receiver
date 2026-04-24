@@ -106,7 +106,7 @@
   <article class="panel map-container-wrapper">
     <div id="map-wrap" style="position:relative;">
       <div id="map-container"></div>
-      <div id="map-loading-overlay" style="display:none;position:absolute;right:12px;bottom:12px;z-index:750;pointer-events:none;align-items:center;justify-content:center;max-width:calc(100% - 24px);">
+      <div id="map-loading-overlay" style="display:none;position:absolute;top:12px;right:12px;z-index:750;pointer-events:none;align-items:flex-start;justify-content:flex-end;max-width:calc(100% - 24px);">
         <div id="map-loading-card" style="background:rgba(28,28,30,0.76);backdrop-filter:blur(14px) saturate(180%);-webkit-backdrop-filter:blur(14px) saturate(180%);border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:14px 16px;font-size:0.82rem;color:var(--text-2);display:flex;flex-direction:column;gap:10px;width:min(360px,calc(100vw - 40px));max-width:100%;box-shadow:0 10px 36px rgba(0,0,0,0.42);pointer-events:auto;transform:translateY(0);opacity:1;transition:opacity 160ms ease, transform 160ms ease;box-sizing:border-box;">
           <div style="display:flex;align-items:center;gap:10px;">
             <span id="map-loading-spinner" style="animation:spin 1s linear infinite;display:inline-block;color:var(--0a84ff,#0A84FF);">⟳</span>
@@ -764,6 +764,25 @@
     if (seconds <= 0) return '0s';
     if (seconds < 60) return `${Math.round(seconds)}s`;
     return formatDuration(seconds);
+  }
+
+  function updateMapOverlayLayout() {
+    const wrap = document.getElementById('map-wrap');
+    const loadingCard = document.getElementById('map-loading-card');
+    const timeline = document.getElementById('map-timeline-container');
+    if (!wrap || !loadingCard || !timeline) return;
+    const width = wrap.clientWidth || 0;
+    const height = wrap.clientHeight || 0;
+    const compact = width < 560 || height < 430;
+    const overlayGap = width < 420 ? 8 : width < 768 ? 10 : 12;
+    const loadingWidth = compact ? Math.max(210, Math.min(width - overlayGap * 2, 260)) : Math.max(260, Math.min(width * 0.34, 340));
+    const timelineWidth = compact ? Math.max(220, width - overlayGap * 2) : Math.max(300, Math.min(width * 0.72, 560));
+    const timelineBottom = compact ? 10 : 18;
+    wrap.style.setProperty('--map-overlay-gap', `${overlayGap}px`);
+    wrap.style.setProperty('--map-loading-width', `${Math.max(180, loadingWidth)}px`);
+    wrap.style.setProperty('--map-timeline-width', `${Math.max(220, timelineWidth)}px`);
+    wrap.style.setProperty('--map-timeline-bottom', `${timelineBottom}px`);
+    wrap.dataset.overlayCompact = compact ? '1' : '0';
   }
 
   function getRelativeTime(timestamp) {
@@ -1824,6 +1843,7 @@
     const container = document.getElementById('map-timeline-container');
     if (!points || points.length < 2) {
       container.style.display = 'none';
+      updateMapOverlayLayout();
       return;
     }
     
@@ -1834,10 +1854,12 @@
     
     if (timelineMaxTs - timelineMinTs < 1000) { // Zu kurzer Zeitraum
       container.style.display = 'none';
+      updateMapOverlayLayout();
       return;
     }
 
     container.style.display = 'block';
+    updateMapOverlayLayout();
     document.getElementById('timeline-start-label').textContent = new Date(timelineMinTs).toLocaleString('de-DE', { hour: '2-digit', minute: '2-digit' });
     document.getElementById('timeline-end-label').textContent = new Date(timelineMaxTs).toLocaleString('de-DE', { hour: '2-digit', minute: '2-digit' });
     
@@ -1998,6 +2020,7 @@
       if (!map || typeof map.resize !== 'function') return;
       requestAnimationFrame(() => {
         map.resize();
+        updateMapOverlayLayout();
         setTimeout(() => map.resize(), 250);
       });
     }
@@ -2015,6 +2038,7 @@
       updateLegend();
       updateLegendPlacement();
       updateLegendToggleButton();
+      updateMapOverlayLayout();
       updateMap();
     });
 
