@@ -1039,6 +1039,49 @@ class ReceiverStorage:
             rows = connection.execute(query, parameters).fetchall()
         return [dict(row) for row in rows]
 
+    def list_timeline_points(
+        self,
+        filters: PointFilters,
+        *,
+        bbox: tuple[float, float, float, float] | None = None,
+        limit: int = 50000,
+    ) -> list[dict[str, Any]]:
+        self._require_ready()
+        capped_limit = max(1, min(int(limit), 50000))
+        where_clause, parameters = _build_shared_filters(
+            date_from=filters.date_from,
+            date_to=filters.date_to,
+            time_from=filters.time_from,
+            time_to=filters.time_to,
+            session_id=filters.session_id,
+            capture_mode=filters.capture_mode,
+            source=filters.source,
+            search=filters.search,
+            time_column="point_timestamp_utc",
+            local_date_column="point_date_local",
+            local_time_column="point_time_local",
+        )
+        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox)
+        query = f"""
+            SELECT
+                id,
+                point_timestamp_utc,
+                point_timestamp_local,
+                latitude,
+                longitude,
+                horizontal_accuracy_m,
+                session_id,
+                source,
+                capture_mode
+            FROM gps_points
+            {where_clause}
+            ORDER BY point_timestamp_utc ASC, id ASC
+            LIMIT ?
+        """
+        with self._connect() as connection:
+            rows = connection.execute(query, [*parameters, capped_limit]).fetchall()
+        return [dict(row) for row in rows]
+
     def list_points_since(
         self,
         filters: PointFilters,

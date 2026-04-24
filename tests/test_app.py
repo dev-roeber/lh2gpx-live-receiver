@@ -170,6 +170,22 @@ def test_points_endpoints_filter_and_export(tmp_path: Path) -> None:
     assert ndjson_response.text.count("\n") >= 1
 
 
+def test_timeline_endpoint_returns_lightweight_points(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    client.post("/live-location", json=valid_payload())
+    headers = basic_auth_headers("operator", "dashboard-pass")
+
+    response = client.get("/api/timeline?limit=10", headers=headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["timeline"]["count"] == 2
+    first = body["timeline"]["items"][0]
+    assert "timestampUtc" in first
+    assert "latitude" in first
+    assert "longitude" in first
+
+
 def test_request_and_session_detail_endpoints(tmp_path: Path) -> None:
     client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
     client.post("/live-location", json=valid_payload())

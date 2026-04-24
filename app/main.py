@@ -721,6 +721,67 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"},
         )
 
+    @app.get("/api/timeline", dependencies=[Depends(_require_admin_access)])
+    async def api_timeline(
+        request: Request,
+        date_from: str | None = Query(default=None),
+        date_to: str | None = Query(default=None),
+        time_from: str | None = Query(default=None),
+        time_to: str | None = Query(default=None),
+        session_id: str | None = Query(default=None),
+        capture_mode: str | None = Query(default=None),
+        source: str | None = Query(default=None),
+        search: str | None = Query(default=None),
+        bbox: str | None = Query(default=None),
+        limit: int = Query(default=50000, ge=1, le=50000),
+    ) -> Response:
+        viewport_bbox = _parse_bbox(bbox)
+        filters = PointFilters(
+            date_from=date_from,
+            date_to=date_to,
+            time_from=time_from,
+            time_to=time_to,
+            session_id=session_id,
+            capture_mode=capture_mode,
+            source=source,
+            search=search,
+            page=1,
+            page_size=1,
+        )
+        cache_key = f"timeline:{request.url.query}"
+        now = time.time()
+        cached = _POINTS_CACHE.get(cache_key)
+        if cached and (now - cached[0]) < _POINTS_CACHE_TTL:
+            _, etag, body = cached
+        else:
+            items = _storage(request).list_timeline_points(filters, bbox=viewport_bbox, limit=limit)
+            result = {
+                "requestId": request.state.request_id,
+                "timeline": {
+                    "items": [
+                        {
+                            "id": item["id"],
+                            "timestampUtc": item["point_timestamp_utc"],
+                            "timestampLocal": item["point_timestamp_local"],
+                            "latitude": item["latitude"],
+                            "longitude": item["longitude"],
+                            "horizontal_accuracy_m": item["horizontal_accuracy_m"],
+                            "session_id": item["session_id"],
+                            "source": item["source"],
+                            "capture_mode": item["capture_mode"],
+                        }
+                        for item in items
+                    ],
+                    "count": len(items),
+                },
+            }
+            body = json.dumps(result, separators=(",", ":")).encode()
+            etag = hashlib.md5(body, usedforsecurity=False).hexdigest()
+            _POINTS_CACHE[cache_key] = (now, etag, body)
+        if request.headers.get("if-none-match") == f'"{etag}"':
+            return Response(status_code=304, headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"})
+        return Response(content=body, media_type="application/json", headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"})
+
     @app.get("/api/map-meta", dependencies=[Depends(_require_admin_access)])
     async def api_map_meta(
         request: Request,

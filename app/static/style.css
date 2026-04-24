@@ -1007,6 +1007,42 @@ label {
   color: rgba(255,255,255,0.62);
 }
 
+#map-loading-phases {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+#map-loading-phases span {
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 2px 7px;
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.5);
+  background: rgba(255,255,255,0.04);
+}
+
+#map-loading-phases span.is-active {
+  color: #fff;
+  border-color: rgba(100,210,255,0.35);
+  background: rgba(100,210,255,0.16);
+}
+
+#map-loading-phases span.is-done {
+  color: #30D158;
+  border-color: rgba(48,209,88,0.28);
+  background: rgba(48,209,88,0.12);
+}
+
+#map-loading-eta {
+  font-size: 0.64rem;
+  color: rgba(255,255,255,0.6);
+}
+
 .map-loading-meta {
   display: flex;
   align-items: center;
