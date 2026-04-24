@@ -1389,6 +1389,23 @@
     });
   }
 
+  function buildCirclePolygon(lon, lat, radiusMeters, steps = 48) {
+    const safeRadius = Math.max(0, Number(radiusMeters) || 0);
+    if (!safeRadius) return [];
+    const coords = [];
+    const latRad = lat * (Math.PI / 180);
+    const metersPerDegLat = 111320;
+    const metersPerDegLon = Math.max(111320 * Math.cos(latRad), 0.000001);
+    for (let i = 0; i <= steps; i += 1) {
+      const angle = (i / steps) * Math.PI * 2;
+      coords.push([
+        lon + (Math.cos(angle) * safeRadius) / metersPerDegLon,
+        lat + (Math.sin(angle) * safeRadius) / metersPerDegLat,
+      ]);
+    }
+    return coords;
+  }
+
   function renderPoints(points, latestPoint) {
     const features = points.map(p => ({
       type: 'Feature',
@@ -1402,6 +1419,8 @@
         type: 'FeatureCollection',
         features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [latestPoint.lon, latestPoint.lat] }, properties: { isLatest: true } }]
       });
+    } else {
+      map.getSource(SOURCE_IDS.LATEST).setData({ type: 'FeatureCollection', features: [] });
     }
   }
 
@@ -1426,8 +1445,8 @@
   function renderAccuracy(entries) {
     const features = entries.map(e => ({
       type: 'Feature',
-      geometry: { type: 'Point', coordinates: [e.lon, e.lat] },
-      properties: { radius_m: e.radius, radius_px: Math.max(4, Math.min(28, (Number(e.radius) || 0) / 8)) }
+      geometry: { type: 'Polygon', coordinates: [buildCirclePolygon(e.lon, e.lat, e.radius)] },
+      properties: { radius_m: e.radius }
     }));
     map.getSource(SOURCE_IDS.ACCURACY).setData({ type: 'FeatureCollection', features });
   }
@@ -2547,11 +2566,32 @@
       layout: { 'line-join': 'round', 'line-cap': 'round' },
       paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-opacity': 0.9 }
     });
-
-    // Accuracy Circles
     map.addLayer({
-      id: 'layer-accuracy', type: 'circle', source: SOURCE_IDS.ACCURACY,
-      paint: { 'circle-radius': ['get', 'radius_px'], 'circle-color': '#0A84FF', 'circle-opacity': 0.1, 'circle-stroke-width': 1, 'circle-stroke-color': '#0A84FF', 'circle-stroke-opacity': 0.3 }
+      id: 'layer-line-labels', type: 'symbol', source: SOURCE_IDS.LINES,
+      filter: ['!=', ['get', 'label'], ' - '],
+      layout: {
+        'symbol-placement': 'line-center',
+        'text-field': ['get', 'label'],
+        'text-size': 11,
+        'text-font': ['Open Sans Semibold', 'Arial Unicode MS Regular'],
+        'text-offset': [0, -1.1],
+        'text-allow-overlap': false,
+      },
+      paint: {
+        'text-color': '#FFFFFF',
+        'text-halo-color': 'rgba(0,0,0,0.65)',
+        'text-halo-width': 1.2,
+      }
+    });
+
+    // Accuracy Areas
+    map.addLayer({
+      id: 'layer-accuracy-fill', type: 'fill', source: SOURCE_IDS.ACCURACY,
+      paint: { 'fill-color': '#0A84FF', 'fill-opacity': 0.08 }
+    });
+    map.addLayer({
+      id: 'layer-accuracy', type: 'line', source: SOURCE_IDS.ACCURACY,
+      paint: { 'line-color': '#0A84FF', 'line-opacity': 0.32, 'line-width': 1.5 }
     });
 
     // Points
@@ -2564,6 +2604,47 @@
     map.addLayer({
       id: 'layer-latest', type: 'circle', source: SOURCE_IDS.LATEST,
       paint: { 'circle-radius': 8, 'circle-color': '#30D158', 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' }
+    });
+    map.addLayer({
+      id: 'layer-speed', type: 'line', source: SOURCE_IDS.SPEED,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': ['get', 'color'], 'line-width': 4, 'line-opacity': 0.95 }
+    });
+    map.addLayer({
+      id: 'layer-daytracks', type: 'line', source: SOURCE_IDS.DAYTRACKS,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': ['get', 'color'], 'line-width': 3.5, 'line-opacity': 0.9 }
+    });
+    map.addLayer({
+      id: 'layer-snap', type: 'line', source: SOURCE_IDS.SNAP,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#30D158', 'line-width': 3, 'line-opacity': 0.9, 'line-dasharray': [1.2, 1.2] }
+    });
+    map.addLayer({
+      id: 'layer-stops', type: 'circle', source: SOURCE_IDS.STOPS,
+      paint: {
+        'circle-radius': 7,
+        'circle-color': '#BF5AF2',
+        'circle-opacity': 0.2,
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#BF5AF2',
+        'circle-stroke-opacity': 0.95
+      }
+    });
+    map.addLayer({
+      id: 'layer-stops-labels', type: 'symbol', source: SOURCE_IDS.STOPS,
+      layout: {
+        'text-field': ['get', 'label'],
+        'text-size': 11,
+        'text-font': ['Open Sans Semibold', 'Arial Unicode MS Regular'],
+        'text-offset': [0, 1.4],
+        'text-anchor': 'top',
+      },
+      paint: {
+        'text-color': '#FFFFFF',
+        'text-halo-color': 'rgba(0,0,0,0.65)',
+        'text-halo-width': 1.2,
+      }
     });
     
     // Popups

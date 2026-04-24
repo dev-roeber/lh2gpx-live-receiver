@@ -1711,7 +1711,7 @@ def _prepare_map_payload(
         },
         "layers": {
             "points": [],
-            "latestPoint": _serialize_latest_point(latest),
+            "latestPoint": _serialize_latest_point(latest) if include_points else None,
             "heatmap": [],
             "polylines": [],
             "accuracy": [],
@@ -1796,7 +1796,7 @@ def _prepare_map_delta_payload(
         },
         "delta": {
             "appendPoints": [],
-            "latestPoint": _serialize_latest_point(latest) if latest else None,
+            "latestPoint": _serialize_latest_point(latest) if (latest and include_points) else None,
             "appendLogItems": [_serialize_log_point(point) for point in new_viewport_points_desc[:max(1, log_limit)]],
         },
     }
