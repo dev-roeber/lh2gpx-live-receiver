@@ -128,6 +128,7 @@
                 <span data-phase="render">Render</span>
               </div>
               <span id="map-loading-eta">ETA wird berechnet…</span>
+              <button id="map-loading-retry" type="button">Erneut laden</button>
             </div>
           </div>
 
@@ -1763,6 +1764,7 @@
       detail: document.getElementById('map-loading-detail'),
       eta: document.getElementById('map-loading-eta'),
       phases: document.getElementById('map-loading-phases'),
+      retry: document.getElementById('map-loading-retry'),
       metricLabel: document.getElementById('map-loading-metric-label'),
       bytes: document.getElementById('map-loading-bytes'),
       percent: document.getElementById('map-loading-percent'),
@@ -1907,6 +1909,7 @@
       ui.percent.textContent = `${percent}%`;
       updateLoadingEta(percent);
     }
+    if (ui.retry) ui.retry.style.display = stage === 'error' ? 'inline-flex' : 'none';
     if (stage === 'parse') {
       ui.bytes.textContent = 'Download abgeschlossen';
     } else if (stage === 'render') {
@@ -2242,6 +2245,8 @@
   let timelinePreviewToken = 0;
   let timelinePreviewController = null;
   const timelinePreviewCache = new Map();
+  let timelineActivityNodes = [];
+  let timelineActivityBucketCount = 0;
 
   function cancelTimelinePreviewRequests() {
     timelinePreviewToken += 1;
@@ -2328,9 +2333,23 @@
     if (!strip) return;
     if (timelinePoints.length < 2 || timelineMaxTs <= timelineMinTs) {
       strip.innerHTML = '';
+      timelineActivityNodes = [];
+      timelineActivityBucketCount = 0;
       return;
     }
     const bucketCount = Math.max(24, Math.min(60, Math.round((document.getElementById('map-timeline-card')?.clientWidth || 320) / 8)));
+    if (timelineActivityBucketCount !== bucketCount || timelineActivityNodes.length !== bucketCount) {
+      strip.innerHTML = '';
+      timelineActivityNodes = [];
+      timelineActivityBucketCount = bucketCount;
+      for (let index = 0; index < bucketCount; index += 1) {
+        const node = document.createElement('span');
+        node.style.flex = '1';
+        node.style.borderRadius = '999px';
+        strip.appendChild(node);
+        timelineActivityNodes.push(node);
+      }
+    }
     const buckets = new Array(bucketCount).fill(0);
     timelinePoints.forEach(point => {
       const ts = new Date(point.timestampUtc || point.point_timestamp_utc).getTime();
@@ -2338,12 +2357,15 @@
       buckets[Math.min(bucketCount - 1, Math.floor(ratio * bucketCount))] += 1;
     });
     const maxBucket = Math.max(...buckets, 1);
-    strip.innerHTML = buckets.map((count, index) => {
+    buckets.forEach((count, index) => {
       const height = Math.max(3, Math.round((count / maxBucket) * 18));
       const ts = timelineMinTs + ((index + 0.5) / bucketCount) * (timelineMaxTs - timelineMinTs);
       const active = timelineSelectedTs && ts <= timelineSelectedTs;
-      return `<span style="flex:1;height:${height}px;border-radius:999px;background:${active ? 'rgba(48,209,88,0.95)' : 'rgba(255,255,255,0.16)'};"></span>`;
-    }).join('');
+      const node = timelineActivityNodes[index];
+      if (!node) return;
+      node.style.height = `${height}px`;
+      node.style.background = active ? 'rgba(48,209,88,0.95)' : 'rgba(255,255,255,0.16)';
+    });
   }
 
   function buildLocalTimelinePreviewPayload(selectedTs) {
@@ -2614,6 +2636,14 @@
       if (lastMapPayload && lastMapPayload.layers) updateTimeline(lastMapPayload.layers.points || []);
       else applyTimelineVisibilityState();
     };
+    const retryButton = document.getElementById('map-loading-retry');
+    if (retryButton) {
+      retryButton.onclick = () => {
+        isManualRefresh = true;
+        lastETag = null;
+        updateMap();
+      };
+    }
     updateTimelineModeLabel();
     updateTimelineToggleButton();
   });

@@ -1043,6 +1043,24 @@ label {
   color: rgba(255,255,255,0.6);
 }
 
+#map-loading-retry {
+  display: none;
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#map-loading-retry:hover {
+  background: rgba(255,255,255,0.14);
+}
+
 .map-loading-meta {
   display: flex;
   align-items: center;

@@ -773,6 +773,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         for item in items
                     ],
                     "count": len(items),
+                    "meta": {
+                        "minTimestampUtc": items[0]["point_timestamp_utc"] if items else None,
+                        "maxTimestampUtc": items[-1]["point_timestamp_utc"] if items else None,
+                        "truncated": len(items) >= limit,
+                        "bboxFiltered": viewport_bbox is not None,
+                    },
                 },
             }
             body = json.dumps(result, separators=(",", ":")).encode()

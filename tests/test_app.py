@@ -184,6 +184,9 @@ def test_timeline_endpoint_returns_lightweight_points(tmp_path: Path) -> None:
     assert "timestampUtc" in first
     assert "latitude" in first
     assert "longitude" in first
+    assert body["timeline"]["meta"]["minTimestampUtc"]
+    assert body["timeline"]["meta"]["maxTimestampUtc"]
+    assert body["timeline"]["meta"]["truncated"] is False
 
 
 def test_request_and_session_detail_endpoints(tmp_path: Path) -> None:
