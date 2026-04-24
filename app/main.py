@@ -1000,8 +1000,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if viewport_bbox:
                 counts_started_at = time.perf_counter()
                 total_points = storage.count_points(filters)
-                visible_points = storage.count_points(filters, bbox=viewport_bbox)
                 viewport_items = storage.list_points_in_bbox(filters, bbox=viewport_bbox)
+                visible_points = len(viewport_items)
                 counts_duration_ms = round((time.perf_counter() - counts_started_at) * 1000, 2)
             else:
                 counts_started_at = time.perf_counter()
@@ -1013,6 +1013,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             buffered_items = viewport_items
             delta_viewport_items = []
             delta_mode = False
+            latest_visible_ts = viewport_items[0]["point_timestamp_utc"] if viewport_items else None
             if latest_known_ts:
                 latest_known_dt = _parse_iso_timestamp(latest_known_ts)
                 if latest_known_dt:
@@ -1023,13 +1024,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             heatmap_entries = []
             if include_heatmap:
                 heatmap_started_at = time.perf_counter()
-                heatmap_entries = await asyncio.to_thread(
-                    _resolve_heatmap_layer,
-                    storage,
-                    filters,
-                    bbox=viewport_bbox,
-                    zoom=effective_zoom,
-                )
+                heatmap_entries = _aggregate_heatmap(viewport_items, zoom=effective_zoom)
                 heatmap_duration_ms = round((time.perf_counter() - heatmap_started_at) * 1000, 2)
             track_layers = {
                 "polylines": [],
@@ -1042,6 +1037,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
             needs_track_context = include_polyline or include_labels or include_speed or include_stops or include_daytrack or include_snap
             if needs_track_context:
+                preloaded_track_points = None
+                if not viewport_bbox or padded_bbox == viewport_bbox:
+                    preloaded_track_points = viewport_items
                 track_context_started_at = time.perf_counter()
                 track_context = await asyncio.to_thread(
                     _resolve_track_context,
@@ -1051,6 +1049,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     zoom=effective_zoom,
                     route_time_gap_min=route_time_gap_min,
                     route_dist_gap_m=route_dist_gap_m,
+                    preloaded_points_desc=preloaded_track_points,
                 )
                 track_context_duration_ms = round((time.perf_counter() - track_context_started_at) * 1000, 2)
                 track_layers_started_at = time.perf_counter()
@@ -1121,7 +1120,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "maxLon": viewport_bbox[2],
                     "maxLat": viewport_bbox[3],
                 }
-            payload["meta"]["latestVisiblePointTsUtc"] = viewport_items[0]["point_timestamp_utc"] if viewport_items else None
+            payload["meta"]["latestVisiblePointTsUtc"] = latest_visible_ts
             result = {"requestId": request.state.request_id, **payload}
             result["processing"] = _summarize_import_tasks()
             serialize_started_at = time.perf_counter()
@@ -2286,6 +2285,7 @@ def _resolve_track_context(
     zoom: int,
     route_time_gap_min: int,
     route_dist_gap_m: int,
+    preloaded_points_desc: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     bucketed_bbox = _bucket_bbox_for_zoom(bbox, zoom=zoom)
     cache_key = json.dumps(
@@ -2309,7 +2309,9 @@ def _resolve_track_context(
     if cached and (now - cached[0]) < _TRACK_CONTEXT_CACHE_TTL:
         return cached[1]
 
-    if bbox:
+    if preloaded_points_desc is not None:
+        points_desc = preloaded_points_desc
+    elif bbox:
         points_desc = storage.list_points_in_bbox(filters, bbox=bbox)
     else:
         points_desc = storage.list_points(filters)["items"]

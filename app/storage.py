@@ -1758,12 +1758,20 @@ class ReceiverStorage:
             -- Indices for GPS Points (Performance for Dashboard and Exports)
             CREATE INDEX IF NOT EXISTS idx_gps_points_timestamp
                 ON gps_points(point_timestamp_utc DESC);
+            CREATE INDEX IF NOT EXISTS idx_gps_points_timestamp_order
+                ON gps_points(point_timestamp_utc DESC, id DESC);
             CREATE INDEX IF NOT EXISTS idx_gps_points_session_timestamp
                 ON gps_points(session_id, point_timestamp_utc DESC);
+            CREATE INDEX IF NOT EXISTS idx_gps_points_session_timestamp_order
+                ON gps_points(session_id, point_timestamp_utc DESC, id DESC);
             CREATE INDEX IF NOT EXISTS idx_gps_points_request
                 ON gps_points(request_id);
             CREATE INDEX IF NOT EXISTS idx_gps_points_coords
                 ON gps_points(latitude, longitude);
+            CREATE INDEX IF NOT EXISTS idx_gps_points_lat_lon_timestamp
+                ON gps_points(latitude, longitude, point_timestamp_utc DESC, id DESC);
+            CREATE INDEX IF NOT EXISTS idx_gps_points_lon_lat_timestamp
+                ON gps_points(longitude, latitude, point_timestamp_utc DESC, id DESC);
             CREATE INDEX IF NOT EXISTS idx_gps_points_mode
                 ON gps_points(capture_mode, point_timestamp_utc DESC);
             CREATE INDEX IF NOT EXISTS idx_gps_points_source

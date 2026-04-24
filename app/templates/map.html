@@ -679,6 +679,8 @@
   let currentLogItems = [];
   let lastMapPayload = null;
   let lastMetaPayload = null;
+  let lastMetaQueryKey = null;
+  let lastMetaFetchedAtMs = 0;
   let lastMapBaseQueryKey = null;
   let lastVisiblePointTsUtc = null;
   let loadingOverlayTimer = null;
@@ -687,6 +689,7 @@
   let loadingStartedAtMs = 0;
   const LOADING_OVERLAY_DELAY_MS = 120;
   const LOADING_OVERLAY_PULSE_MS = 180;
+  const META_REFRESH_MIN_MS = 30000;
   let persistentRuntimeWarnings = [];
   let mapRuntimeWarnings = [];
   let legendVisible = storageGet('map-legend-visible', '1') !== '0';
@@ -1213,8 +1216,20 @@
     return params;
   }
 
-  async function updateMapMeta() {
+  async function updateMapMeta(options = {}) {
+    const force = !!options.force;
     const params = buildMetaFilters();
+    const queryKey = params.toString();
+    const now = Date.now();
+    if (
+      !force &&
+      lastMetaPayload &&
+      lastMetaQueryKey === queryKey &&
+      (now - lastMetaFetchedAtMs) < META_REFRESH_MIN_MS
+    ) {
+      renderProcessingStatus(lastMetaPayload.processing || null);
+      return lastMetaPayload;
+    }
     const url = `/api/map-meta?${params.toString()}`;
     const headers = lastMetaEtag ? { 'If-None-Match': lastMetaEtag } : {};
     if (currentMetaFetchController && typeof currentMetaFetchController.abort === 'function') currentMetaFetchController.abort();
@@ -1223,6 +1238,8 @@
     if (currentMetaFetchController) fetchOptions.signal = currentMetaFetchController.signal;
     const response = await fetch(url, fetchOptions);
     if (response.status === 304 && lastMetaPayload) {
+      lastMetaQueryKey = queryKey;
+      lastMetaFetchedAtMs = now;
       renderProcessingStatus(lastMetaPayload.processing || null);
       return lastMetaPayload;
     }
@@ -1230,6 +1247,8 @@
     lastMetaEtag = response.headers.get('etag') || null;
     const payload = await response.json();
     lastMetaPayload = payload;
+    lastMetaQueryKey = queryKey;
+    lastMetaFetchedAtMs = now;
     renderProcessingStatus(payload.processing || null);
     return payload;
   }
@@ -2102,9 +2121,18 @@
     try {
       mapUpdateInFlight = true;
       pendingMapRefresh = false;
-      updateMapMeta().catch(error => {
-        if (error.name !== 'AbortError') console.warn('Map meta update failed', error);
-      });
+      const metaQueryKey = buildMetaFilters().toString();
+      const shouldRefreshMeta =
+        isInitialLoadRequest ||
+        isManualRefresh ||
+        !lastMetaPayload ||
+        lastMetaQueryKey !== metaQueryKey ||
+        (Date.now() - lastMetaFetchedAtMs) >= META_REFRESH_MIN_MS;
+      if (shouldRefreshMeta) {
+        updateMapMeta({ force: isInitialLoadRequest || isManualRefresh || lastMetaQueryKey !== metaQueryKey }).catch(error => {
+          if (error.name !== 'AbortError') console.warn('Map meta update failed', error);
+        });
+      }
       apiStatus.textContent = '● LADEN';
       apiStatus.style.color = 'var(--orange)';
       setLoadingMode((!isManualRefresh && lastMapBaseQueryKey === baseQuery && lastVisiblePointTsUtc) ? 'Delta-Check' : 'Vollupdate');
