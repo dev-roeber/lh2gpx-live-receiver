@@ -154,6 +154,26 @@
         }
       </style>
 
+      <style>
+        /* Adjustments for active loading state to prevent overlap with controls */
+        body.loading-active #map-quick-ctrl,
+        body.loading-active #map-filter-panel,
+        body.loading-active #map-layer-ctrl { /* Also consider layer control if it might overlap */
+          margin-top: 70px; /* Push controls down to clear the top-right loading indicator */
+          transition: margin-top 0.3s ease-in-out;
+        }
+
+        /* Ensure timeline doesn't overlap inappropriately */
+        body.loading-active #map-timeline-container {
+           /* Adjust if timeline position needs modification when loading */
+        }
+
+        /* Ensure the map container itself adjusts if necessary */
+        body.loading-active .map-page-container {
+            /* Potentially adjust main container padding if controls are pushed down */
+        }
+      </style>
+
       {# Timeline — floating am unteren Rand #}
       <div id="map-timeline-container" style="display:none;position:absolute;bottom:24px;left:50%;transform:translateX(-50%);z-index:740;width:min(600px,calc(100% - 24px));max-width:calc(100% - 24px);pointer-events:none;">
         <div id="map-timeline-card" style="background:rgba(28,28,30,0.75);backdrop-filter:blur(15px) saturate(180%);-webkit-backdrop-filter:blur(15px) saturate(180%);border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:12px 18px;box-shadow:0 12px 40px rgba(0,0,0,0.5);pointer-events:auto;display:flex;flex-direction:column;gap:8px;box-sizing:border-box;">
@@ -1632,6 +1652,8 @@
   }
 
   function showLoadingOverlay(immediate = false) {
+    document.body.classList.add("loading-active"); 
+
     const overlay = document.getElementById('map-loading-overlay');
     if (!overlay) return;
     clearTimeout(loadingOverlayTimer);
@@ -1647,6 +1669,8 @@
   }
 
   function hideLoadingOverlay() {
+    document.body.classList.remove("loading-active"); 
+
     const overlay = document.getElementById('map-loading-overlay');
     clearTimeout(loadingOverlayTimer);
     loadingOverlayShown = false;
@@ -1728,6 +1752,8 @@
       apiStatus.textContent = '● LADEN';
       apiStatus.style.color = 'var(--orange)';
       showLoadingOverlay(isManualRefresh);
+    document.body.classList.add("loading-active"); 
+
       updateLoadingOverlay(0, null);
       currentFetchController = supportsAbortController ? new AbortController() : null;
       const fetchStart = Date.now();
@@ -1739,6 +1765,8 @@
 
       if (response.status === 304 && lastMapPayload) {
         hideLoadingOverlay();
+    document.body.classList.remove("loading-active"); 
+
         apiStatus.textContent = '● ONLINE';
         apiStatus.style.color = 'var(--mint)';
         const deltaMode = response.headers.get('x-map-delta') === 'noop';
@@ -1805,10 +1833,14 @@
       apiStatus.textContent = '● ONLINE';
       apiStatus.style.color = 'var(--mint)';
       hideLoadingOverlay();
+    document.body.classList.remove("loading-active"); 
+
     } catch (error) {
       if (error.name === 'AbortError') return;
       console.error('Map update error:', error);
       hideLoadingOverlay();
+    document.body.classList.remove("loading-active"); 
+
       statsText.innerText = `Fehler beim Laden der Kartendaten${error.message ? ` (${error.message})` : ''}.`;
       statsText.style.color = 'var(--c-crit)';
       apiStatus.textContent = '● FEHLER';
