@@ -851,6 +851,7 @@ label {
   --map-timeline-width: 560px;
   --map-timeline-bottom: 18px;
   --map-loading-menu-offset: 190px;
+  --map-loading-control-offset: 0px;
 }
 
 #map-loading-overlay {
@@ -944,7 +945,7 @@ label {
 /* ── Map Layer Control (floating, oben rechts auf der Karte) ── */
 #map-layer-ctrl {
   position: absolute;
-  top: 72px;
+  top: calc(72px + var(--map-loading-control-offset));
   right: 10px;
   z-index: 450;
   font-family: inherit;
@@ -952,7 +953,7 @@ label {
 
 #map-timeline-ctrl {
   position: absolute;
-  top: 126px;
+  top: calc(126px + var(--map-loading-control-offset));
   right: 10px;
   z-index: 445;
   font-family: inherit;
@@ -1023,7 +1024,7 @@ label {
 /* ── Map Quick-Control (Dropdown über Layer-Menü) ── */
 #map-quick-ctrl {
   position: absolute;
-  top: 18px;
+  top: calc(18px + var(--map-loading-control-offset));
   right: 10px;
   z-index: 460;
   font-family: inherit;
@@ -1457,21 +1458,21 @@ td .kv-sub     { font-size: 0.72rem; color: var(--text-3); }
 /* Custom positioning for controls */
 #map-quick-ctrl {
   position: absolute;
-  top: 60px !important; /* Positioned below the progress indicator */
+  top: calc(60px + var(--map-loading-control-offset)) !important;
   right: 10px !important;
   z-index: 460;
 }
 
 #map-layer-ctrl {
   position: absolute;
-  top: 110px !important; /* Positioned below the quick controls */
+  top: calc(110px + var(--map-loading-control-offset)) !important;
   right: 10px !important;
   z-index: 450;
 }
 
 #map-timeline-ctrl {
   position: absolute;
-  top: 160px !important;
+  top: calc(160px + var(--map-loading-control-offset)) !important;
   right: 10px !important;
   z-index: 445;
 }
