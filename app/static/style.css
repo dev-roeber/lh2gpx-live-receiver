@@ -921,6 +921,22 @@ label {
   font-size: 0.64rem !important;
 }
 
+#map-wrap[data-timeline-mini="1"] #timeline-toolbar {
+  gap: 6px !important;
+}
+
+#map-wrap[data-timeline-mini="1"] #timeline-source-label,
+#map-wrap[data-timeline-mini="1"] #timeline-current-date {
+  display: none !important;
+}
+
+#map-wrap[data-timeline-mini="1"] #timeline-live-btn,
+#map-wrap[data-timeline-mini="1"] #timeline-speed-select,
+#map-wrap[data-timeline-mini="1"] #timeline-source-select {
+  font-size: 0.68rem !important;
+  padding: 5px 8px !important;
+}
+
 .leaflet-container img {
   max-width: none !important;
   max-height: none !important;
@@ -932,6 +948,14 @@ label {
   top: 72px;
   right: 10px;
   z-index: 450;
+  font-family: inherit;
+}
+
+#map-timeline-ctrl {
+  position: absolute;
+  top: 126px;
+  right: 10px;
+  z-index: 445;
   font-family: inherit;
 }
 
@@ -951,6 +975,24 @@ label {
   transition: background 0.12s;
 }
 #mlc-btn:hover { background: var(--surface-2); }
+
+#mtc-btn {
+  display: block;
+  background: var(--surface-1);
+  border: 2px solid rgba(0,0,0,0.2);
+  border-radius: 4px;
+  padding: 5px 9px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-2);
+  cursor: pointer;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.3);
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+  transition: background 0.12s, opacity 0.12s;
+}
+#mtc-btn:hover { background: var(--surface-2); }
+#mtc-btn:disabled { opacity: 0.5; cursor: default; }
 
 #mlc-panel {
   display: none;
@@ -1433,4 +1475,11 @@ td .kv-sub     { font-size: 0.72rem; color: var(--text-3); }
   top: 110px !important; /* Positioned below the quick controls */
   right: 10px !important;
   z-index: 450;
+}
+
+#map-timeline-ctrl {
+  position: absolute;
+  top: 160px !important;
+  right: 10px !important;
+  z-index: 445;
 }

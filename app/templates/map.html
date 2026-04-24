@@ -159,9 +159,26 @@
               </div>
             </div>
             <div style="text-align:right;display:flex;flex-direction:column;gap:1px;">
+              <span id="timeline-mode-label" style="display:inline-flex;align-self:flex-end;align-items:center;gap:4px;color:var(--blue);background:rgba(10,132,255,0.14);border:1px solid rgba(10,132,255,0.24);border-radius:999px;padding:2px 8px;font-size:0.58rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;">Live</span>
               <span id="timeline-info-points" style="color:var(--mint);font-weight:600;font-size:0.75rem;">0 Punkte</span>
-              <span style="color:var(--text-3);font-size:0.6rem;text-transform:uppercase;letter-spacing:0.05em;">Sichtbarer Bereich</span>
+              <span id="timeline-source-label" style="color:var(--text-3);font-size:0.6rem;text-transform:uppercase;letter-spacing:0.05em;">Sichtbarer Bereich</span>
             </div>
+          </div>
+
+          <div id="timeline-toolbar" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <button id="timeline-live-btn" class="mqc-btn" style="padding:6px 10px;font-size:0.72rem;">Jetzt</button>
+              <select id="timeline-speed-select" class="mqc-select" style="width:auto;min-width:84px;padding:6px 8px;font-size:0.72rem;">
+                <option value="0.5">0.5x</option>
+                <option value="1">1x</option>
+                <option value="2">2x</option>
+                <option value="4">4x</option>
+              </select>
+            </div>
+            <select id="timeline-source-select" class="mqc-select" style="width:auto;min-width:136px;padding:6px 8px;font-size:0.72rem;">
+              <option value="viewport">Quelle: Ansicht</option>
+              <option value="filter">Quelle: Filter</option>
+            </select>
           </div>
           
           <div style="position:relative;height:24px;display:flex;align-items:center;">
@@ -310,6 +327,10 @@
           <div class="mlc-row"><label class="mlc-lbl" title="Jeden Kalendertag in einer eigenen Farbe darstellen"><input type="checkbox" id="daytrack-toggle"> Tage</label></div>
           <div class="mlc-row"><label class="mlc-lbl" title="GPS-Punkte an Straßen anpassen via OSRM"><input type="checkbox" id="snap-toggle"> Snap</label></div>
         </div>
+      </div>
+
+      <div id="map-timeline-ctrl" style="z-index:705;">
+        <button id="mtc-btn" title="Timeline ein-/ausblenden">◴ Timeline</button>
       </div>
 
     </div>
@@ -790,6 +811,7 @@
     wrap.style.setProperty('--map-timeline-bottom', `${timelineBottom}px`);
     wrap.style.setProperty('--map-loading-menu-offset', `${menuOffset}px`);
     wrap.dataset.overlayCompact = compact ? '1' : '0';
+    wrap.dataset.timelineMini = width < 520 || height < 410 ? '1' : '0';
   }
 
   function getRelativeTime(timestamp) {
@@ -880,6 +902,61 @@
     if (!button) return;
     button.style.opacity = legendVisible ? '1' : '0.72';
     button.title = legendVisible ? 'Legende ausblenden' : 'Legende einblenden';
+  }
+
+  function updateTimelineToggleButton() {
+    const button = document.getElementById('mtc-btn');
+    if (!button) return;
+    button.style.opacity = timelineVisible ? '1' : '0.72';
+    button.title = timelineVisible ? 'Timeline ausblenden' : 'Timeline einblenden';
+  }
+
+  function applyTimelineVisibilityState() {
+    const container = document.getElementById('map-timeline-container');
+    const button = document.getElementById('mtc-btn');
+    const hasTimelineData = timelinePoints.length > 1 && (timelineMaxTs - timelineMinTs) >= 1000;
+    if (button) {
+      button.disabled = !hasTimelineData;
+      button.style.cursor = hasTimelineData ? 'pointer' : 'default';
+      button.style.opacity = hasTimelineData ? (timelineVisible ? '1' : '0.72') : '0.5';
+    }
+    if (container) {
+      container.style.display = hasTimelineData && timelineVisible ? 'block' : 'none';
+    }
+    if ((!hasTimelineData || !timelineVisible) && timelineIsPlaying) {
+      timelineIsPlaying = false;
+      clearTimeout(timelinePlayTimer);
+      const playButton = document.getElementById('timeline-play-btn');
+      if (playButton) playButton.textContent = '▶';
+    }
+    updateMapOverlayLayout();
+    updateTimelineToggleButton();
+    updateTimelineModeLabel();
+  }
+
+  function updateTimelineModeLabel(labelOverride = null) {
+    const label = document.getElementById('timeline-mode-label');
+    const sourceLabel = document.getElementById('timeline-source-label');
+    if (!label || !sourceLabel) return;
+    let text = labelOverride;
+    let color = '#0A84FF';
+    if (!text) {
+      if (timelineIsPlaying) {
+        text = `Playback ${timelinePlaybackRate}x`;
+        color = '#BF5AF2';
+      } else if (timelinePreviewActive) {
+        text = 'Vorschau';
+        color = '#FF9F0A';
+      } else {
+        text = 'Live';
+        color = '#30D158';
+      }
+    }
+    label.textContent = text;
+    label.style.color = color;
+    label.style.background = `color-mix(in srgb, ${color} 14%, transparent)`;
+    label.style.borderColor = `color-mix(in srgb, ${color} 28%, transparent)`;
+    sourceLabel.textContent = timelineSourceMode === 'filter' ? 'Aktueller Filter' : 'Sichtbarer Bereich';
   }
 
   function toggleQuickCtrl(forceState) {
@@ -1873,14 +1950,99 @@
   let timelineIsPlaying = false;
   let timelinePlayTimer = null;
   let timelinePreviewActive = false;
+  let timelineVisible = storageGet('map-timeline-visible', '1') !== '0';
+  let timelinePlaybackRate = parseFloat(storageGet('map-timeline-speed', '1')) || 1;
+  let timelineSourceMode = storageGet('map-timeline-source', 'viewport') || 'viewport';
+  let timelineSelectedTs = parseInt(storageGet('map-timeline-selected-ts', ''), 10) || null;
+  let timelineLoadedQueryKey = null;
+  let timelineSourcePoints = [];
+  let timelineFetchToken = 0;
 
-  function updateTimeline(points) {
+  function normalizeTimelinePoint(point) {
+    return {
+      id: point.id,
+      lat: point.lat != null ? point.lat : point.latitude,
+      lon: point.lon != null ? point.lon : point.longitude,
+      timestampUtc: point.timestampUtc || point.point_timestamp_utc,
+      point_timestamp_utc: point.point_timestamp_utc || point.timestampUtc,
+      timestampLocal: point.timestampLocal || point.point_timestamp_local || point.point_timestamp_utc,
+      accuracyM: point.accuracyM != null ? point.accuracyM : point.horizontal_accuracy_m,
+      source: point.source,
+      session_id: point.session_id || point.sessionId,
+      captureMode: point.captureMode || point.capture_mode,
+      isLatest: !!point.isLatest
+    };
+  }
 
-    const container = document.getElementById('map-timeline-container');
+  function buildTimelineQueryKey() {
+    const state = buildCurrentFilterState();
+    return JSON.stringify({
+      mode: timelineSourceMode,
+      session_id: state.session_id || '',
+      date_from: state.date_from || '',
+      max_points: MAP_MAX_POINTS
+    });
+  }
+
+  function buildTimelineFetchUrl() {
+    const params = buildCurrentFilters();
+    params.delete('bbox');
+    params.delete('zoom');
+    params.delete('log_limit');
+    params.delete('route_time_gap_min');
+    params.delete('route_dist_gap_m');
+    params.delete('stop_min_duration_min');
+    params.delete('stop_radius_m');
+    params.delete('include_points');
+    params.delete('include_heatmap');
+    params.delete('include_polyline');
+    params.delete('include_accuracy');
+    params.delete('include_labels');
+    params.delete('include_speed');
+    params.delete('include_stops');
+    params.delete('include_daytrack');
+    params.delete('include_snap');
+    params.delete('latest_known_ts');
+    params.set('page_size', String(MAP_MAX_POINTS));
+    return `/api/points?${params.toString()}`;
+  }
+
+  async function ensureTimelineDataset(viewportPoints) {
+    if (timelineSourceMode !== 'filter') {
+      timelineSourcePoints = (viewportPoints || []).map(normalizeTimelinePoint);
+      timelineLoadedQueryKey = null;
+      return timelineSourcePoints;
+    }
+    const queryKey = buildTimelineQueryKey();
+    if (timelineLoadedQueryKey === queryKey && timelineSourcePoints.length) return timelineSourcePoints;
+    updateTimelineModeLabel('Laden');
+    const token = ++timelineFetchToken;
+    const response = await fetch(buildTimelineFetchUrl(), { credentials: 'same-origin' });
+    if (!response.ok) throw new Error(`Timeline HTTP ${response.status}`);
+    const payload = await response.json();
+    if (token !== timelineFetchToken) return timelineSourcePoints;
+    const items = payload && payload.points && payload.points.items ? payload.points.items : [];
+    timelineSourcePoints = items.map(normalizeTimelinePoint);
+    timelineLoadedQueryKey = queryKey;
+    return timelineSourcePoints;
+  }
+
+  function resetTimelineToLive() {
+    const slider = document.getElementById('map-timeline-slider');
+    if (!slider) return;
+    slider.value = slider.max;
+    timelineSelectedTs = timelineMaxTs || null;
+    storageSet('map-timeline-selected-ts', timelineSelectedTs ? String(timelineSelectedTs) : '');
+    applyTimelineFilter(timelineMaxTs || 0);
+  }
+
+  function applyTimelineDataset(points) {
     if (!points || points.length < 2) {
       timelinePreviewActive = false;
-      container.style.display = 'none';
-      updateMapOverlayLayout();
+      timelinePoints = [];
+      timelineMinTs = 0;
+      timelineMaxTs = 0;
+      applyTimelineVisibilityState();
       return;
     }
     
@@ -1891,26 +2053,48 @@
     
     if (timelineMaxTs - timelineMinTs < 1000) { // Zu kurzer Zeitraum
       timelinePreviewActive = false;
-      container.style.display = 'none';
-      updateMapOverlayLayout();
+      timelinePoints = [];
+      timelineMinTs = 0;
+      timelineMaxTs = 0;
+      applyTimelineVisibilityState();
       return;
     }
 
-    container.style.display = 'block';
-    updateMapOverlayLayout();
+    applyTimelineVisibilityState();
     document.getElementById('timeline-start-label').textContent = new Date(timelineMinTs).toLocaleString('de-DE', { hour: '2-digit', minute: '2-digit' });
     document.getElementById('timeline-end-label').textContent = new Date(timelineMaxTs).toLocaleString('de-DE', { hour: '2-digit', minute: '2-digit' });
     
     const slider = document.getElementById('map-timeline-slider');
+    if (timelineSelectedTs && timelineSelectedTs >= timelineMinTs && timelineSelectedTs <= timelineMaxTs) {
+      const pctFromTs = (timelineSelectedTs - timelineMinTs) / Math.max(1, (timelineMaxTs - timelineMinTs));
+      slider.value = String(Math.max(0, Math.min(parseInt(slider.max, 10), Math.round(pctFromTs * parseInt(slider.max, 10)))));
+    } else {
+      slider.value = slider.max;
+      timelineSelectedTs = timelineMaxTs;
+    }
     const pct = parseInt(slider.value, 10) / parseInt(slider.max, 10);
     const targetTs = timelineMinTs + (timelineMaxTs - timelineMinTs) * (Number.isFinite(pct) ? pct : 1);
     applyTimelineFilter(targetTs);
+  }
+
+  function updateTimeline(points) {
+    ensureTimelineDataset(points)
+      .then(applyTimelineDataset)
+      .catch(error => {
+        console.warn('Timeline-Daten konnten nicht geladen werden:', error);
+        timelineSourceMode = 'viewport';
+        storageSet('map-timeline-source', 'viewport');
+        timelineSourcePoints = (points || []).map(normalizeTimelinePoint);
+        applyTimelineDataset(timelineSourcePoints);
+      });
   }
 
   function applyTimelineFilter(selectedTs) {
     if (!map || !map.isStyleLoaded()) return;
     
     const date = new Date(selectedTs);
+    timelineSelectedTs = Number.isFinite(selectedTs) ? Math.round(selectedTs) : null;
+    storageSet('map-timeline-selected-ts', timelineSelectedTs ? String(timelineSelectedTs) : '');
     document.getElementById('timeline-current-time').textContent = date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     document.getElementById('timeline-current-date').textContent = date.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: '2-digit' });
 
@@ -1923,6 +2107,7 @@
         renderLog(lastMapPayload.logItems || []);
         updateStatistics(lastMapPayload.stats || {}, lastMapPayload.meta || {});
       }
+      applyTimelineVisibilityState();
       return;
     }
 
@@ -1965,6 +2150,7 @@
     renderMapPayload(timelinePayload, { skipFocus: true, skipTimeline: true });
     renderLog(filteredLog);
     updateStatistics(timelinePayload.stats || {}, timelinePayload.meta || {});
+    applyTimelineVisibilityState();
   }
 
   function toggleTimelinePlay() {
@@ -1973,6 +2159,11 @@
     btn.textContent = timelineIsPlaying ? '⏸' : '▶';
     
     if (timelineIsPlaying) {
+      if (!timelineVisible) {
+        timelineVisible = true;
+        storageSet('map-timeline-visible', '1');
+        applyTimelineVisibilityState();
+      }
       const slider = document.getElementById('map-timeline-slider');
       if (parseInt(slider.value) >= parseInt(slider.max)) slider.value = 0;
       
@@ -1980,9 +2171,9 @@
         if (!timelineIsPlaying) return;
         let val = parseInt(slider.value);
         if (val < parseInt(slider.max)) {
-          slider.value = val + 2;
+          slider.value = Math.min(parseInt(slider.max), val + Math.max(1, Math.round(timelinePlaybackRate * 2)));
           slider.dispatchEvent(new Event('input'));
-          timelinePlayTimer = setTimeout(step, 50);
+          timelinePlayTimer = setTimeout(step, Math.max(30, Math.round(100 / Math.max(0.5, timelinePlaybackRate))));
         } else {
           toggleTimelinePlay();
         }
@@ -1991,6 +2182,7 @@
     } else {
       clearTimeout(timelinePlayTimer);
     }
+    updateTimelineModeLabel();
   }
 
   document.addEventListener('DOMContentLoaded', () => {
@@ -2001,6 +2193,26 @@
       applyTimelineFilter(targetTs);
     };
     document.getElementById('timeline-play-btn').onclick = toggleTimelinePlay;
+    document.getElementById('timeline-live-btn').onclick = resetTimelineToLive;
+    const speedSelect = document.getElementById('timeline-speed-select');
+    speedSelect.value = String(timelinePlaybackRate);
+    speedSelect.onchange = (event) => {
+      timelinePlaybackRate = parseFloat(event.target.value) || 1;
+      storageSet('map-timeline-speed', String(timelinePlaybackRate));
+      updateTimelineModeLabel();
+    };
+    const sourceSelect = document.getElementById('timeline-source-select');
+    sourceSelect.value = timelineSourceMode;
+    sourceSelect.onchange = (event) => {
+      timelineSourceMode = event.target.value === 'filter' ? 'filter' : 'viewport';
+      storageSet('map-timeline-source', timelineSourceMode);
+      timelineLoadedQueryKey = null;
+      timelineSourcePoints = [];
+      if (lastMapPayload && lastMapPayload.layers) updateTimeline(lastMapPayload.layers.points || []);
+      else applyTimelineVisibilityState();
+    };
+    updateTimelineModeLabel();
+    updateTimelineToggleButton();
   });
 
   let socket = null;
@@ -2112,6 +2324,9 @@
       updateLegend();
       updateLegendPlacement();
       updateLegendToggleButton();
+      updateTimelineToggleButton();
+      updateTimelineModeLabel();
+      applyTimelineVisibilityState();
       updateMapOverlayLayout();
       updateMap();
     });
@@ -2222,6 +2437,11 @@
   });
 
   document.getElementById('mqc-btn').onclick = () => toggleQuickCtrl();
+  document.getElementById('mtc-btn').onclick = () => {
+    timelineVisible = !timelineVisible;
+    storageSet('map-timeline-visible', timelineVisible ? '1' : '0');
+    applyTimelineVisibilityState();
+  };
   document.getElementById('refresh-map-btn').onclick = () => {
     isManualRefresh = true;
     lastETag = null;
