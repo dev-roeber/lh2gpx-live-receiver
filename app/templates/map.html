@@ -674,6 +674,7 @@
   let mapRuntimeWarnings = [];
   let legendVisible = storageGet('map-legend-visible', '1') !== '0';
   let initialGlobalLatestFocusDone = false;
+  let forceGlobalLatestFocus = false;
 
   let heatmapActive = false;
   let pointsActive = true;
@@ -727,8 +728,9 @@
   }
 
   async function focusInitialGlobalLatestPoint(fallback = null) {
-    if (initialGlobalLatestFocusDone || !map) return;
+    if ((!forceGlobalLatestFocus && initialGlobalLatestFocusDone) || !map) return;
     initialGlobalLatestFocusDone = true;
+    forceGlobalLatestFocus = false;
     let latest = fallback;
     try {
       const response = await fetch('/api/points?page_size=1', { credentials: 'same-origin' });
@@ -2528,6 +2530,7 @@
   };
   document.getElementById('refresh-map-btn').onclick = () => {
     isManualRefresh = true;
+    forceGlobalLatestFocus = true;
     lastETag = null;
     clearTimeout(updateTimer);
     document.getElementById('btn-text').style.display = 'none';
