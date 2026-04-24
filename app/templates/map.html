@@ -31,8 +31,8 @@
   <span>ETA: <strong id="processing-eta" style="color:var(--text-2);">—</strong></span>
 </div>
 
-<link rel='stylesheet' href='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css' />
-<script src='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js'></script>
+<link rel="stylesheet" href="/static/vendor/maplibre-gl/maplibre-gl.css" />
+<script src="/static/vendor/maplibre-gl/maplibre-gl.js"></script>
 <script src="https://unpkg.com/dexie@4.0.1/dist/dexie.js"></script>
 
 <div class="map-page-container">
@@ -1129,33 +1129,6 @@
     }
   }
 
-  function clearRenderedLayers() {
-    if (markerClusterGroup) markerClusterGroup.clearLayers();
-    pointsLayer.clearLayers();
-    polylineLayer.clearLayers();
-    accuracyLayer.clearLayers();
-    labelsLayer.clearLayers();
-    speedLayer.clearLayers();
-    stopsLayer.clearLayers();
-    daytrackLayer.clearLayers();
-    snapLayer.clearLayers();
-    if (heatLayer && map.hasLayer(heatLayer)) map.removeLayer(heatLayer);
-  }
-
-  function clearPointsRender() {
-    if (markerClusterGroup) markerClusterGroup.clearLayers();
-    pointsLayer.clearLayers();
-  }
-
-  function clearHeatmapRender() {
-    if (heatLayer && map.hasLayer(heatLayer)) map.removeLayer(heatLayer);
-  }
-
-  function clearPolylineRender() {
-    polylineLayer.clearLayers();
-    labelsLayer.clearLayers();
-  }
-
   function escapeHtml(value) {
     return String(value == null ? '' : value)
       .split('&').join('&amp;')
@@ -1163,81 +1136,6 @@
       .split('>').join('&gt;')
       .split('"').join('&quot;')
       .split("'").join('&#39;');
-  }
-
-  function renderPoints(points, latestPoint) {
-    if (!pointsActive) return;
-    const useCluster = !!markerClusterGroup && points.length > CLUSTER_THRESHOLD;
-    points.forEach(point => {
-      if (point.isLatest && latestPoint) {
-        const icon = L.divIcon({
-          className: '',
-          html: '<div class="sonar-wrap"><div class="sonar-ring"></div><div class="sonar-ring sonar-ring-2"></div><div class="sonar-dot"></div></div>',
-          iconSize: [24, 24],
-          iconAnchor: [12, 12]
-        });
-        const latestTimestamp = escapeHtml(point.timestampLocal || point.timestampUtc || '—');
-        const latestSource = escapeHtml(point.source || '');
-        L.marker([point.lat, point.lon], { icon, zIndexOffset: 1000 })
-          .bindPopup(`<b>📍 Letzte Position</b><br>${latestTimestamp}<br>±${Math.round(point.accuracyM)}m &nbsp; ${latestSource}`)
-          .addTo(pointsLayer);
-        return;
-      }
-      const pointTimestamp = escapeHtml(point.timestampLocal || point.timestampUtc || '—');
-      const pointSource = escapeHtml(point.source || '');
-      const marker = L.circleMarker([point.lat, point.lon], {
-        radius: 3.5,
-        color: '#1a5fa8',
-        weight: 0.5,
-        fillColor: '#0A84FF',
-        fillOpacity: 0.72,
-        renderer: canvasRenderer
-      }).bindPopup(`<b>GPS-Punkt</b><br>${pointTimestamp}<br>±${Math.round(point.accuracyM)}m &nbsp; ${pointSource}`);
-      if (useCluster) markerClusterGroup.addLayer(marker);
-      else marker.addTo(pointsLayer);
-    });
-  }
-
-  function renderHeatmap(entries) {
-    if (!heatmapActive || !entries.length || !heatLayer) return;
-    const normalized = entries
-      .filter(item => Array.isArray(item) && item.length >= 2)
-      .map(item => {
-        const lat = Number(item[0]);
-        const lon = Number(item[1]);
-        const weight = Number.isFinite(Number(item[2])) ? Math.max(0, Math.min(1, Number(item[2]))) : 0.5;
-        return [lat, lon, weight];
-      })
-      .filter(item => Number.isFinite(item[0]) && Number.isFinite(item[1]));
-    if (!normalized.length) return;
-    heatLayer.setLatLngs(normalized);
-    if (!map.hasLayer(heatLayer)) heatLayer.addTo(map);
-  }
-
-  function renderPolylines(segments) {
-    if (!segments.length) return;
-    segments.forEach(segment => {
-      if (polylineActive) {
-        L.polyline(segment.coords, { color: segment.color, weight: 9, opacity: 0.12, lineCap: 'round', lineJoin: 'round', renderer: canvasRenderer, interactive: false }).addTo(polylineLayer);
-        L.polyline(segment.coords, { color: segment.color, weight: 4, opacity: 0.30, lineCap: 'round', lineJoin: 'round', renderer: canvasRenderer, interactive: false }).addTo(polylineLayer);
-        L.polyline(segment.coords, { color: segment.color, weight: 1.8, opacity: 0.92, lineCap: 'round', lineJoin: 'round', renderer: canvasRenderer })
-          .bindPopup(`Route · ${segment.pointsCount} Punkte<br>${segment.startLabel || ''} ${segment.endLabel ? `– ${segment.endLabel}` : ''}`)
-          .addTo(polylineLayer);
-      }
-      if (labelsActive && segment.startLabel) {
-        [[segment.startPoint, segment.startLabel], [segment.endPoint, segment.endLabel]].forEach(([coords, label]) => {
-          if (!label) return;
-          L.marker(coords, {
-            icon: L.divIcon({
-              className: '',
-              html: `<span style="background:${segment.color};color:#fff;font-size:0.65rem;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.4);">${label}</span>`,
-              iconAnchor: [0, 0]
-            }),
-            interactive: false
-          }).addTo(labelsLayer);
-        });
-      }
-    });
   }
 
   function collectVisibleBoundsPoints(layers) {
