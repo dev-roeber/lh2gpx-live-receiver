@@ -867,6 +867,48 @@ label {
   justify-content: flex-end;
 }
 
+#map-sync-pill {
+  position: absolute;
+  top: var(--map-overlay-gap);
+  right: var(--map-overlay-gap);
+  z-index: 748;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(260px, calc(100% - (var(--map-overlay-gap) * 2)));
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(28,28,30,0.82);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-2);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+#map-sync-pill.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+#map-sync-pill[data-mode="noop"] {
+  color: #30D158;
+}
+
+#map-sync-pill[data-mode="delta"] {
+  color: #64D2FF;
+}
+
+#map-sync-pill[data-mode="error"] {
+  color: #FF453A;
+}
+
 #map-loading-card {
   width: min(var(--map-loading-width), calc(100% - 4px)) !important;
   max-width: 100%;
