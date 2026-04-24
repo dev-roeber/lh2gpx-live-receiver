@@ -158,8 +158,8 @@
         /* Adjustments for active loading state to prevent overlap with controls */
         body.loading-active #map-quick-ctrl,
         body.loading-active #map-filter-panel,
-        body.loading-active #map-layer-ctrl { /* Also consider layer control if it might overlap */
-          margin-top: 70px; /* Push controls down to clear the top-right loading indicator */
+        body.loading-active #map-layer-ctrl {
+          margin-top: 100px; /* Increased margin to clear the top-right loading indicator */
           transition: margin-top 0.3s ease-in-out;
         }
 
