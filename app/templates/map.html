@@ -529,15 +529,43 @@
 
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
   const supportsNativeFullscreen = !!document.documentElement.requestFullscreen;
+  const supportsAbortController = typeof window.AbortController === 'function';
+  const supportsResizeObserver = typeof window.ResizeObserver === 'function';
+  const supportsTextDecoder = typeof window.TextDecoder === 'function';
 
-  if (localStorage.getItem('map-route-defaults-version') !== ROUTE_DEFAULTS_VERSION) {
-    if (!localStorage.getItem('map-route-time-gap') || localStorage.getItem('map-route-time-gap') === '5') {
-      localStorage.setItem('map-route-time-gap', '15');
+  function storageGet(key, fallback = null) {
+    try {
+      const value = window.localStorage ? window.localStorage.getItem(key) : null;
+      return value === null ? fallback : value;
+    } catch (error) {
+      return fallback;
     }
-    if (!localStorage.getItem('map-route-dist-gap') || localStorage.getItem('map-route-dist-gap') === '300') {
-      localStorage.setItem('map-route-dist-gap', '1200');
+  }
+
+  function storageSet(key, value) {
+    try {
+      if (window.localStorage) window.localStorage.setItem(key, value);
+    } catch (error) {
+      console.warn('localStorage write skipped:', key, error);
     }
-    localStorage.setItem('map-route-defaults-version', ROUTE_DEFAULTS_VERSION);
+  }
+
+  function scheduleTask(fn) {
+    if (typeof window.queueMicrotask === 'function') {
+      window.queueMicrotask(fn);
+      return;
+    }
+    setTimeout(fn, 0);
+  }
+
+  if (storageGet('map-route-defaults-version') !== ROUTE_DEFAULTS_VERSION) {
+    if (!storageGet('map-route-time-gap') || storageGet('map-route-time-gap') === '5') {
+      storageSet('map-route-time-gap', '15');
+    }
+    if (!storageGet('map-route-dist-gap') || storageGet('map-route-dist-gap') === '300') {
+      storageSet('map-route-dist-gap', '1200');
+    }
+    storageSet('map-route-defaults-version', ROUTE_DEFAULTS_VERSION);
   }
 
   let isInitialLoad = true;
@@ -588,19 +616,19 @@
     return await query.toArray();
   }
 
-  let POLLING_INTERVAL = parseInt(localStorage.getItem('map-polling-interval')) || 5000;
-  let TIME_RANGE = localStorage.getItem('map-time-range') || '1h';
-  let FIT_BOUNDS_MODE = localStorage.getItem('map-fit-bounds-mode') || 'global';
+  let POLLING_INTERVAL = parseInt(storageGet('map-polling-interval'), 10) || 5000;
+  let TIME_RANGE = storageGet('map-time-range', '1h') || '1h';
+  let FIT_BOUNDS_MODE = storageGet('map-fit-bounds-mode', 'global') || 'global';
   const MAP_PAGE_SIZE_SAFE_MAX = 20000;
-  let MAP_MAX_POINTS = parseInt(localStorage.getItem('map-max-points')) || MAP_CONFIG.pointsPageSizeMax || 2000;
-  let LOG_LIMIT = parseInt(localStorage.getItem('map-log-limit')) || 100;
-  let ROUTE_TIME_GAP = parseInt(localStorage.getItem('map-route-time-gap')) || 15;
-  let ROUTE_DIST_GAP = parseInt(localStorage.getItem('map-route-dist-gap')) || 1200;
-  let STOP_MIN_DUR = parseInt(localStorage.getItem('map-stop-min-dur')) || 5;
-  let STOP_RADIUS_M = parseInt(localStorage.getItem('map-stop-radius')) || 100;
+  let MAP_MAX_POINTS = parseInt(storageGet('map-max-points'), 10) || MAP_CONFIG.pointsPageSizeMax || 2000;
+  let LOG_LIMIT = parseInt(storageGet('map-log-limit'), 10) || 100;
+  let ROUTE_TIME_GAP = parseInt(storageGet('map-route-time-gap'), 10) || 15;
+  let ROUTE_DIST_GAP = parseInt(storageGet('map-route-dist-gap'), 10) || 1200;
+  let STOP_MIN_DUR = parseInt(storageGet('map-stop-min-dur'), 10) || 5;
+  let STOP_RADIUS_M = parseInt(storageGet('map-stop-radius'), 10) || 100;
 
   let map;
-  let darkMode = localStorage.getItem('map-dark-mode') === 'true' || false;
+  let darkMode = storageGet('map-dark-mode') === 'true' || false;
   let cssFsActive = false;
   let filtersExpanded = false;
   let currentFetchController = null;
@@ -624,7 +652,7 @@
   let loadingOverlayShown = false;
   let persistentRuntimeWarnings = [];
   let mapRuntimeWarnings = [];
-  let legendVisible = localStorage.getItem('map-legend-visible') !== '0';
+  let legendVisible = storageGet('map-legend-visible', '1') !== '0';
 
   let heatmapActive = false;
   let pointsActive = true;
@@ -853,7 +881,7 @@
     backdrop.classList.toggle('fp-open', show);
     button.dataset.open = show ? '1' : '0';
     button.innerHTML = show ? '✕ Filter' : '☰ Filter';
-    localStorage.setItem('map-fp-hidden', show ? '0' : '1');
+    storageSet('map-fp-hidden', show ? '0' : '1');
     if (map) setTimeout(() => map.resize(), 250);
   }
 
@@ -1010,9 +1038,11 @@
     const params = buildMetaFilters();
     const url = `/api/map-meta?${params.toString()}`;
     const headers = lastMetaEtag ? { 'If-None-Match': lastMetaEtag } : {};
-    if (currentMetaFetchController) currentMetaFetchController.abort();
-    currentMetaFetchController = new AbortController();
-    const response = await fetch(url, { credentials: 'same-origin', signal: currentMetaFetchController.signal, headers });
+    if (currentMetaFetchController && typeof currentMetaFetchController.abort === 'function') currentMetaFetchController.abort();
+    currentMetaFetchController = supportsAbortController ? new AbortController() : null;
+    const fetchOptions = { credentials: 'same-origin', headers };
+    if (currentMetaFetchController) fetchOptions.signal = currentMetaFetchController.signal;
+    const response = await fetch(url, fetchOptions);
     if (response.status === 304 && lastMetaPayload) {
       renderProcessingStatus(lastMetaPayload.processing || null);
       return lastMetaPayload;
@@ -1452,11 +1482,11 @@
   function updateTraffic(bytes, mbps) {
     document.getElementById('mbar-mbps').textContent = mbps.toFixed(2);
     const today = new Date().toISOString().slice(0, 10);
-    const storedDate = localStorage.getItem('map-traffic-date');
-    let dailyBytes = storedDate === today ? (parseInt(localStorage.getItem('map-traffic-bytes')) || 0) : 0;
+    const storedDate = storageGet('map-traffic-date');
+    let dailyBytes = storedDate === today ? (parseInt(storageGet('map-traffic-bytes'), 10) || 0) : 0;
     dailyBytes += bytes;
-    localStorage.setItem('map-traffic-date', today);
-    localStorage.setItem('map-traffic-bytes', dailyBytes);
+    storageSet('map-traffic-date', today);
+    storageSet('map-traffic-bytes', String(dailyBytes));
     const mb = dailyBytes / 1024 / 1024;
     document.getElementById('mbar-daily').textContent = mb >= 1 ? `${mb.toFixed(1)} MB` : `${(dailyBytes / 1024).toFixed(0)} KB`;
   }
@@ -1638,7 +1668,14 @@
       merged.set(chunk, offset);
       offset += chunk.byteLength;
     });
-    return new TextDecoder().decode(merged);
+    if (supportsTextDecoder) return new TextDecoder().decode(merged);
+    let fallbackText = '';
+    for (let i = 0; i < merged.length; i += 1) fallbackText += String.fromCharCode(merged[i]);
+    try {
+      return decodeURIComponent(escape(fallbackText));
+    } catch (error) {
+      return fallbackText;
+    }
   }
 
   async function updateMap() {
@@ -1681,10 +1718,12 @@
       apiStatus.style.color = 'var(--orange)';
       showLoadingOverlay(isManualRefresh);
       updateLoadingOverlay(0, null);
-      currentFetchController = new AbortController();
+      currentFetchController = supportsAbortController ? new AbortController() : null;
       const fetchStart = Date.now();
       const headers = lastETag && !isManualRefresh ? { 'If-None-Match': lastETag } : {};
-      const response = await fetch(url, { credentials: 'same-origin', signal: currentFetchController.signal, headers });
+      const fetchOptions = { credentials: 'same-origin', headers };
+      if (currentFetchController) fetchOptions.signal = currentFetchController.signal;
+      const response = await fetch(url, fetchOptions);
       const fetchMs = Date.now() - fetchStart;
 
       if (response.status === 304 && lastMapPayload) {
@@ -1770,7 +1809,7 @@
       document.getElementById('btn-spinner').style.display = 'none';
       if (pendingMapRefresh) {
         pendingMapRefresh = false;
-        queueMicrotask(() => updateMap());
+        scheduleTask(() => updateMap());
       } else {
         scheduleNextMapUpdate(POLLING_INTERVAL);
       }
@@ -1782,7 +1821,7 @@
     updateMap();
   }, FILTER_DEBOUNCE);
 
-  let pitch3DActive = localStorage.getItem('map-pitch-3d') === '1';
+  let pitch3DActive = storageGet('map-pitch-3d') === '1';
 
   // Phase 5: Timeline State
   let timelinePoints = [];
@@ -1828,10 +1867,11 @@
 
     // MapLibre Layer-Filter (GPU-beschleunigt)
     // Wir filtern alle Punkte/Linien, deren Zeitstempel <= selectedTs ist
-    const filter = ['<=', ['to-number', ['to-datetime', ['get', 'timestamp']]], selectedTs];
-    
-    // Für die Punkte-Layer nutzen wir den 'timestamp' property
-    map.setFilter('layer-points', ['all', ['has', 'timestamp'], ['<=', ['to-number', ['to-datetime', ['get', 'timestamp']]], selectedTs]]);
+    try {
+      map.setFilter('layer-points', ['all', ['has', 'timestamp'], ['<=', ['to-number', ['to-datetime', ['get', 'timestamp']]], selectedTs]]);
+    } catch (error) {
+      console.warn('Timeline-Filter deaktiviert:', error);
+    }
     
     // Punkte zählen für das Label
     const count = timelinePoints.filter(p => new Date(p.timestampUtc || p.point_timestamp_utc).getTime() <= selectedTs).length;
@@ -1958,7 +1998,7 @@
       console.warn('MapLibre iOS-Fallback aktiv:', error);
       map = new maplibregl.Map(Object.assign({}, mapOptions, { pitch: 0, antialias: false }));
       pitch3DActive = false;
-      localStorage.setItem('map-pitch-3d', '0');
+      storageSet('map-pitch-3d', '0');
     }
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
@@ -1990,8 +2030,12 @@
     document.getElementById('fit-bounds-mode').value = FIT_BOUNDS_MODE;
     document.getElementById('time-range-select').value = TIME_RANGE;
 
-    const resizeObserver = new ResizeObserver(() => map.resize());
-    resizeObserver.observe(document.getElementById('map-container'));
+    if (supportsResizeObserver) {
+      const resizeObserver = new ResizeObserver(() => map.resize());
+      resizeObserver.observe(document.getElementById('map-container'));
+    } else {
+      window.addEventListener('resize', () => map.resize());
+    }
 
     map.on('moveend', () => {
       if (suppressedViewportRefreshes > 0) {
@@ -2088,57 +2132,57 @@
   };
   document.getElementById('time-range-select').onchange = (event) => {
     TIME_RANGE = event.target.value;
-    localStorage.setItem('map-time-range', TIME_RANGE);
+    storageSet('map-time-range', TIME_RANGE);
     debouncedMapRefresh();
   };
   document.getElementById('polling-interval').onchange = (event) => {
     POLLING_INTERVAL = parseInt(event.target.value, 10) || 5000;
-    localStorage.setItem('map-polling-interval', POLLING_INTERVAL);
+    storageSet('map-polling-interval', String(POLLING_INTERVAL));
     scheduleNextMapUpdate(POLLING_INTERVAL);
     tickRefreshBar();
   };
   document.getElementById('fit-bounds-mode').onchange = (event) => {
     FIT_BOUNDS_MODE = event.target.value === 'visible' ? 'visible' : 'global';
-    localStorage.setItem('map-fit-bounds-mode', FIT_BOUNDS_MODE);
+    storageSet('map-fit-bounds-mode', FIT_BOUNDS_MODE);
     if (document.getElementById('fit-bounds-toggle').checked) debouncedMapRefresh();
   };
   document.getElementById('map-max-points').onchange = (event) => {
     MAP_MAX_POINTS = clampMapMaxPoints(event.target.value);
     event.target.value = MAP_MAX_POINTS;
     document.getElementById('log-limit').value = clampLogLimit(document.getElementById('log-limit').value);
-    localStorage.setItem('map-max-points', MAP_MAX_POINTS);
+    storageSet('map-max-points', String(MAP_MAX_POINTS));
     debouncedMapRefresh();
   };
   document.getElementById('route-time-gap').onchange = (event) => {
     ROUTE_TIME_GAP = parseInt(event.target.value, 10) || 5;
-    localStorage.setItem('map-route-time-gap', ROUTE_TIME_GAP);
+    storageSet('map-route-time-gap', String(ROUTE_TIME_GAP));
     debouncedMapRefresh();
   };
   document.getElementById('route-dist-gap').onchange = (event) => {
     ROUTE_DIST_GAP = parseInt(event.target.value, 10) || 300;
-    localStorage.setItem('map-route-dist-gap', ROUTE_DIST_GAP);
+    storageSet('map-route-dist-gap', String(ROUTE_DIST_GAP));
     debouncedMapRefresh();
   };
   document.getElementById('stop-min-duration').onchange = (event) => {
     STOP_MIN_DUR = parseInt(event.target.value, 10) || 5;
-    localStorage.setItem('map-stop-min-dur', STOP_MIN_DUR);
+    storageSet('map-stop-min-dur', String(STOP_MIN_DUR));
     if (stopsActive) debouncedMapRefresh();
   };
   document.getElementById('stop-radius').onchange = (event) => {
     STOP_RADIUS_M = parseInt(event.target.value, 10) || 100;
-    localStorage.setItem('map-stop-radius', STOP_RADIUS_M);
+    storageSet('map-stop-radius', String(STOP_RADIUS_M));
     if (stopsActive) debouncedMapRefresh();
   };
   document.getElementById('log-limit').onchange = (event) => {
     LOG_LIMIT = clampLogLimit(event.target.value);
     event.target.value = LOG_LIMIT;
-    localStorage.setItem('map-log-limit', LOG_LIMIT);
+    storageSet('map-log-limit', String(LOG_LIMIT));
     debouncedMapRefresh();
   };
   document.getElementById('log-search').oninput = () => renderLog(currentLogItems);
   document.getElementById('dark-mode-btn').onclick = () => {
     darkMode = !darkMode;
-    localStorage.setItem('map-dark-mode', darkMode);
+    storageSet('map-dark-mode', String(darkMode));
     document.getElementById('dark-mode-btn').innerHTML = `${darkMode ? '☀️' : '🌙'} <span>Dark</span>`;
     document.getElementById('dark-mode-btn').title = darkMode ? 'Helle Karte' : 'Dunkle Karte';
     
@@ -2153,7 +2197,7 @@
   };
   document.getElementById('legend-toggle-btn').onclick = () => {
     legendVisible = !legendVisible;
-    localStorage.setItem('map-legend-visible', legendVisible ? '1' : '0');
+    storageSet('map-legend-visible', legendVisible ? '1' : '0');
     updateLegend();
   };
   document.getElementById('browser-location-btn').onclick = (event) => {
@@ -2162,7 +2206,7 @@
   };
   document.getElementById('pitch-toggle-btn').onclick = () => {
     pitch3DActive = !pitch3DActive;
-    localStorage.setItem('map-pitch-3d', pitch3DActive ? '1' : '0');
+    storageSet('map-pitch-3d', pitch3DActive ? '1' : '0');
     map.easeTo({ pitch: pitch3DActive ? 45 : 0, duration: 800 });
   };
   document.getElementById('fullscreen-btn').onclick = toggleFullscreen;
@@ -2226,7 +2270,7 @@
   })();
 
   document.addEventListener('DOMContentLoaded', () => {
-    toggleFilterPanel(localStorage.getItem('map-fp-hidden') !== '1');
+    toggleFilterPanel(storageGet('map-fp-hidden', '0') !== '1');
     setupMobileFilterToggle();
     showIOSBanner();
     initMap();
