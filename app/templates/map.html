@@ -1137,11 +1137,11 @@
   }
 
   function rememberLayerWarning(message) {
-    if (!mapRuntimeWarnings.includes(message)) mapRuntimeWarnings.push(message);
+    if (mapRuntimeWarnings.indexOf(message) === -1) mapRuntimeWarnings.push(message);
   }
 
   function rememberPersistentWarning(message) {
-    if (!persistentRuntimeWarnings.includes(message)) persistentRuntimeWarnings.push(message);
+    if (persistentRuntimeWarnings.indexOf(message) === -1) persistentRuntimeWarnings.push(message);
   }
 
   function runLayerStage(name, fn) {
@@ -1236,7 +1236,7 @@
   }
 
   function clearRenderedLayers() {
-    Object.values(SOURCE_IDS).forEach(id => {
+    Object.keys(SOURCE_IDS).map(key => SOURCE_IDS[key]).forEach(id => {
       const src = map.getSource(id);
       if (src) src.setData({ type: 'FeatureCollection', features: [] });
     });
@@ -1361,7 +1361,7 @@
     const filtered = currentLogItems.filter(item => {
       if (!query) return true;
       const haystack = `${item.lat.toFixed(5)} ${item.lon.toFixed(5)} ${item.timestampLocal} ${item.requestId}`.toLowerCase();
-      return haystack.includes(query);
+      return haystack.indexOf(query) !== -1;
     }).slice(0, limit);
 
     if (!filtered.length) {
@@ -1744,7 +1744,7 @@
         try {
           const errorPayload = await response.json();
           if (errorPayload && errorPayload.detail) errorDetail = `: ${JSON.stringify(errorPayload.detail)}`;
-        } catch { errorDetail = ''; }
+        } catch (parseError) { errorDetail = ''; }
         throw new Error(`HTTP ${response.status}${errorDetail}`);
       }
       lastETag = response.headers.get('etag') || null;
@@ -2006,7 +2006,7 @@
 
     map.on('load', () => {
       // Sources initialisieren
-      Object.values(SOURCE_IDS).forEach(id => {
+      Object.keys(SOURCE_IDS).map(key => SOURCE_IDS[key]).forEach(id => {
         map.addSource(id, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       });
 
