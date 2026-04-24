@@ -850,11 +850,12 @@ label {
   --map-loading-width: 320px;
   --map-timeline-width: 560px;
   --map-timeline-bottom: 18px;
+  --map-loading-menu-offset: 190px;
 }
 
 #map-loading-overlay {
   top: var(--map-overlay-gap) !important;
-  right: var(--map-overlay-gap) !important;
+  right: calc(var(--map-overlay-gap) + var(--map-loading-menu-offset)) !important;
   bottom: auto !important;
   left: auto !important;
   max-width: calc(100% - (var(--map-overlay-gap) * 2));
