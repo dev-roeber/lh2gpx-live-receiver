@@ -187,6 +187,8 @@ a:hover { opacity: 0.75; text-decoration: none; }
 /* ── Sidebar ──────────────────────────────────────────────── */
 .sidebar {
   background: var(--sidebar-bg);
+  position: relative;
+  z-index: 600;
   padding: 20px 12px;
   border-right: 1px solid var(--separator);
   color: var(--text);
