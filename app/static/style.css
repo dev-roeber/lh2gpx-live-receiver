@@ -853,8 +853,10 @@ label {
   --map-loading-menu-offset: 190px;
 }
 
+/* Re-added rule for #map-loading-overlay to ensure it's styled */
 #map-loading-overlay {
-  top: var(--map-overlay-gap) !important;
+  position: absolute;
+  top: var(--map-overlay-gap) !important; /* Initially positioned as per original */
   right: calc(var(--map-overlay-gap) + var(--map-loading-menu-offset)) !important;
   bottom: auto !important;
   left: auto !important;
@@ -1409,4 +1411,26 @@ td .kv-sub     { font-size: 0.72rem; color: var(--text-3); }
 /* ── Hover/press transitions ──────────────────────────────── */
 .panel, .tile, .list-card, .metric-card {
   transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+/* Custom positioning for progress indicator and controls */
+#map-loading-overlay {
+  position: absolute;
+  top: 12px !important; /* Positioned at the very top */
+  right: 10px !important;
+  z-index: 470; /* Ensure it's above other controls */
+}
+
+#map-quick-ctrl {
+  position: absolute;
+  top: 60px !important; /* Positioned below the progress indicator */
+  right: 10px !important;
+  z-index: 460;
+}
+
+#map-layer-ctrl {
+  position: absolute;
+  top: 110px !important; /* Positioned below the quick controls */
+  right: 10px !important;
+  z-index: 450;
 }
