@@ -179,11 +179,21 @@
                 <option value="2">2x</option>
                 <option value="4">4x</option>
               </select>
+              <select id="timeline-step-select" class="mqc-select" style="width:auto;min-width:108px;padding:6px 8px;font-size:0.72rem;">
+                <option value="points:1">1 Punkt</option>
+                <option value="points:5">5 Punkte</option>
+                <option value="seconds:30">30 Sek</option>
+                <option value="seconds:300">5 Min</option>
+              </select>
             </div>
             <select id="timeline-source-select" class="mqc-select" style="width:auto;min-width:136px;padding:6px 8px;font-size:0.72rem;">
               <option value="viewport">Quelle: Ansicht</option>
               <option value="filter">Quelle: Filter</option>
             </select>
+          </div>
+          <div id="timeline-settings-row" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--text-3);font-size:0.66rem;">
+            <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="timeline-replay-live-toggle"> Echtzeit-Replay</label>
+            <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="timeline-autofollow-toggle"> Auto-Follow</label>
           </div>
           
           <div style="position:relative;height:24px;display:flex;align-items:center;">
@@ -212,6 +222,7 @@
               }
 	            </style>
           </div>
+          <div id="timeline-marker-strip" style="position:relative;height:10px;"></div>
           <div id="timeline-activity-strip" style="display:flex;align-items:flex-end;gap:2px;height:18px;opacity:0.95;"></div>
           
           <div style="display:flex;justify-content:space-between;font-size:0.65rem;color:var(--text-3);font-variant-numeric:tabular-nums;">
@@ -978,7 +989,7 @@
     let color = '#0A84FF';
     if (!text) {
       if (timelineIsPlaying) {
-        text = `Playback ${timelinePlaybackRate}x`;
+        text = `Playback ${timelinePlaybackRate}x${timelineReplayLive ? ' Live' : ''}`;
         color = '#BF5AF2';
       } else if (timelinePreviewActive) {
         text = 'Vorschau';
@@ -992,7 +1003,7 @@
     label.style.color = color;
     label.style.background = `color-mix(in srgb, ${color} 14%, transparent)`;
     label.style.borderColor = `color-mix(in srgb, ${color} 28%, transparent)`;
-    sourceLabel.textContent = timelineSourceMode === 'filter' ? 'Aktueller Filter' : 'Sichtbarer Bereich';
+    sourceLabel.textContent = timelineSourceSummaryText || (timelineSourceMode === 'filter' ? 'Aktueller Filter' : 'Sichtbarer Bereich');
   }
 
   function toggleQuickCtrl(forceState) {
@@ -2237,10 +2248,15 @@
   let timelinePreviewActive = false;
   let timelineVisible = storageGet('map-timeline-visible', '1') !== '0';
   let timelinePlaybackRate = parseFloat(storageGet('map-timeline-speed', '1')) || 1;
+  let timelineStepMode = storageGet('map-timeline-step', 'points:1') || 'points:1';
+  let timelineReplayLive = storageGet('map-timeline-replay-live', '1') !== '0';
+  let timelineAutoFollow = storageGet('map-timeline-autofollow', '1') !== '0';
   let timelineSourceMode = storageGet('map-timeline-source', 'viewport') || 'viewport';
   let timelineSelectedTs = parseInt(storageGet('map-timeline-selected-ts', ''), 10) || null;
   let timelineLoadedQueryKey = null;
   let timelineSourcePoints = [];
+  let timelineMarkers = [];
+  let timelineSourceSummaryText = null;
   let timelineFetchToken = 0;
   let timelinePreviewToken = 0;
   let timelinePreviewController = null;
@@ -2270,6 +2286,46 @@
       captureMode: point.captureMode || point.capture_mode,
       isLatest: !!point.isLatest
     };
+  }
+
+  function haversineMeters(a, b) {
+    const toRad = deg => deg * (Math.PI / 180);
+    const radius = 6371000;
+    const dLat = toRad(b.lat - a.lat);
+    const dLon = toRad(b.lon - a.lon);
+    const lat1 = toRad(a.lat);
+    const lat2 = toRad(b.lat);
+    const root = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+    return 2 * radius * Math.asin(Math.sqrt(root));
+  }
+
+  function buildClientTimelineMarkers(points) {
+    const markers = [];
+    let previousDay = null;
+    for (let index = 0; index < points.length; index += 1) {
+      const point = points[index];
+      const day = String(point.timestampLocal || point.timestampUtc || '').slice(0, 10);
+      if (day && day !== previousDay) {
+        markers.push({ type: 'day', timestampUtc: point.timestampUtc, label: day });
+      }
+      previousDay = day;
+    }
+    let anchorIndex = 0;
+    while (anchorIndex < points.length) {
+      const anchor = points[anchorIndex];
+      let cursor = anchorIndex + 1;
+      while (cursor < points.length && haversineMeters(anchor, points[cursor]) <= STOP_RADIUS_M) cursor += 1;
+      if (cursor - anchorIndex > 1) {
+        const startTs = new Date(anchor.timestampUtc).getTime();
+        const endTs = new Date(points[cursor - 1].timestampUtc).getTime();
+        const durationMin = Math.round((endTs - startTs) / 60000);
+        if (durationMin >= STOP_MIN_DUR) {
+          markers.push({ type: 'stop', timestampUtc: anchor.timestampUtc, label: `Stop ${durationMin} min`, durationMin });
+        }
+      }
+      anchorIndex = Math.max(cursor, anchorIndex + 1);
+    }
+    return markers;
   }
 
   function buildTimelineQueryKey() {
@@ -2325,7 +2381,23 @@
     params.delete('latest_known_ts');
     if (timelineSourceMode === 'filter') params.delete('bbox');
     params.set('date_to', new Date(selectedTs).toISOString());
-    return `/api/map-data?${params.toString()}`;
+    return `/api/timeline-preview?${params.toString()}`;
+  }
+
+  function buildTimelineMarkerStrip() {
+    const strip = document.getElementById('timeline-marker-strip');
+    if (!strip) return;
+    if (!timelineMarkers.length || timelineMaxTs <= timelineMinTs) {
+      strip.innerHTML = '';
+      return;
+    }
+    strip.innerHTML = timelineMarkers.map(marker => {
+      const ts = new Date(marker.timestampUtc).getTime();
+      const ratio = Math.max(0, Math.min(1, (ts - timelineMinTs) / Math.max(1, (timelineMaxTs - timelineMinTs))));
+      const color = marker.type === 'stop' ? 'rgba(191,90,242,0.95)' : 'rgba(255,214,10,0.95)';
+      const title = `${marker.type === 'stop' ? 'Stop' : 'Tag'} · ${marker.label}`;
+      return `<span title="${escapeHtml(title)}" style="position:absolute;left:calc(${(ratio * 100).toFixed(3)}% - 1px);top:0;width:2px;height:10px;border-radius:999px;background:${color};opacity:0.92;"></span>`;
+    }).join('');
   }
 
   function buildTimelineActivityStrip() {
@@ -2366,6 +2438,52 @@
       node.style.height = `${height}px`;
       node.style.background = active ? 'rgba(48,209,88,0.95)' : 'rgba(255,255,255,0.16)';
     });
+  }
+
+  function findTimelineIndexAtOrBefore(targetTs) {
+    if (!timelinePoints.length) return -1;
+    let low = 0;
+    let high = timelinePoints.length - 1;
+    let best = -1;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const ts = new Date(timelinePoints[mid].timestampUtc || timelinePoints[mid].point_timestamp_utc).getTime();
+      if (ts <= targetTs) {
+        best = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return best < 0 ? 0 : best;
+  }
+
+  function getTimelinePointTs(index) {
+    if (index < 0 || index >= timelinePoints.length) return null;
+    return new Date(timelinePoints[index].timestampUtc || timelinePoints[index].point_timestamp_utc).getTime();
+  }
+
+  function getNextTimelineTimestamp(currentTs, direction = 1) {
+    if (!timelinePoints.length) return null;
+    const mode = String(timelineStepMode || 'points:1');
+    if (mode.startsWith('points:')) {
+      const stepPoints = Math.max(1, parseInt(mode.split(':')[1], 10) || 1);
+      const currentIndex = findTimelineIndexAtOrBefore(currentTs);
+      const nextIndex = Math.max(0, Math.min(timelinePoints.length - 1, currentIndex + (stepPoints * direction)));
+      return getTimelinePointTs(nextIndex);
+    }
+    if (mode.startsWith('seconds:')) {
+      const seconds = Math.max(1, parseInt(mode.split(':')[1], 10) || 30);
+      const targetTs = currentTs + (seconds * 1000 * direction);
+      return Math.max(timelineMinTs, Math.min(timelineMaxTs, targetTs));
+    }
+    return null;
+  }
+
+  function applyTimelineAutoFollow(latestPoint) {
+    if (!timelineAutoFollow || !latestPoint || !map) return;
+    suppressedViewportRefreshes += 1;
+    map.easeTo({ center: [latestPoint.lon, latestPoint.lat], duration: 280, essential: true });
   }
 
   function buildLocalTimelinePreviewPayload(selectedTs) {
@@ -2418,6 +2536,7 @@
       renderMapPayload(cached, { skipFocus: true, skipTimeline: true });
       renderLog(cached.logItems || []);
       updateStatistics(cached.stats || {}, cached.meta || {});
+      applyTimelineAutoFollow(cached.layers && cached.layers.latestPoint ? cached.layers.latestPoint : null);
       return;
     }
     const token = ++timelinePreviewToken;
@@ -2436,6 +2555,7 @@
       renderMapPayload(payload, { skipFocus: true, skipTimeline: true });
       renderLog(payload.logItems || []);
       updateStatistics(payload.stats || {}, payload.meta || {});
+      applyTimelineAutoFollow(payload.layers && payload.layers.latestPoint ? payload.layers.latestPoint : null);
     } catch (error) {
       if (error.name === 'AbortError') return;
       console.warn('Timeline-Vorschau nutzt lokalen Fallback:', error);
@@ -2444,6 +2564,7 @@
         renderMapPayload(fallback, { skipFocus: true, skipTimeline: true });
         renderLog(fallback.logItems || []);
         updateStatistics(fallback.stats || {}, fallback.meta || {});
+        applyTimelineAutoFollow(fallback.layers && fallback.layers.latestPoint ? fallback.layers.latestPoint : null);
       }
     }
   }
@@ -2451,6 +2572,8 @@
   async function ensureTimelineDataset(viewportPoints) {
     if (timelineSourceMode !== 'filter') {
       timelineSourcePoints = (viewportPoints || []).map(normalizeTimelinePoint);
+      timelineMarkers = buildClientTimelineMarkers(timelineSourcePoints);
+      timelineSourceSummaryText = 'Sichtbarer Bereich';
       timelineLoadedQueryKey = null;
       return timelineSourcePoints;
     }
@@ -2463,7 +2586,16 @@
     const payload = await response.json();
     if (token !== timelineFetchToken) return timelineSourcePoints;
     const items = payload && payload.timeline && payload.timeline.items ? payload.timeline.items : [];
+    timelineMarkers = payload && payload.timeline && Array.isArray(payload.timeline.markers) ? payload.timeline.markers : [];
     timelineSourcePoints = items.map(normalizeTimelinePoint);
+    if (payload && payload.timeline && payload.timeline.meta) {
+      const meta = payload.timeline.meta;
+      if (meta.minTimestampUtc) timelineMinTs = new Date(meta.minTimestampUtc).getTime();
+      if (meta.maxTimestampUtc) timelineMaxTs = new Date(meta.maxTimestampUtc).getTime();
+      timelineSourceSummaryText = meta.truncated
+        ? `Aktueller Filter · ${meta.sampledCount}/${meta.rawCount}`
+        : 'Aktueller Filter';
+    }
     timelineLoadedQueryKey = queryKey;
     return timelineSourcePoints;
   }
@@ -2485,6 +2617,8 @@
       timelinePoints = [];
       timelineMinTs = 0;
       timelineMaxTs = 0;
+      timelineMarkers = [];
+      timelineSourceSummaryText = null;
       applyTimelineVisibilityState();
       return;
     }
@@ -2500,11 +2634,14 @@
       timelinePoints = [];
       timelineMinTs = 0;
       timelineMaxTs = 0;
+      timelineMarkers = [];
+      timelineSourceSummaryText = null;
       applyTimelineVisibilityState();
       return;
     }
 
     applyTimelineVisibilityState();
+    buildTimelineMarkerStrip();
     buildTimelineActivityStrip();
     document.getElementById('timeline-start-label').textContent = new Date(timelineMinTs).toLocaleString('de-DE', { hour: '2-digit', minute: '2-digit' });
     document.getElementById('timeline-end-label').textContent = new Date(timelineMaxTs).toLocaleString('de-DE', { hour: '2-digit', minute: '2-digit' });
@@ -2530,6 +2667,8 @@
         timelineSourceMode = 'viewport';
         storageSet('map-timeline-source', 'viewport');
         timelineSourcePoints = (points || []).map(normalizeTimelinePoint);
+        timelineMarkers = buildClientTimelineMarkers(timelineSourcePoints);
+        timelineSourceSummaryText = 'Sichtbarer Bereich';
         applyTimelineDataset(timelineSourcePoints);
       });
   }
@@ -2577,11 +2716,18 @@
       
       const step = () => {
         if (!timelineIsPlaying) return;
-        let val = parseInt(slider.value);
-        if (val < parseInt(slider.max)) {
-          slider.value = Math.min(parseInt(slider.max), val + Math.max(1, Math.round(timelinePlaybackRate * 2)));
+        const currentPct = parseInt(slider.value, 10) / parseInt(slider.max, 10);
+        const currentTs = timelineMinTs + (timelineMaxTs - timelineMinTs) * currentPct;
+        const nextTs = getNextTimelineTimestamp(currentTs, 1);
+        if (nextTs !== null && nextTs < timelineMaxTs) {
+          const nextPct = (nextTs - timelineMinTs) / Math.max(1, (timelineMaxTs - timelineMinTs));
+          slider.value = String(Math.max(0, Math.min(parseInt(slider.max, 10), Math.round(nextPct * parseInt(slider.max, 10)))));
           slider.dispatchEvent(new Event('input'));
-          timelinePlayTimer = setTimeout(step, Math.max(30, Math.round(100 / Math.max(0.5, timelinePlaybackRate))));
+          timelinePlayTimer = setTimeout(step, Math.max(40, Math.round(140 / Math.max(0.5, timelinePlaybackRate))));
+        } else if (timelineReplayLive) {
+          slider.value = slider.max;
+          slider.dispatchEvent(new Event('input'));
+          timelinePlayTimer = setTimeout(step, Math.max(120, Math.round(400 / Math.max(0.5, timelinePlaybackRate))));
         } else {
           toggleTimelinePlay();
         }
@@ -2625,6 +2771,24 @@
       storageSet('map-timeline-speed', String(timelinePlaybackRate));
       updateTimelineModeLabel();
     };
+    const stepSelect = document.getElementById('timeline-step-select');
+    stepSelect.value = timelineStepMode;
+    stepSelect.onchange = (event) => {
+      timelineStepMode = String(event.target.value || 'points:1');
+      storageSet('map-timeline-step', timelineStepMode);
+    };
+    const replayToggle = document.getElementById('timeline-replay-live-toggle');
+    replayToggle.checked = timelineReplayLive;
+    replayToggle.onchange = (event) => {
+      timelineReplayLive = !!event.target.checked;
+      storageSet('map-timeline-replay-live', timelineReplayLive ? '1' : '0');
+    };
+    const autoFollowToggle = document.getElementById('timeline-autofollow-toggle');
+    autoFollowToggle.checked = timelineAutoFollow;
+    autoFollowToggle.onchange = (event) => {
+      timelineAutoFollow = !!event.target.checked;
+      storageSet('map-timeline-autofollow', timelineAutoFollow ? '1' : '0');
+    };
     const sourceSelect = document.getElementById('timeline-source-select');
     sourceSelect.value = timelineSourceMode;
     sourceSelect.onchange = (event) => {
@@ -2633,6 +2797,8 @@
       storageSet('map-timeline-source', timelineSourceMode);
       timelineLoadedQueryKey = null;
       timelineSourcePoints = [];
+      timelineMarkers = [];
+      timelineSourceSummaryText = null;
       if (lastMapPayload && lastMapPayload.layers) updateTimeline(lastMapPayload.layers.points || []);
       else applyTimelineVisibilityState();
     };

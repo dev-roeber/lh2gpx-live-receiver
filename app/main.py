@@ -733,6 +733,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         source: str | None = Query(default=None),
         search: str | None = Query(default=None),
         bbox: str | None = Query(default=None),
+        stop_min_duration_min: int = Query(default=5, ge=1, le=240),
+        stop_radius_m: int = Query(default=100, ge=10, le=5000),
         limit: int = Query(default=50000, ge=1, le=50000),
     ) -> Response:
         viewport_bbox = _parse_bbox(bbox)
@@ -754,7 +756,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if cached and (now - cached[0]) < _POINTS_CACHE_TTL:
             _, etag, body = cached
         else:
-            items = _storage(request).list_timeline_points(filters, bbox=viewport_bbox, limit=limit)
+            raw_items = _storage(request).list_timeline_points(filters, bbox=viewport_bbox, limit=50000)
+            items = _adaptive_timeline_sample(raw_items, limit=limit)
+            markers = _build_timeline_markers(
+                raw_items,
+                stop_min_duration_min=stop_min_duration_min,
+                stop_radius_m=stop_radius_m,
+            )
             result = {
                 "requestId": request.state.request_id,
                 "timeline": {
@@ -776,9 +784,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "meta": {
                         "minTimestampUtc": items[0]["point_timestamp_utc"] if items else None,
                         "maxTimestampUtc": items[-1]["point_timestamp_utc"] if items else None,
-                        "truncated": len(items) >= limit,
+                        "truncated": len(raw_items) > len(items),
                         "bboxFiltered": viewport_bbox is not None,
+                        "rawCount": len(raw_items),
+                        "sampledCount": len(items),
                     },
+                    "markers": markers,
                 },
             }
             body = json.dumps(result, separators=(",", ":")).encode()
@@ -787,6 +798,55 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if request.headers.get("if-none-match") == f'"{etag}"':
             return Response(status_code=304, headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"})
         return Response(content=body, media_type="application/json", headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"})
+
+    @app.get("/api/timeline-preview", dependencies=[Depends(_require_admin_access)])
+    async def api_timeline_preview(
+        request: Request,
+        date_from: str | None = Query(default=None),
+        date_to: str | None = Query(default=None),
+        session_id: str | None = Query(default=None),
+        bbox: str | None = Query(default=None),
+        page_size: int | None = Query(default=None, ge=1),
+        log_limit: int | None = Query(default=None, ge=1),
+        zoom: float = Query(default=12, ge=1, le=22),
+        route_time_gap_min: int = Query(default=15, ge=1, le=1440),
+        route_dist_gap_m: int = Query(default=1200, ge=10, le=50000),
+        stop_min_duration_min: int = Query(default=5, ge=1, le=240),
+        stop_radius_m: int = Query(default=100, ge=10, le=5000),
+        include_points: bool = Query(default=True),
+        include_heatmap: bool = Query(default=False),
+        include_polyline: bool = Query(default=True),
+        include_accuracy: bool = Query(default=False),
+        include_labels: bool = Query(default=False),
+        include_speed: bool = Query(default=False),
+        include_stops: bool = Query(default=False),
+        include_daytrack: bool = Query(default=False),
+        include_snap: bool = Query(default=False),
+    ) -> Response:
+        return await api_map_data(
+            request=request,
+            date_from=date_from,
+            date_to=date_to,
+            session_id=session_id,
+            bbox=bbox,
+            page_size=page_size,
+            log_limit=log_limit,
+            latest_known_ts=None,
+            zoom=zoom,
+            route_time_gap_min=route_time_gap_min,
+            route_dist_gap_m=route_dist_gap_m,
+            stop_min_duration_min=stop_min_duration_min,
+            stop_radius_m=stop_radius_m,
+            include_points=include_points,
+            include_heatmap=include_heatmap,
+            include_polyline=include_polyline,
+            include_accuracy=include_accuracy,
+            include_labels=include_labels,
+            include_speed=include_speed,
+            include_stops=include_stops,
+            include_daytrack=include_daytrack,
+            include_snap=include_snap,
+        )
 
     @app.get("/api/map-meta", dependencies=[Depends(_require_admin_access)])
     async def api_map_meta(
@@ -2442,6 +2502,87 @@ def _serialize_snap_segments(segments: list[list[dict[str, Any]]], *, zoom: int)
         if coords:
             snapped.append({"coords": coords})
     return snapped
+
+
+def _adaptive_timeline_sample(points_asc: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    capped_limit = max(2, int(limit))
+    if len(points_asc) <= capped_limit:
+        return points_asc
+    first_ts = _point_dt(points_asc[0]).timestamp()
+    last_ts = _point_dt(points_asc[-1]).timestamp()
+    if last_ts <= first_ts:
+        step = max(1, len(points_asc) // capped_limit)
+        sampled = points_asc[::step][: capped_limit - 1]
+        if sampled[-1]["id"] != points_asc[-1]["id"]:
+            sampled.append(points_asc[-1])
+        return sampled
+    bucket_count = max(2, capped_limit // 3)
+    span = max((last_ts - first_ts) / bucket_count, 1.0)
+    buckets: list[list[dict[str, Any]]] = [[] for _ in range(bucket_count)]
+    for point in points_asc:
+        bucket_index = min(bucket_count - 1, int((_point_dt(point).timestamp() - first_ts) / span))
+        buckets[bucket_index].append(point)
+    sampled: list[dict[str, Any]] = []
+    seen_ids: set[int] = set()
+    for bucket in buckets:
+        if not bucket:
+            continue
+        picks = [bucket[0], bucket[-1]]
+        if len(bucket) > 2:
+            picks.insert(1, bucket[len(bucket) // 2])
+        for point in picks:
+            point_id = int(point["id"])
+            if point_id in seen_ids:
+                continue
+            sampled.append(point)
+            seen_ids.add(point_id)
+    sampled.sort(key=_point_dt)
+    if len(sampled) > capped_limit:
+        step = max(1, len(sampled) // capped_limit)
+        sampled = sampled[::step][: capped_limit - 1] + [sampled[-1]]
+        sampled = sorted({int(point["id"]): point for point in sampled}.values(), key=_point_dt)
+    return sampled
+
+
+def _build_timeline_markers(
+    points_asc: list[dict[str, Any]],
+    *,
+    stop_min_duration_min: int,
+    stop_radius_m: int,
+) -> list[dict[str, Any]]:
+    if not points_asc:
+        return []
+    markers: list[dict[str, Any]] = []
+    seen_keys: set[tuple[str, str]] = set()
+    previous_day = None
+    for point in points_asc:
+        day = point.get("point_date_local") or (point.get("point_timestamp_local") or "")[:10]
+        if day and day != previous_day:
+            key = ("day", day)
+            if key not in seen_keys:
+                markers.append({"type": "day", "timestampUtc": point["point_timestamp_utc"], "label": day})
+                seen_keys.add(key)
+        previous_day = day
+    for stop in _detect_stops(
+        points_asc,
+        stop_radius_m=stop_radius_m,
+        stop_min_duration_min=stop_min_duration_min,
+    ):
+        timestamp_utc = stop["startTimeUtc"]
+        key = ("stop", timestamp_utc)
+        if key in seen_keys:
+            continue
+        markers.append(
+            {
+                "type": "stop",
+                "timestampUtc": timestamp_utc,
+                "label": f"Stop {stop['durationMin']} min",
+                "durationMin": stop["durationMin"],
+            }
+        )
+        seen_keys.add(key)
+    markers.sort(key=lambda item: item["timestampUtc"])
+    return markers
 
 
 def _snap_segment(segment: list[dict[str, Any]], *, zoom: int) -> list[list[float]] | None:

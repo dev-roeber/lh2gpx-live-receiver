@@ -187,6 +187,9 @@ def test_timeline_endpoint_returns_lightweight_points(tmp_path: Path) -> None:
     assert body["timeline"]["meta"]["minTimestampUtc"]
     assert body["timeline"]["meta"]["maxTimestampUtc"]
     assert body["timeline"]["meta"]["truncated"] is False
+    assert body["timeline"]["meta"]["rawCount"] == 2
+    assert body["timeline"]["meta"]["sampledCount"] == 2
+    assert isinstance(body["timeline"]["markers"], list)
 
 
 def test_request_and_session_detail_endpoints(tmp_path: Path) -> None:
