@@ -821,7 +821,7 @@
     const loadingWidth = compact ? Math.max(210, Math.min(width - overlayGap * 2, 260)) : Math.max(260, Math.min(width * 0.34, 340));
     const timelineWidth = compact ? Math.max(220, width - overlayGap * 2) : Math.max(300, Math.min(width * 0.72, 560));
     const timelineBottom = compact ? 10 : 18;
-    const menuOffset = width < 720 ? 0 : width < 980 ? 150 : 190;
+    const menuOffset = 0;
     wrap.style.setProperty('--map-overlay-gap', `${overlayGap}px`);
     wrap.style.setProperty('--map-loading-width', `${Math.max(180, loadingWidth)}px`);
     wrap.style.setProperty('--map-timeline-width', `${Math.max(220, timelineWidth)}px`);

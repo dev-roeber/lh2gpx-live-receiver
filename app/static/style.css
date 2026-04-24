@@ -850,7 +850,7 @@ label {
   --map-loading-width: 320px;
   --map-timeline-width: 560px;
   --map-timeline-bottom: 18px;
-  --map-loading-menu-offset: 190px;
+  --map-loading-menu-offset: 0px;
   --map-loading-control-offset: 0px;
 }
 
