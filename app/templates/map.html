@@ -1330,12 +1330,6 @@
     const autoCenter = document.getElementById('auto-center-toggle').checked;
     const fitBounds = document.getElementById('fit-bounds-toggle').checked;
 
-    if (isInitialLoad && latest) {
-      isInitialLoad = false;
-      scheduleTask(() => focusInitialGlobalLatestPoint(latest));
-      return;
-    }
-
     if (fitBounds) {
       const useGlobalBounds = FIT_BOUNDS_MODE === 'global';
       const metaBounds = useGlobalBounds && lastMetaPayload && lastMetaPayload.meta ? lastMetaPayload.meta.boundingBox : null;
@@ -2417,6 +2411,10 @@
       updateTimelineModeLabel();
       applyTimelineVisibilityState();
       updateMapOverlayLayout();
+      if (isInitialLoad) {
+        isInitialLoad = false;
+        scheduleTask(() => focusInitialGlobalLatestPoint());
+      }
       updateMap();
     });
 
