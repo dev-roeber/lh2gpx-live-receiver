@@ -20,7 +20,7 @@
   <span style="color:var(--separator);">|</span>
   <span>Heute: <strong id="mbar-daily" style="color:var(--text-2);">—</strong></span>
 </div>
-<div id="map-processing-bar" style="display:flex;align-items:center;gap:10px;margin:-2px 0 14px 0;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--surface-1);font-size:0.78rem;color:var(--text-3);flex-wrap:wrap;">
+<div id="map-processing-bar" style="display:flex;align-items:center;gap:8px;margin:-2px 0 14px 0;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--surface-1);font-size:0.78rem;color:var(--text-3);flex-wrap:wrap;">
   <span>Server-Verarbeitung:</span>
   <strong id="processing-status-label" style="color:var(--text-2);">—</strong>
   <span style="color:var(--separator);">|</span>
@@ -107,8 +107,8 @@
     <div id="map-wrap" style="position:relative;">
       <div id="map-container"></div>
       <div id="map-loading-overlay" style="display:none;position:absolute;top:12px;right:12px;z-index:750;pointer-events:none;align-items:flex-start;justify-content:flex-end;max-width:calc(100% - 24px);">
-        <div id="map-loading-card" style="background:rgba(28,28,30,0.76);backdrop-filter:blur(14px) saturate(180%);-webkit-backdrop-filter:blur(14px) saturate(180%);border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:14px 16px;font-size:0.82rem;color:var(--text-2);display:flex;flex-direction:column;gap:10px;width:min(360px,calc(100vw - 40px));max-width:100%;box-shadow:0 10px 36px rgba(0,0,0,0.42);pointer-events:auto;transform:translateY(0);opacity:1;transition:opacity 160ms ease, transform 160ms ease;box-sizing:border-box;">
-          <div style="display:flex;align-items:center;gap:10px;">
+        <div id="map-loading-card" style="background:rgba(28,28,30,0.76);backdrop-filter:blur(14px) saturate(180%);-webkit-backdrop-filter:blur(14px) saturate(180%);border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:14px 16px;font-size:0.8rem;color:var(--text-2);display:flex;flex-direction:column;gap:8px;width:min(360px,calc(100vw - 40px));max-width:100%;box-shadow:0 8px 28px rgba(0,0,0,0.38);pointer-events:auto;transform:translateY(0);opacity:1;transition:opacity 160ms ease, transform 160ms ease;box-sizing:border-box;">
+          <div style="display:flex;align-items:center;gap:8px;">
             <span id="map-loading-spinner" style="animation:spin 1s linear infinite;display:inline-block;color:var(--0a84ff,#0A84FF);">⟳</span>
             <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">
               <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
@@ -127,7 +127,7 @@
              <div id="map-processing-detail" style="font-size:0.68rem;color:var(--text-3);line-height:1.2;"></div>
           </div>
 
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:0.72rem;color:var(--text-3);margin-top:2px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:0.7rem;color:var(--text-3);margin-top:2px;">
             <span id="map-loading-bytes">0 KB</span>
             <span id="map-loading-percent">0%</span>
           </div>
