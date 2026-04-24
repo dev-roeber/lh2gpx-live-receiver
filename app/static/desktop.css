@@ -4,7 +4,7 @@
 
 /* Sidebar optimiert für Desktop */
 .sidebar {
-  width: 280px !important;
+  width: var(--sidebar-width) !important;
   position: fixed !important;
   height: 100vh;
   overflow-y: auto;
@@ -12,7 +12,7 @@
 }
 
 .app-shell {
-  margin-left: 280px !important;
+  margin-left: var(--sidebar-width) !important;
 }
 
 .sidebar-nav {

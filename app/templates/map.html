@@ -987,10 +987,11 @@
     const panel = document.querySelector('.map-filter-panel');
     const button = document.getElementById('fp-show-btn');
     const backdrop = document.getElementById('fp-backdrop');
+    if (!panel || !button || !backdrop) return;
     panel.classList.toggle('fp-open', show);
     backdrop.classList.toggle('fp-open', show);
     button.dataset.open = show ? '1' : '0';
-    button.innerHTML = show ? '✕ Filter' : '☰ Filter';
+    button.textContent = show ? '✕ Filter' : '☰ Filter';
     storageSet('map-fp-hidden', show ? '0' : '1');
     if (map) setTimeout(() => map.resize(), 250);
   }
