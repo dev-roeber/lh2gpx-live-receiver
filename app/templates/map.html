@@ -31,8 +31,8 @@
   <span>ETA: <strong id="processing-eta" style="color:var(--text-2);">—</strong></span>
 </div>
 
-<link rel='stylesheet' href='https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css' />
-<script src='https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js'></script>
+<link rel='stylesheet' href='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css' />
+<script src='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js'></script>
 <script src="https://unpkg.com/dexie@4.0.1/dist/dexie.js"></script>
 
 <div class="map-page-container">
@@ -1090,6 +1090,17 @@
     }
   }
 
+  function isWebglSupported() {
+    if (!window.WebGLRenderingContext) return false;
+    const canvas = document.createElement('canvas');
+    try {
+      const context = canvas.getContext('webgl2') || canvas.getContext('webgl');
+      return !!(context && typeof context.getParameter === 'function');
+    } catch (error) {
+      return false;
+    }
+  }
+
   function setLayerToggle(toggleId, active) {
     const toggle = document.getElementById(toggleId);
     if (toggle) toggle.checked = active;
@@ -2027,6 +2038,9 @@
 
     if (typeof window.maplibregl === 'undefined' || typeof window.maplibregl.Map !== 'function') {
       throw new Error('MapLibre konnte nicht geladen werden.');
+    }
+    if (!isWebglSupported()) {
+      throw new Error('WebGL wird auf diesem Browser/Gerät nicht unterstützt.');
     }
 
     const mapOptions = {
