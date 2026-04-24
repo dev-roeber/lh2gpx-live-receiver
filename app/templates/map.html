@@ -120,6 +120,8 @@
           </div>
           
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:0.7rem;color:var(--text-3);margin-top:2px;">
+            <span id="map-loading-metric-label" style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-3);">Download</span>
+            <span style="flex:1;"></span>
             <span id="map-loading-bytes">0 KB</span>
             <span id="map-loading-percent">0%</span>
           </div>
@@ -1686,21 +1688,32 @@
     const label = document.getElementById('map-loading-stage');
     const title = document.getElementById('map-loading-title');
     const sub = document.getElementById('map-loading-subtext');
-    if (!card || !label || !title || !sub) return;
+    const metricLabel = document.getElementById('map-loading-metric-label');
+    const bytesLabel = document.getElementById('map-loading-bytes');
+    const percentLabel = document.getElementById('map-loading-percent');
+    if (!card || !label || !title || !sub || !metricLabel || !bytesLabel || !percentLabel) return;
     const stageMap = {
-      connect: { label: 'Verbinden', title: 'Synchronisierung läuft', subtext: 'Verbindung wird aufgebaut…', color: '#0A84FF' },
-      download: { label: 'Download', title: 'Kartendaten werden geladen', subtext: 'Antwort wird heruntergeladen…', color: '#30D158' },
-      parse: { label: 'Parse', title: 'Antwort wird verarbeitet', subtext: 'JSON wird dekodiert…', color: '#FF9F0A' },
-      render: { label: 'Render', title: 'Ansicht wird aktualisiert', subtext: 'Layer und UI werden gerendert…', color: '#BF5AF2' },
+      connect: { label: 'Verbinden', title: 'Synchronisierung läuft', subtext: 'Verbindung wird aufgebaut…', color: '#0A84FF', metric: 'Download' },
+      download: { label: 'Download', title: 'Kartendaten werden geladen', subtext: 'Antwort wird heruntergeladen…', color: '#30D158', metric: 'Download' },
+      parse: { label: 'Parse', title: 'Antwort wird verarbeitet', subtext: 'JSON wird dekodiert…', color: '#FF9F0A', metric: 'Phase' },
+      render: { label: 'Render', title: 'Ansicht wird aktualisiert', subtext: 'Layer und UI werden gerendert…', color: '#BF5AF2', metric: 'Phase' },
     };
     const current = stageMap[stage] || stageMap.connect;
     card.dataset.stage = stage;
     title.textContent = current.title;
     sub.textContent = subtext || current.subtext;
     label.textContent = current.label;
+    metricLabel.textContent = current.metric;
     label.style.color = current.color;
     label.style.background = `color-mix(in srgb, ${current.color} 14%, transparent)`;
     label.style.borderColor = `color-mix(in srgb, ${current.color} 28%, transparent)`;
+    if (stage === 'parse') {
+      bytesLabel.textContent = 'Download abgeschlossen';
+      percentLabel.textContent = 'Phase';
+    } else if (stage === 'render') {
+      bytesLabel.textContent = 'Daten übernommen';
+      percentLabel.textContent = 'Phase';
+    }
   }
 
   function updateLoadingOverlay(loadedBytes, totalBytes = null) {
