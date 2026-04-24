@@ -842,6 +842,12 @@ label {
   overflow: hidden;
 }
 
+#map-wrap {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
 .leaflet-container img {
   max-width: none !important;
   max-height: none !important;
@@ -1215,7 +1221,8 @@ label {
   .map-container-wrapper,
   .log-container-wrapper { min-width: 0; width: 100%; box-sizing: border-box; }
 
-  #map-container { height: 320px; }
+  #map-wrap      { min-height: min(62vh, 520px); }
+  #map-container { height: min(62vh, 520px); min-height: 360px; }
   .table-panel   { max-height: 480px; }
 
   .tile-grid.six-up { grid-template-columns: repeat(2, 1fr); }
@@ -1233,7 +1240,8 @@ label {
 @media (max-width: 600px) {
   .page-shell { padding: 10px; }
   .map-page-container { gap: 8px; }
-  #map-container      { height: 280px; }
+  #map-wrap           { min-height: min(60vh, 480px); }
+  #map-container      { height: min(60vh, 480px); min-height: 320px; }
   .map-filter-panel   { padding: 12px; }
   .tile-grid.six-up   { grid-template-columns: 1fr; }
   .map-filter-toggle  { padding: 8px 12px; font-size: 0.78rem; }

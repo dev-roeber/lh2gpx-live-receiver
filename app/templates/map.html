@@ -195,17 +195,7 @@
                 cursor: pointer;
                 box-shadow: 0 0 10px rgba(0,0,0,0.5);
               }
-      @media (max-width: 767px) {
-        #map-wrap {
-          flex-grow: 1;
-          min-height: 50vh;
-        }
-        #map-container {
-          height: 100%;
-        }
-      }
-    
-            </style>
+	            </style>
           </div>
           
           <div style="display:flex;justify-content:space-between;font-size:0.65rem;color:var(--text-3);font-variant-numeric:tabular-nums;">
@@ -2004,6 +1994,14 @@
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
     map.addControl(new maplibregl.ScaleControl({ maxWidth: 80, unit: 'metric' }));
 
+    function forceMapResize() {
+      if (!map || typeof map.resize !== 'function') return;
+      requestAnimationFrame(() => {
+        map.resize();
+        setTimeout(() => map.resize(), 250);
+      });
+    }
+
     map.on('load', () => {
       // Sources initialisieren
       Object.keys(SOURCE_IDS).map(key => SOURCE_IDS[key]).forEach(id => {
@@ -2012,6 +2010,7 @@
 
       // Layer initialisieren (Reihenfolge ist wichtig für Z-Index)
       setupMapLayers();
+      forceMapResize();
       
       updateLegend();
       updateLegendPlacement();
@@ -2031,10 +2030,14 @@
     document.getElementById('time-range-select').value = TIME_RANGE;
 
     if (supportsResizeObserver) {
-      const resizeObserver = new ResizeObserver(() => map.resize());
+      const resizeObserver = new ResizeObserver(() => forceMapResize());
       resizeObserver.observe(document.getElementById('map-container'));
     } else {
-      window.addEventListener('resize', () => map.resize());
+      window.addEventListener('resize', forceMapResize);
+    }
+    window.addEventListener('orientationchange', () => setTimeout(forceMapResize, 350));
+    if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') {
+      window.visualViewport.addEventListener('resize', forceMapResize);
     }
 
     map.on('moveend', () => {
