@@ -164,7 +164,6 @@
         }
 
         /* Ensure timeline doesn't overlap inappropriately */
-      <button id="timeline-toggle-btn" class="map-control-btn" title="Timeline ein-/ausblenden" style="position:absolute; top:calc(var(--map-timeline-bottom, 24px) + var(--map-timeline-card-height, 100px) + 12px); right:12px; z-index:745; cursor:pointer; background:rgba(28,28,30,0.75); border:1px solid rgba(255,255,255,0.12); border-radius:12px; padding:8px 12px; font-size:0.8rem; transition:all 0.3s ease-in-out;">☰ Timeline</button>
 
         body.loading-active #map-timeline-container {
            /* Adjust if timeline position needs modification when loading */
@@ -177,7 +176,6 @@
       </style>
 
       {# Timeline — floating am unteren Rand #}
-      <button id="timeline-toggle-btn" class="map-control-btn" title="Timeline ein-/ausblenden" style="position:absolute; top:calc(var(--map-timeline-bottom, 24px) + var(--map-timeline-card-height, 100px) + 12px); right:12px; z-index:745; cursor:pointer; background:rgba(28,28,30,0.75); border:1px solid rgba(255,255,255,0.12); border-radius:12px; padding:8px 12px; font-size:0.8rem; transition:all 0.3s ease-in-out;">☰ Timeline</button>
 
       <div id="map-timeline-container" style="display:none;position:absolute;bottom:24px;left:50%;transform:translateX(-50%);z-index:740;width:min(600px,calc(100% - 24px));max-width:calc(100% - 24px);pointer-events:none;">
         <div id="map-timeline-card" style="background:rgba(28,28,30,0.75);backdrop-filter:blur(15px) saturate(180%);-webkit-backdrop-filter:blur(15px) saturate(180%);border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:12px 18px;box-shadow:0 12px 40px rgba(0,0,0,0.5);pointer-events:auto;display:flex;flex-direction:column;gap:8px;box-sizing:border-box;">
@@ -793,7 +791,6 @@
   function updateMapOverlayLayout() {
     const wrap = document.getElementById('map-wrap');
     const loadingCard = document.getElementById('map-loading-card');
-      <button id="timeline-toggle-btn" class="map-control-btn" title="Timeline ein-/ausblenden" style="position:absolute; top:calc(var(--map-timeline-bottom, 24px) + var(--map-timeline-card-height, 100px) + 12px); right:12px; z-index:745; cursor:pointer; background:rgba(28,28,30,0.75); border:1px solid rgba(255,255,255,0.12); border-radius:12px; padding:8px 12px; font-size:0.8rem; transition:all 0.3s ease-in-out;">☰ Timeline</button>
 
     const timeline = document.getElementById('map-timeline-container');
     if (!wrap || !loadingCard || !timeline) return;
@@ -1880,7 +1877,6 @@
   let timelinePlayTimer = null;
 
   function updateTimeline(points) {
-      <button id="timeline-toggle-btn" class="map-control-btn" title="Timeline ein-/ausblenden" style="position:absolute; top:calc(var(--map-timeline-bottom, 24px) + var(--map-timeline-card-height, 100px) + 12px); right:12px; z-index:745; cursor:pointer; background:rgba(28,28,30,0.75); border:1px solid rgba(255,255,255,0.12); border-radius:12px; padding:8px 12px; font-size:0.8rem; transition:all 0.3s ease-in-out;">☰ Timeline</button>
 
     const container = document.getElementById('map-timeline-container');
     if (!points || points.length < 2) {
