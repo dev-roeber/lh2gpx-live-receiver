@@ -728,6 +728,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         date_to: str | None = Query(default=None),
         session_id: str | None = Query(default=None),
     ) -> Response:
+        request_started_at = time.perf_counter()
         filters = PointFilters(
             date_from=date_from,
             date_to=date_to,
@@ -738,31 +739,50 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         cache_key = str(request.url.query)
         now = time.time()
         cached = _MAP_META_CACHE.get(cache_key)
+        cache_state = "miss"
+        summary_duration_ms = 0.0
+        serialize_duration_ms = 0.0
         if cached and (now - cached[0]) < _MAP_META_CACHE_TTL:
             _, etag, body = cached
+            cache_state = "hit"
         else:
+            summary_started_at = time.perf_counter()
             summary = _storage(request).summarize_points(filters)
+            summary_duration_ms = round((time.perf_counter() - summary_started_at) * 1000, 2)
             result = {
                 "requestId": request.state.request_id,
                 "meta": summary,
                 "processing": _summarize_import_tasks(),
             }
+            serialize_started_at = time.perf_counter()
             body = json.dumps(result, separators=(",", ":")).encode()
+            serialize_duration_ms = round((time.perf_counter() - serialize_started_at) * 1000, 2)
             etag = hashlib.md5(body, usedforsecurity=False).hexdigest()
             _MAP_META_CACHE[cache_key] = (now, etag, body)
             if len(_MAP_META_CACHE) > 200:
                 cutoff = now - _MAP_META_CACHE_TTL
                 for key in [key for key, value in _MAP_META_CACHE.items() if value[0] < cutoff]:
                     del _MAP_META_CACHE[key]
+        total_duration_ms = round((time.perf_counter() - request_started_at) * 1000, 2)
+        headers = {
+            "ETag": f'"{etag}"',
+            "Cache-Control": "no-cache",
+            "X-Map-Cache": cache_state,
+            "X-Map-Mode": "meta",
+            "Server-Timing": ", ".join(
+                [
+                    f'cache;desc="{cache_state}"',
+                    f"summary;dur={summary_duration_ms:.2f}",
+                    f"serialize;dur={serialize_duration_ms:.2f}",
+                    f"total;dur={total_duration_ms:.2f}",
+                ]
+            ),
+        }
 
         if request.headers.get("if-none-match") == f'"{etag}"':
-            return Response(status_code=304, headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"})
+            return Response(status_code=304, headers=headers)
 
-        return Response(
-            content=body,
-            media_type="application/json",
-            headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"},
-        )
+        return Response(content=body, media_type="application/json", headers=headers)
 
     @app.get("/api/map-data", dependencies=[Depends(_require_admin_access)])
     async def api_map_data(
@@ -789,6 +809,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         include_daytrack: bool = Query(default=False),
         include_snap: bool = Query(default=False),
     ) -> Response:
+        request_started_at = time.perf_counter()
         configured_max = max(1, _settings(request).points_page_size_max)
         viewport_bbox = _parse_bbox(bbox)
         effective_page_size = min(
@@ -810,32 +831,58 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         cache_key = str(request.url.query)
         now = time.time()
         cached = _MAP_DATA_CACHE.get(cache_key)
+        cache_state = "miss"
+        latest_check_duration_ms = 0.0
+        counts_duration_ms = 0.0
+        heatmap_duration_ms = 0.0
+        track_context_duration_ms = 0.0
+        track_layers_duration_ms = 0.0
+        payload_duration_ms = 0.0
+        serialize_duration_ms = 0.0
+        map_mode = "full"
         if cached and (now - cached[0]) < _MAP_DATA_CACHE_TTL:
             _, etag, body = cached
+            cache_state = "hit"
         else:
             storage = _storage(request)
             if latest_known_ts:
+                latest_check_started_at = time.perf_counter()
                 latest_visible_ts = storage.latest_point_timestamp(filters, bbox=viewport_bbox)
                 latest_visible_dt = _parse_iso_timestamp(latest_visible_ts)
                 latest_known_dt = _parse_iso_timestamp(latest_known_ts)
+                latest_check_duration_ms = round((time.perf_counter() - latest_check_started_at) * 1000, 2)
                 if latest_visible_dt and latest_known_dt and latest_visible_dt <= latest_known_dt:
+                    total_duration_ms = round((time.perf_counter() - request_started_at) * 1000, 2)
                     return Response(
                         status_code=304,
                         headers={
                             "Cache-Control": "no-cache",
                             "X-Map-Delta": "noop",
                             "X-Map-Latest-Ts": latest_visible_ts,
+                            "X-Map-Mode": "delta-noop",
+                            "X-Map-Cache": "miss",
+                            "Server-Timing": ", ".join(
+                                [
+                                    'cache;desc="miss"',
+                                    f"latest_check;dur={latest_check_duration_ms:.2f}",
+                                    f"total;dur={total_duration_ms:.2f}",
+                                ]
+                            ),
                         },
                     )
             if viewport_bbox:
+                counts_started_at = time.perf_counter()
                 total_points = storage.count_points(filters)
                 visible_points = storage.count_points(filters, bbox=viewport_bbox)
                 viewport_items = storage.list_points_in_bbox(filters, bbox=viewport_bbox)
+                counts_duration_ms = round((time.perf_counter() - counts_started_at) * 1000, 2)
             else:
+                counts_started_at = time.perf_counter()
                 listed = storage.list_points(filters)
                 total_points = listed["total"]
                 visible_points = len(listed["items"])
                 viewport_items = listed["items"]
+                counts_duration_ms = round((time.perf_counter() - counts_started_at) * 1000, 2)
             buffered_items = viewport_items
             delta_viewport_items = []
             delta_mode = False
@@ -843,10 +890,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 latest_known_dt = _parse_iso_timestamp(latest_known_ts)
                 if latest_known_dt:
                     delta_mode = True
+                    map_mode = "delta"
                     normalized_since = latest_known_dt.astimezone(timezone.utc).isoformat()
                     delta_viewport_items = storage.list_points_since(filters, since_utc=normalized_since, bbox=viewport_bbox)
             heatmap_entries = []
             if include_heatmap:
+                heatmap_started_at = time.perf_counter()
                 heatmap_entries = await asyncio.to_thread(
                     _resolve_heatmap_layer,
                     storage,
@@ -854,6 +903,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     bbox=viewport_bbox,
                     zoom=effective_zoom,
                 )
+                heatmap_duration_ms = round((time.perf_counter() - heatmap_started_at) * 1000, 2)
             track_layers = {
                 "polylines": [],
                 "speed": [],
@@ -865,6 +915,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
             needs_track_context = include_polyline or include_labels or include_speed or include_stops or include_daytrack or include_snap
             if needs_track_context:
+                track_context_started_at = time.perf_counter()
                 track_context = await asyncio.to_thread(
                     _resolve_track_context,
                     storage,
@@ -874,6 +925,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     route_time_gap_min=route_time_gap_min,
                     route_dist_gap_m=route_dist_gap_m,
                 )
+                track_context_duration_ms = round((time.perf_counter() - track_context_started_at) * 1000, 2)
+                track_layers_started_at = time.perf_counter()
                 track_layers = await asyncio.to_thread(
                     _resolve_track_layers,
                     track_context,
@@ -888,8 +941,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     route_time_gap_min=route_time_gap_min,
                     include_snap=include_snap,
                 )
+                track_layers_duration_ms = round((time.perf_counter() - track_layers_started_at) * 1000, 2)
                 buffered_items = track_layers["context_points_desc"]
             if delta_mode:
+                payload_started_at = time.perf_counter()
                 payload = await asyncio.to_thread(
                     _prepare_map_delta_payload,
                     viewport_items,
@@ -909,7 +964,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     include_heatmap=include_heatmap,
                     include_accuracy=include_accuracy,
                 )
+                payload_duration_ms = round((time.perf_counter() - payload_started_at) * 1000, 2)
             else:
+                payload_started_at = time.perf_counter()
                 payload = await asyncio.to_thread(
                     _prepare_map_payload,
                     viewport_items,
@@ -929,6 +986,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     include_heatmap=include_heatmap,
                     include_accuracy=include_accuracy,
                 )
+                payload_duration_ms = round((time.perf_counter() - payload_started_at) * 1000, 2)
             if viewport_bbox:
                 payload["meta"]["bbox"] = {
                     "minLon": viewport_bbox[0],
@@ -939,22 +997,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             payload["meta"]["latestVisiblePointTsUtc"] = viewport_items[0]["point_timestamp_utc"] if viewport_items else None
             result = {"requestId": request.state.request_id, **payload}
             result["processing"] = _summarize_import_tasks()
+            serialize_started_at = time.perf_counter()
             body = json.dumps(result, separators=(",", ":")).encode()
+            serialize_duration_ms = round((time.perf_counter() - serialize_started_at) * 1000, 2)
             etag = hashlib.md5(body, usedforsecurity=False).hexdigest()
             _MAP_DATA_CACHE[cache_key] = (now, etag, body)
             if len(_MAP_DATA_CACHE) > 200:
                 cutoff = now - _MAP_DATA_CACHE_TTL
                 for key in [key for key, value in _MAP_DATA_CACHE.items() if value[0] < cutoff]:
                     del _MAP_DATA_CACHE[key]
+        total_duration_ms = round((time.perf_counter() - request_started_at) * 1000, 2)
+        headers = {
+            "ETag": f'"{etag}"',
+            "Cache-Control": "no-cache",
+            "X-Map-Cache": cache_state,
+            "X-Map-Mode": map_mode,
+            "Server-Timing": ", ".join(
+                [
+                    f'cache;desc="{cache_state}"',
+                    f"latest_check;dur={latest_check_duration_ms:.2f}",
+                    f"counts;dur={counts_duration_ms:.2f}",
+                    f"heatmap;dur={heatmap_duration_ms:.2f}",
+                    f"track_context;dur={track_context_duration_ms:.2f}",
+                    f"track_layers;dur={track_layers_duration_ms:.2f}",
+                    f"payload;dur={payload_duration_ms:.2f}",
+                    f"serialize;dur={serialize_duration_ms:.2f}",
+                    f"total;dur={total_duration_ms:.2f}",
+                ]
+            ),
+        }
 
         if request.headers.get("if-none-match") == f'"{etag}"':
-            return Response(status_code=304, headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"})
+            return Response(status_code=304, headers=headers)
 
-        return Response(
-            content=body,
-            media_type="application/json",
-            headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"},
-        )
+        return Response(content=body, media_type="application/json", headers=headers)
 
     @app.get("/api/points/{point_id}", dependencies=[Depends(_require_admin_access)])
     async def api_point_detail(request: Request, point_id: int) -> dict[str, Any]:

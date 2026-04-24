@@ -106,50 +106,34 @@
   <article class="panel map-container-wrapper">
     <div id="map-wrap" style="position:relative;">
       <div id="map-container"></div>
-      <div id="map-loading-overlay" style="display:none;position:absolute;top:12px;right:12px;z-index:750;pointer-events:none;align-items:flex-start;justify-content:flex-end;max-width:calc(100% - 24px);">
-        <div id="map-loading-card" style="background:rgba(28,28,30,0.76);backdrop-filter:blur(14px) saturate(180%);-webkit-backdrop-filter:blur(14px) saturate(180%);border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:14px 16px;font-size:0.8rem;color:var(--text-2);display:flex;flex-direction:column;gap:8px;width:min(360px,calc(100vw - 40px));max-width:100%;box-shadow:0 8px 28px rgba(0,0,0,0.38);pointer-events:auto;transform:translateY(0);opacity:1;transition:opacity 160ms ease, transform 160ms ease;box-sizing:border-box;">
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span id="map-loading-spinner" style="animation:spin 1s linear infinite;display:inline-block;color:var(--0a84ff,#0A84FF);">⟳</span>
-            <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-                <strong id="map-loading-title" style="font-size:0.85rem;color:var(--text-1);">Synchronisierung läuft</strong>
-                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
-                  <span id="map-loading-mode" style="font-size:0.58rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#64D2FF;background:rgba(100,210,255,0.14);border:1px solid rgba(100,210,255,0.24);border-radius:999px;padding:3px 8px;white-space:nowrap;">Vollupdate</span>
-                  <span id="map-loading-stage" style="font-size:0.65rem;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:#0A84FF;background:rgba(10,132,255,0.14);border:1px solid rgba(10,132,255,0.24);border-radius:999px;padding:3px 8px;white-space:nowrap;">Verbinden</span>
+      <div id="map-loading-overlay">
+        <div id="map-loading-card">
+          <div class="map-loading-header">
+            <span id="map-loading-spinner">⟳</span>
+            <div class="map-loading-copy">
+              <div class="map-loading-title-row">
+                <strong id="map-loading-title">Synchronisierung läuft</strong>
+                <div class="map-loading-badges">
+                  <span id="map-loading-mode">Vollupdate</span>
+                  <span id="map-loading-stage">Verbinden</span>
                 </div>
               </div>
-              <span id="map-loading-subtext" style="font-size:0.72rem;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Verbindung wird aufgebaut…</span>
+              <span id="map-loading-subtext">Verbindung wird aufgebaut…</span>
+              <span id="map-loading-detail">Serverstatus wird vorbereitet…</span>
             </div>
           </div>
-          
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:0.7rem;color:var(--text-3);margin-top:2px;">
-            <span id="map-loading-metric-label" style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-3);">Download</span>
-            <span style="flex:1;"></span>
+
+          <div class="map-loading-meta">
+            <span id="map-loading-metric-label">Download</span>
+            <span class="map-loading-spacer"></span>
             <span id="map-loading-bytes">0 KB</span>
             <span id="map-loading-percent">0%</span>
           </div>
-          <div id="map-loading-track" style="height:8px;border-radius:999px;background:rgba(255,255,255,0.1);overflow:hidden;position:relative;">
-            <div id="map-loading-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#0A84FF 0%,#30D158 55%,#64D2FF 100%);background-size:200% 100%;transition:width 120ms linear, opacity 120ms linear;box-shadow:0 0 14px rgba(10,132,255,0.3);"></div>
+          <div id="map-loading-track">
+            <div id="map-loading-bar"></div>
           </div>
         </div>
       </div>
-      <style>
-        @keyframes map-loading-shimmer {
-          0% { background-position: 200% 0; }
-          100% { background-position: 0 0; }
-        }
-        @keyframes map-loading-pulse {
-          0%, 100% { box-shadow: 0 0 12px rgba(10,132,255,0.18); }
-          50% { box-shadow: 0 0 22px rgba(48,209,88,0.28); }
-        }
-        #map-loading-card[data-stage="download"] #map-loading-bar,
-        #map-loading-card[data-stage="connect"] #map-loading-bar {
-          animation: map-loading-shimmer 1.1s linear infinite, map-loading-pulse 1.4s ease-in-out infinite;
-        }
-        #map-loading-card[data-indeterminate="1"] #map-loading-bar {
-          width: 45%;
-        }
-      </style>
 
       {# Timeline — floating am unteren Rand #}
 
@@ -541,6 +525,7 @@
   const supportsAbortController = typeof window.AbortController === 'function';
   const supportsResizeObserver = typeof window.ResizeObserver === 'function';
   const supportsTextDecoder = typeof window.TextDecoder === 'function';
+  const supportsTextEncoder = typeof window.TextEncoder === 'function';
 
   function storageGet(key, fallback = null) {
     try {
@@ -1705,15 +1690,71 @@
     return `${(bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 2 : 1)} MB`;
   }
 
+  function getLoadingUi() {
+    return {
+      overlay: document.getElementById('map-loading-overlay'),
+      card: document.getElementById('map-loading-card'),
+      title: document.getElementById('map-loading-title'),
+      stage: document.getElementById('map-loading-stage'),
+      mode: document.getElementById('map-loading-mode'),
+      subtext: document.getElementById('map-loading-subtext'),
+      detail: document.getElementById('map-loading-detail'),
+      metricLabel: document.getElementById('map-loading-metric-label'),
+      bytes: document.getElementById('map-loading-bytes'),
+      percent: document.getElementById('map-loading-percent'),
+      bar: document.getElementById('map-loading-bar'),
+    };
+  }
+
+  function parseServerTimingHeader(value) {
+    if (!value) return [];
+    return value.split(',').map(part => part.trim()).filter(Boolean).map(entry => {
+      const segments = entry.split(';').map(part => part.trim()).filter(Boolean);
+      const name = segments.shift() || '';
+      const meta = { name, dur: null, desc: null };
+      segments.forEach(segment => {
+        const [key, rawValue = ''] = segment.split('=');
+        const parsedValue = rawValue.replace(/^"|"$/g, '');
+        if (key === 'dur') meta.dur = Number(parsedValue) || 0;
+        if (key === 'desc') meta.desc = parsedValue;
+      });
+      return meta;
+    });
+  }
+
+  function formatServerTimingDetail(entries) {
+    if (!entries || !entries.length) return 'Serverphasen werden vorbereitet…';
+    const detail = [];
+    const total = entries.find(entry => entry.name === 'total');
+    if (total && total.dur) detail.push(`gesamt ${Math.round(total.dur)} ms`);
+    const relevant = [
+      ['latest_check', 'delta'],
+      ['summary', 'meta'],
+      ['counts', 'query'],
+      ['heatmap', 'heatmap'],
+      ['track_context', 'kontext'],
+      ['track_layers', 'layer'],
+      ['payload', 'payload'],
+      ['serialize', 'json'],
+    ];
+    relevant.forEach(([key, label]) => {
+      const match = entries.find(entry => entry.name === key && entry.dur && entry.dur >= 1);
+      if (match) detail.push(`${label} ${Math.round(match.dur)} ms`);
+    });
+    const cache = entries.find(entry => entry.name === 'cache' && entry.desc);
+    if (cache) detail.push(`cache ${cache.desc}`);
+    return detail.join(' · ') || 'Serverphasen werden vorbereitet…';
+  }
+
+  function setLoadingDetail(text) {
+    const ui = getLoadingUi();
+    if (!ui.detail) return;
+    ui.detail.textContent = text || 'Serverphasen werden vorbereitet…';
+  }
+
   function setLoadingStage(stage, subtext = null) {
-    const card = document.getElementById('map-loading-card');
-    const label = document.getElementById('map-loading-stage');
-    const title = document.getElementById('map-loading-title');
-    const sub = document.getElementById('map-loading-subtext');
-    const metricLabel = document.getElementById('map-loading-metric-label');
-    const bytesLabel = document.getElementById('map-loading-bytes');
-    const percentLabel = document.getElementById('map-loading-percent');
-    if (!card || !label || !title || !sub || !metricLabel || !bytesLabel || !percentLabel) return;
+    const ui = getLoadingUi();
+    if (!ui.card || !ui.stage || !ui.title || !ui.subtext || !ui.metricLabel || !ui.bytes || !ui.percent) return;
     const stageMap = {
       connect: { label: 'Verbinden', title: 'Synchronisierung läuft', subtext: 'Verbindung wird aufgebaut…', color: '#0A84FF', metric: 'Gesamt', progress: 8 },
       download: { label: 'Download', title: 'Kartendaten werden geladen', subtext: 'Antwort wird heruntergeladen…', color: '#30D158', metric: 'Gesamt', progress: null },
@@ -1722,44 +1763,43 @@
       error: { label: 'Fehler', title: 'Aktualisierung fehlgeschlagen', subtext: 'Kartendaten konnten nicht geladen werden.', color: '#FF453A', metric: 'Status', progress: null },
     };
     const current = stageMap[stage] || stageMap.connect;
-    card.dataset.stage = stage;
-    title.textContent = current.title;
-    sub.textContent = subtext || current.subtext;
-    label.textContent = current.label;
-    metricLabel.textContent = current.metric;
-    label.style.color = current.color;
-    label.style.background = `color-mix(in srgb, ${current.color} 14%, transparent)`;
-    label.style.borderColor = `color-mix(in srgb, ${current.color} 28%, transparent)`;
+    ui.card.dataset.stage = stage;
+    ui.title.textContent = current.title;
+    ui.subtext.textContent = subtext || current.subtext;
+    ui.stage.textContent = current.label;
+    ui.metricLabel.textContent = current.metric;
+    ui.stage.style.color = current.color;
+    ui.stage.style.background = `color-mix(in srgb, ${current.color} 14%, transparent)`;
+    ui.stage.style.borderColor = `color-mix(in srgb, ${current.color} 28%, transparent)`;
     if (typeof current.progress === 'number') {
-      percentLabel.textContent = `${current.progress}%`;
+      ui.percent.textContent = `${current.progress}%`;
     }
     if (stage === 'parse') {
-      bytesLabel.textContent = 'Download abgeschlossen';
+      ui.bytes.textContent = 'Download abgeschlossen';
     } else if (stage === 'render') {
-      bytesLabel.textContent = 'Daten übernommen';
+      ui.bytes.textContent = 'Daten übernommen';
     } else if (stage === 'error') {
-      bytesLabel.textContent = 'Aktualisierung abgebrochen';
-      percentLabel.textContent = '—';
+      ui.bytes.textContent = 'Aktualisierung abgebrochen';
+      ui.percent.textContent = '—';
     }
   }
 
   function setLoadingMode(text, color = '#64D2FF') {
-    const badge = document.getElementById('map-loading-mode');
-    if (!badge) return;
-    badge.textContent = text;
-    badge.style.color = color;
-    badge.style.background = `color-mix(in srgb, ${color} 14%, transparent)`;
-    badge.style.borderColor = `color-mix(in srgb, ${color} 28%, transparent)`;
+    const ui = getLoadingUi();
+    if (!ui.mode) return;
+    ui.mode.textContent = text;
+    ui.mode.style.color = color;
+    ui.mode.style.background = `color-mix(in srgb, ${color} 14%, transparent)`;
+    ui.mode.style.borderColor = `color-mix(in srgb, ${color} 28%, transparent)`;
   }
 
   function syncLoadingOverlayState() {
     const wrap = document.getElementById('map-wrap');
-    const overlay = document.getElementById('map-loading-overlay');
-    const card = document.getElementById('map-loading-card');
-    if (!wrap || !overlay || !card) return;
-    const active = loadingOverlayShown && overlay.style.display !== 'none';
+    const ui = getLoadingUi();
+    if (!wrap || !ui.overlay || !ui.card) return;
+    const active = loadingOverlayShown && ui.overlay.style.display !== 'none';
     wrap.dataset.loadingVisible = active ? '1' : '0';
-    const offset = active ? Math.ceil(card.offsetHeight + 14) : 0;
+    const offset = active ? Math.ceil(ui.card.offsetHeight + 14) : 0;
     wrap.style.setProperty('--map-loading-control-offset', `${offset}px`);
   }
 
@@ -1768,64 +1808,61 @@
   }
 
   function updateLoadingOverlay(loadedBytes, totalBytes = null) {
-    const subtext = document.getElementById('map-loading-subtext');
-    const bytesLabel = document.getElementById('map-loading-bytes');
-    const percentLabel = document.getElementById('map-loading-percent');
-    const bar = document.getElementById('map-loading-bar');
-    const card = document.getElementById('map-loading-card');
-    if (!subtext || !bytesLabel || !percentLabel || !bar || !card) return;
+    const ui = getLoadingUi();
+    if (!ui.subtext || !ui.bytes || !ui.percent || !ui.bar || !ui.card) return;
 
     const loaded = Math.max(0, Number(loadedBytes) || 0);
     const total = totalBytes !== null && Number.isFinite(Number(totalBytes)) && Number(totalBytes) > 0 ? Number(totalBytes) : null;
 
-    bytesLabel.textContent = total ? `${formatBytes(loaded)} / ${formatBytes(total)}` : `${formatBytes(loaded)} geladen`;
+    ui.bytes.textContent = total ? `${formatBytes(loaded)} / ${formatBytes(total)}` : `${formatBytes(loaded)} geladen`;
 
     if (total) {
-      card.dataset.indeterminate = '0';
+      ui.card.dataset.indeterminate = '0';
       const downloadPercent = Math.max(0, Math.min(100, (loaded / total) * 100));
       const overallPercent = Math.max(8, Math.min(72, 8 + (downloadPercent * 0.64)));
-      percentLabel.textContent = `${overallPercent.toFixed(overallPercent >= 10 ? 0 : 1)}%`;
+      ui.percent.textContent = `${overallPercent.toFixed(overallPercent >= 10 ? 0 : 1)}%`;
       setLoadingStage('download', loaded >= total ? 'Download abgeschlossen, Daten werden übernommen…' : 'Antwort wird heruntergeladen…');
-      bar.style.opacity = '1';
-      bar.style.width = `${overallPercent}%`;
-      bar.style.background = 'linear-gradient(90deg,#0A84FF 0%,#30D158 55%,#64D2FF 100%)';
-      bar.style.backgroundPositionX = '0px';
-      bar.style.filter = 'none';
+      ui.bar.style.opacity = '1';
+      ui.bar.style.width = `${overallPercent}%`;
+      ui.bar.style.background = 'linear-gradient(90deg,#0A84FF 0%,#30D158 55%,#64D2FF 100%)';
+      ui.bar.style.backgroundPositionX = '0px';
+      ui.bar.style.filter = 'none';
     } else {
-      card.dataset.indeterminate = loaded > 0 ? '1' : '0';
-      percentLabel.textContent = loaded > 0 ? '≈40%' : '8%';
+      ui.card.dataset.indeterminate = loaded > 0 ? '1' : '0';
+      ui.percent.textContent = loaded > 0 ? 'läuft' : '8%';
       setLoadingStage(loaded > 0 ? 'download' : 'connect', loaded > 0 ? 'Datenstrom aktiv…' : 'Verbindung wird aufgebaut…');
-      bar.style.opacity = loaded > 0 ? '0.9' : '1';
-      bar.style.width = loaded > 0 ? '40%' : '8%';
-      bar.style.background = 'linear-gradient(90deg,#0A84FF 0%,#30D158 55%,#64D2FF 100%)';
-      bar.style.backgroundPositionX = '0px';
-      bar.style.filter = 'none';
+      ui.bar.style.opacity = loaded > 0 ? '0.9' : '1';
+      ui.bar.style.width = loaded > 0 ? '40%' : '8%';
+      ui.bar.style.background = 'linear-gradient(90deg,#0A84FF 0%,#30D158 55%,#64D2FF 100%)';
+      ui.bar.style.backgroundPositionX = '0px';
+      ui.bar.style.filter = 'none';
     }
     syncLoadingOverlayState();
   }
 
   function showLoadingOverlay(immediate = false) {
-    const overlay = document.getElementById('map-loading-overlay');
-    if (!overlay) return;
+    const ui = getLoadingUi();
+    if (!ui.overlay) return;
     clearTimeout(loadingOverlayTimer);
+    setLoadingDetail('Serverphasen werden vorbereitet…');
     if (immediate) {
-      overlay.style.display = 'flex';
+      ui.overlay.style.display = 'flex';
       loadingOverlayShown = true;
       syncLoadingOverlayState();
       return;
     }
     loadingOverlayTimer = setTimeout(() => {
-      overlay.style.display = 'flex';
+      ui.overlay.style.display = 'flex';
       loadingOverlayShown = true;
       syncLoadingOverlayState();
     }, 350);
   }
 
   function hideLoadingOverlay() {
-    const overlay = document.getElementById('map-loading-overlay');
+    const ui = getLoadingUi();
     clearTimeout(loadingOverlayTimer);
     loadingOverlayShown = false;
-    if (overlay) overlay.style.display = 'none';
+    if (ui.overlay) ui.overlay.style.display = 'none';
     syncLoadingOverlayState();
   }
 
@@ -1833,7 +1870,8 @@
     const totalBytes = parseInt(response.headers.get('content-length') || '', 10);
     if (!response.body || !response.body.getReader) {
       const text = await response.text();
-      updateLoadingOverlay(text.length, Number.isFinite(totalBytes) ? totalBytes : text.length);
+      const fallbackBytes = supportsTextEncoder ? new TextEncoder().encode(text).length : text.length;
+      updateLoadingOverlay(fallbackBytes, Number.isFinite(totalBytes) ? totalBytes : fallbackBytes);
       return text;
     }
     const reader = response.body.getReader();
@@ -1914,12 +1952,15 @@
       if (currentFetchController) fetchOptions.signal = currentFetchController.signal;
       const response = await fetch(url, fetchOptions);
       const fetchMs = Date.now() - fetchStart;
+      const serverTiming = parseServerTimingHeader(response.headers.get('server-timing'));
+      setLoadingDetail(formatServerTimingDetail(serverTiming));
 
       if (response.status === 304 && lastMapPayload) {
         if (loadingOverlayShown || isManualRefresh) {
           showLoadingOverlay(true);
           setLoadingMode('Delta-Noop', '#30D158');
           setLoadingStage('render', 'Keine Änderungen in der aktuellen Ansicht');
+          setLoadingDetail(`${formatServerTimingDetail(serverTiming)} · nichts neu im Viewport`);
           await wait(180);
         }
         hideLoadingOverlay();
@@ -1949,6 +1990,7 @@
       const payload = JSON.parse(text);
       setLoadingMode(payload.meta && payload.meta.deltaMode ? 'Delta-Update' : 'Vollupdate', payload.meta && payload.meta.deltaMode ? '#64D2FF' : '#64D2FF');
       if (loadingOverlayShown) setLoadingStage('render');
+      setLoadingDetail(formatServerTimingDetail(serverTiming));
       lastMapBaseQueryKey = baseQuery;
       lastVisiblePointTsUtc = payload && payload.meta ? payload.meta.latestVisiblePointTsUtc || null : null;
       isManualRefresh = false;
@@ -1998,6 +2040,7 @@
       showLoadingOverlay(true);
       setLoadingMode('Fehler', '#FF453A');
       setLoadingStage('error', error.message ? `Kartendaten: ${error.message}` : 'Kartendaten konnten nicht geladen werden.');
+      setLoadingDetail('Prüfe Netzwerk, Filter oder Serverantwort und versuche es erneut.');
       await wait(700);
       hideLoadingOverlay();
 
