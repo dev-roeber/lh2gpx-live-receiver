@@ -1747,6 +1747,25 @@ class ReceiverStorage:
                 point_timestamp_local TEXT NOT NULL
             );
 
+            CREATE VIRTUAL TABLE IF NOT EXISTS gps_points_rtree USING rtree(
+                id,
+                min_lon, max_lon,
+                min_lat, max_lat
+            );
+
+            CREATE TRIGGER IF NOT EXISTS trg_gps_points_rtree_insert
+            AFTER INSERT ON gps_points
+            BEGIN
+                INSERT OR REPLACE INTO gps_points_rtree(id, min_lon, max_lon, min_lat, max_lat)
+                VALUES (NEW.id, NEW.longitude, NEW.longitude, NEW.latitude, NEW.latitude);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_gps_points_rtree_delete
+            AFTER DELETE ON gps_points
+            BEGIN
+                DELETE FROM gps_points_rtree WHERE id = OLD.id;
+            END;
+
             -- Indices for Requests
             CREATE INDEX IF NOT EXISTS idx_ingest_requests_received_at
                 ON ingest_requests(received_at_utc DESC);
@@ -1780,6 +1799,22 @@ class ReceiverStorage:
                 ON gps_points(point_date_local DESC, point_time_local DESC);
             """
         )
+        rtree_ready = connection.execute(
+            "SELECT value FROM schema_metadata WHERE key = ?",
+            ("gps_points_rtree_ready_v1",),
+        ).fetchone()
+        if not rtree_ready:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO gps_points_rtree(id, min_lon, max_lon, min_lat, max_lat)
+                SELECT id, longitude, longitude, latitude, latitude
+                FROM gps_points
+                """
+            )
+            connection.execute(
+                "INSERT OR REPLACE INTO schema_metadata(key, value) VALUES(?, ?)",
+                ("gps_points_rtree_ready_v1", "1"),
+            )
 
     def _maybe_import_legacy_ndjson(self, connection: sqlite3.Connection) -> None:
         legacy_path = self.settings.legacy_request_ndjson_path
@@ -1928,13 +1963,19 @@ def _append_bbox_filter(
     min_lon, min_lat, max_lon, max_lat = bbox
     clauses = [] if not where_clause else [where_clause.removeprefix("WHERE ").strip()]
     if min_lon <= max_lon:
-        clauses.append("longitude BETWEEN ? AND ?")
-        parameters = [*parameters, min_lon, max_lon]
+        clauses.append(
+            "id IN (SELECT id FROM gps_points_rtree WHERE min_lon <= ? AND max_lon >= ? AND min_lat <= ? AND max_lat >= ?)"
+        )
+        parameters = [*parameters, max_lon, min_lon, max_lat, min_lat]
     else:
-        clauses.append("(longitude >= ? OR longitude <= ?)")
-        parameters = [*parameters, min_lon, max_lon]
-    clauses.append("latitude BETWEEN ? AND ?")
-    parameters = [*parameters, min_lat, max_lat]
+        clauses.append(
+            """id IN (
+                SELECT id FROM gps_points_rtree
+                WHERE min_lat <= ? AND max_lat >= ?
+                  AND ((min_lon <= ? AND max_lon >= ?) OR (min_lon <= ? AND max_lon >= ?))
+            )"""
+        )
+        parameters = [*parameters, max_lat, min_lat, 180.0, min_lon, max_lon, -180.0]
     return f"WHERE {' AND '.join(clauses)}", parameters
 
 

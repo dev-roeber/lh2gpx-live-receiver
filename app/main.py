@@ -1112,6 +1112,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 counts_duration_ms = round((time.perf_counter() - counts_started_at) * 1000, 2)
             buffered_items = viewport_items
             delta_viewport_items = []
+            delta_polyline_entries: list[dict[str, Any]] = []
+            delta_speed_entries: list[dict[str, Any]] = []
             delta_mode = False
             latest_visible_ts = viewport_items[0]["point_timestamp_utc"] if viewport_items else None
             if latest_known_ts:
@@ -1170,6 +1172,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
                 track_layers_duration_ms = round((time.perf_counter() - track_layers_started_at) * 1000, 2)
                 buffered_items = track_layers["context_points_desc"]
+                if delta_mode and delta_viewport_items:
+                    delta_context_points_asc = _build_delta_context_points_asc(viewport_items, delta_viewport_items)
+                    if delta_context_points_asc:
+                        delta_segments = _segment_track(
+                            delta_context_points_asc,
+                            time_gap_ms=route_time_gap_min * 60000,
+                            dist_gap_m=route_dist_gap_m,
+                        )
+                        if include_polyline or include_labels:
+                            delta_polyline_entries = _serialize_polyline_segments(
+                                delta_segments,
+                                zoom=effective_zoom,
+                                include_labels=include_labels,
+                            )
+                        if include_speed and not defer_expensive_track_layers:
+                            delta_speed_entries = _serialize_speed_segments(delta_context_points_asc, zoom=effective_zoom)
             if delta_mode:
                 payload_started_at = time.perf_counter()
                 payload = await asyncio.to_thread(
@@ -1179,7 +1197,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     buffered_items,
                     heatmap_entries=heatmap_entries,
                     polyline_entries=track_layers["polylines"],
+                    delta_polyline_entries=delta_polyline_entries,
                     speed_entries=track_layers["speed"],
+                    delta_speed_entries=delta_speed_entries,
                     stop_entries=track_layers["stops"],
                     daytrack_entries=track_layers["daytracks"],
                     snap_entries=track_layers["snap"],
@@ -1986,7 +2006,9 @@ def _prepare_map_delta_payload(
     *,
     heatmap_entries: list[list[float]],
     polyline_entries: list[dict[str, Any]],
+    delta_polyline_entries: list[dict[str, Any]],
     speed_entries: list[dict[str, Any]],
+    delta_speed_entries: list[dict[str, Any]],
     stop_entries: list[dict[str, Any]],
     daytrack_entries: list[dict[str, Any]],
     snap_entries: list[dict[str, Any]],
@@ -2038,11 +2060,17 @@ def _prepare_map_delta_payload(
         ]
     if include_heatmap:
         payload["delta"]["replaceHeatmap"] = heatmap_entries
-    payload["delta"]["replacePolylines"] = polyline_entries
+    if delta_polyline_entries:
+        payload["delta"]["appendPolylines"] = delta_polyline_entries
+    else:
+        payload["delta"]["replacePolylines"] = polyline_entries
     if include_accuracy:
         payload["delta"]["replaceAccuracy"] = _serialize_accuracy_entries(current_viewport_points_desc)
     if include_speed:
-        payload["delta"]["replaceSpeed"] = speed_entries
+        if delta_speed_entries:
+            payload["delta"]["appendSpeed"] = delta_speed_entries
+        else:
+            payload["delta"]["replaceSpeed"] = speed_entries
     if include_stops:
         payload["delta"]["replaceStops"] = stop_entries
     if include_daytrack:
@@ -2050,6 +2078,21 @@ def _prepare_map_delta_payload(
     if include_snap:
         payload["delta"]["replaceSnap"] = snap_entries
     return payload
+
+
+def _build_delta_context_points_asc(
+    current_viewport_points_desc: list[dict[str, Any]],
+    new_viewport_points_desc: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not new_viewport_points_desc:
+        return []
+    old_anchor = None
+    if len(current_viewport_points_desc) > len(new_viewport_points_desc):
+        old_anchor = current_viewport_points_desc[len(new_viewport_points_desc)]
+    points_asc = list(reversed(new_viewport_points_desc))
+    if old_anchor is not None:
+        points_asc = [old_anchor, *points_asc]
+    return points_asc
 
 
 def _prepare_timeline_preview_payload(

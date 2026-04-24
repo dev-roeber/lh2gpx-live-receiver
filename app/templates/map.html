@@ -1556,6 +1556,13 @@
     return Array.from(merged.values()).sort((a, b) => String(b.timestampLocal || '').localeCompare(String(a.timestampLocal || '')));
   }
 
+  function mergeLayerEntries(existing, appended, keyBuilder) {
+    const merged = new Map();
+    (existing || []).forEach(item => merged.set(keyBuilder(item), item));
+    (appended || []).forEach(item => merged.set(keyBuilder(item), item));
+    return Array.from(merged.values());
+  }
+
   function updateStatistics(stats, meta) {
     document.getElementById('stat-points-per-min').innerText = (stats.pointsPerMinute || 0).toFixed(1);
     document.getElementById('stat-avg-accuracy').innerText = stats.avgAccuracyM ? `${Math.round(stats.avgAccuracyM)}m` : '-';
@@ -1661,6 +1668,13 @@
     if ('replacePolylines' in delta) {
       merged.layers.polylines = delta.replacePolylines || [];
       renderPolylines(merged.layers.polylines);
+    } else if (Array.isArray(delta.appendPolylines)) {
+      merged.layers.polylines = mergeLayerEntries(
+        merged.layers.polylines || [],
+        delta.appendPolylines,
+        item => JSON.stringify(item.coords || [])
+      );
+      renderPolylines(merged.layers.polylines);
     }
     if ('replaceAccuracy' in delta) {
       merged.layers.accuracy = delta.replaceAccuracy || [];
@@ -1668,6 +1682,13 @@
     }
     if ('replaceSpeed' in delta) {
       merged.layers.speed = delta.replaceSpeed || [];
+      renderSpeed(merged.layers.speed);
+    } else if (Array.isArray(delta.appendSpeed)) {
+      merged.layers.speed = mergeLayerEntries(
+        merged.layers.speed || [],
+        delta.appendSpeed,
+        item => JSON.stringify(item.coords || [])
+      );
       renderSpeed(merged.layers.speed);
     }
     if ('replaceStops' in delta) {
