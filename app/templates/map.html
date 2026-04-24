@@ -2243,6 +2243,14 @@
   let timelinePreviewController = null;
   const timelinePreviewCache = new Map();
 
+  function cancelTimelinePreviewRequests() {
+    timelinePreviewToken += 1;
+    if (timelinePreviewController && typeof timelinePreviewController.abort === 'function') {
+      timelinePreviewController.abort();
+    }
+    timelinePreviewController = null;
+  }
+
   function normalizeTimelinePoint(point) {
     return {
       id: point.id,
@@ -2260,13 +2268,27 @@
   }
 
   function buildTimelineQueryKey() {
-    const state = buildCurrentFilterState();
+    const params = buildCurrentFilters();
+    params.delete('zoom');
+    params.delete('log_limit');
+    params.delete('route_time_gap_min');
+    params.delete('route_dist_gap_m');
+    params.delete('stop_min_duration_min');
+    params.delete('stop_radius_m');
+    params.delete('include_points');
+    params.delete('include_heatmap');
+    params.delete('include_polyline');
+    params.delete('include_accuracy');
+    params.delete('include_labels');
+    params.delete('include_speed');
+    params.delete('include_stops');
+    params.delete('include_daytrack');
+    params.delete('include_snap');
+    params.delete('latest_known_ts');
+    if (timelineSourceMode !== 'viewport') params.delete('bbox');
     return JSON.stringify({
       mode: timelineSourceMode,
-      session_id: state.session_id || '',
-      date_from: state.date_from || '',
-      date_to: state.date_to || '',
-      bbox: timelineSourceMode === 'viewport' ? (state.bbox || '') : '',
+      query: params.toString(),
     });
   }
 
@@ -2296,6 +2318,7 @@
   function buildTimelinePreviewUrl(selectedTs) {
     const params = buildCurrentFilters();
     params.delete('latest_known_ts');
+    if (timelineSourceMode === 'filter') params.delete('bbox');
     params.set('date_to', new Date(selectedTs).toISOString());
     return `/api/map-data?${params.toString()}`;
   }
@@ -2426,6 +2449,7 @@
   function resetTimelineToLive() {
     const slider = document.getElementById('map-timeline-slider');
     if (!slider) return;
+    cancelTimelinePreviewRequests();
     slider.value = slider.max;
     timelineSelectedTs = timelineMaxTs || null;
     storageSet('map-timeline-selected-ts', timelineSelectedTs ? String(timelineSelectedTs) : '');
@@ -2434,6 +2458,7 @@
 
   function applyTimelineDataset(points) {
     if (!points || points.length < 2) {
+      cancelTimelinePreviewRequests();
       timelinePreviewActive = false;
       timelinePoints = [];
       timelineMinTs = 0;
@@ -2448,6 +2473,7 @@
     timelineMaxTs = new Date(timelinePoints[timelinePoints.length - 1].timestampUtc || timelinePoints[timelinePoints.length - 1].point_timestamp_utc).getTime();
     
     if (timelineMaxTs - timelineMinTs < 1000) { // Zu kurzer Zeitraum
+      cancelTimelinePreviewRequests();
       timelinePreviewActive = false;
       timelinePoints = [];
       timelineMinTs = 0;
@@ -2500,6 +2526,7 @@
     buildTimelineActivityStrip();
     timelinePreviewActive = selectedTs < timelineMaxTs;
     if (!lastMapPayload || !timelinePreviewActive) {
+      cancelTimelinePreviewRequests();
       if (lastMapPayload) {
         renderMapPayload(lastMapPayload, { skipTimeline: true });
         renderLog(lastMapPayload.logItems || []);
@@ -2579,6 +2606,7 @@
     const sourceSelect = document.getElementById('timeline-source-select');
     sourceSelect.value = timelineSourceMode;
     sourceSelect.onchange = (event) => {
+      cancelTimelinePreviewRequests();
       timelineSourceMode = event.target.value === 'filter' ? 'filter' : 'viewport';
       storageSet('map-timeline-source', timelineSourceMode);
       timelineLoadedQueryKey = null;
