@@ -1448,7 +1448,7 @@ label {
   .map-filter-panel {
     position: fixed;
     top: var(--header-height, 60px);
-    left: 0;
+    left: var(--sidebar-width, 260px);
     width: 290px;
     max-width: calc(100vw - var(--sidebar-width, 260px) - 24px);
     height: calc(100vh - var(--header-height, 60px));
@@ -1460,12 +1460,12 @@ label {
     flex-direction: column;
     gap: 14px;
     overflow-y: auto;
-    transform: translateX(calc(-100% - 2px));
+    transform: translateX(calc(-100% - 36px));
     transition: transform 0.22s cubic-bezier(.4,0,.2,1);
     will-change: transform;
   }
   .map-filter-panel.fp-open {
-    transform: translateX(var(--sidebar-width, 260px));
+    transform: translateX(0);
     box-shadow: 6px 0 32px rgba(0,0,0,0.28);
   }
 
