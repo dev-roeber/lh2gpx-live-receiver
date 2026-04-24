@@ -597,7 +597,29 @@ def test_map_data_returns_delta_payload_for_newer_viewport_points(tmp_path: Path
     assert len(payload["delta"]["appendPoints"]) == 1
     assert len(payload["delta"]["appendLogItems"]) == 1
     assert "replaceHeatmap" in payload["delta"]
-    assert "replaceSpeed" in payload["delta"]
+    assert "replaceSpeed" not in payload["delta"]
+
+
+def test_timeline_preview_returns_lightweight_layers(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    headers = basic_auth_headers("operator", "dashboard-pass")
+    client.post("/live-location", json=valid_payload())
+
+    response = client.get(
+        "/api/timeline-preview?bbox=13.300000,52.400000,13.500000,52.600000&zoom=14&include_points=true&include_polyline=true&include_accuracy=true&include_speed=true&include_stops=true&include_daytrack=true&include_snap=true",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["meta"]["previewMode"] == "timeline"
+    assert payload["layers"]["points"]
+    assert payload["layers"]["polylines"]
+    assert payload["layers"]["accuracy"]
+    assert payload["layers"]["speed"] == []
+    assert payload["layers"]["stops"] == []
+    assert payload["layers"]["daytracks"] == []
+    assert payload["layers"]["snap"] == []
 
 
 def test_prepare_map_payload_keeps_viewport_layers_separate_from_buffered_geometry() -> None:

@@ -2407,6 +2407,11 @@
   function buildTimelinePreviewUrl(selectedTs) {
     const params = buildCurrentFilters();
     params.delete('latest_known_ts');
+    params.set('include_heatmap', 'false');
+    params.set('include_speed', 'false');
+    params.set('include_stops', 'false');
+    params.set('include_daytrack', 'false');
+    params.set('include_snap', 'false');
     if (timelineSourceMode === 'filter') params.delete('bbox');
     params.set('date_to', new Date(selectedTs).toISOString());
     return `/api/timeline-preview?${params.toString()}`;
