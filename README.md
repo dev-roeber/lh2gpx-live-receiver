@@ -14,7 +14,7 @@ Receiver- und Operator-Server für optionale Live-Location-Uploads aus der `Loca
 - FastAPI-Receiver für `POST /live-location`
 - SQLite als primäre Persistenz für Requests und einzelne GPS-Punkte
 - optionales NDJSON-Audit für Rohpayloads
-- interaktive Echtzeit-Karte mit Leaflet + MarkerCluster
+- interaktive Echtzeit-Karte mit MapLibre GL JS, lokalem Browser-Mirror und serverseitiger Layer-Aufbereitung
 - Live-Punkt-Log mit konfigurierbarem Polling und Zeitraumfilter
 - iOS-inspiriertes Dark-Design-System (OLED-Schwarz, semantische Akzentfarben)
 - vollständig responsive Oberfläche (Desktop / Tablet / Mobile)
@@ -23,7 +23,7 @@ Receiver- und Operator-Server für optionale Live-Location-Uploads aus der `Loca
 ## Aktueller Stand
 
 - **Design-System (April 2026):** Vollständig auf iOS-inspiriertes Dark-Design umgestellt. OLED-Schwarz als Hintergrund, Mint `#30D158` als primärer Akzent, semantische Farben (Blau, Orange, Lila, Rot, Teal) für Status und Kategorien. Glasmorphismus-Header, Pill-Buttons, gerundete Karten.
-- **Interaktive Karte:** `/dashboard/map` mit Leaflet, serverseitig vorbereiteten Karten-Layern über `/api/map-data`, Live-Polling (2s–5min konfigurierbar), Zeitraumfilter (2min–gesamt), Session-/Import-Filter, Kartensteuerung als Dropdown-Menü, GeoJSON-Export, Copy-to-Clipboard, Browser-Standort und Server-Verarbeitungsstatus.
+- **Interaktive Karte:** `/dashboard/map` mit MapLibre GL JS, separatem Metapfad `/api/map-meta`, viewport-basierten Layern über `/api/map-data`, lokalem IndexedDB-Mirror via Dexie, hybrider Live-Aktualisierung aus WebSocket-Hinweisen, Delta-Refresh und konfigurierbarem Polling, Timeline-Scrubbing, 3D-Pitch, GeoJSON-Export, Browser-Standort und Server-Verarbeitungsstatus.
 - **Responsive:** CSS-Grid-basiertes 3-View-System. Desktop: Filter-Panel | Karte | Live-Log. Tablet: 2-Spalten. Mobile: vollständig gestackt, Filter einklappbar. Kartensteuerung und Layer-Menü sind auf kleinen Displays als getrennte Dropdowns nutzbar.
 - **Sichere Operator-UI:** Karten-Live-Log und Import-Status rendern server- bzw. ingestnahe Inhalte nicht mehr als ungefiltertes HTML.
 - **Login:** Bearer-basierter Dashboard-Login mit signiertem Session-Cookie. Nach Login Redirect auf `/dashboard/map`.
@@ -121,27 +121,27 @@ Jede Seite hat:
 
 Interaktive GPS-Echtzeit-Karte mit:
 
-- **Leaflet** mit serverseitig vorbereiteten Layern über `GET /api/map-data`
-- **serverseitige Layer-Aufbereitung** für Punkte, Heatmap, Polylinien, Genauigkeit, Geschwindigkeit, Stops, Daytracks und optionalen Straßen-Snap
-- **Linienführung:** normaler Linien-Layer nutzt bevorzugt serverseitig gesnappte Straßen-Geometrie; Fallback bleibt die vereinfachte Track-Geometrie
-- **deutlich kleinere Payloads** als der rohe Punktedownload; bei `page_size=2000` aktuell etwa `59.2%` kleiner als `/api/points`
+- **MapLibre GL JS** als Karten-Engine, nicht mehr Leaflet
+- **serverseitigem Kartenmodell** über `GET /api/map-data` und **globalen Kartenmetadaten** über `GET /api/map-meta`
+- **viewport-basierter Datenladung**: der Server liefert primär Daten für die aktuelle Ansicht; `Fallback-Punkte` greift nur, wenn noch kein Viewport verfügbar ist
+- **serverseitig vorbereiteten Layern** für Punkte, Heatmap, Polylinien, Genauigkeit, Geschwindigkeit, Stops, Daytracks und optionalen Straßen-Snap
+- **hybridem Live-Pfad**: WebSocket `/ws/map` signalisiert neue Daten; Polling bleibt als konfigurierbarer Refresh- und Fallback-Pfad aktiv
+- **Delta-/Noop-Refresh**: unveränderte Ansichten erhalten `304`/Noop; bei Änderungen werden Punkte und Logs inkrementell ergänzt, kontextabhängige Layer gezielt ersetzt
+- **lokalem IndexedDB-Mirror** via Dexie für bereits geladene Punktdaten
+- **Timeline-Scrubbing** mit Play/Pause und Zeitregler für die aktuell geladenen Punkte
+- **3D-Pitch-Toggle** für die MapLibre-Karte
 - **Live-Polling:** 2s / 3s / 5s (Standard) / 10s / 15s / 20s / 30s / 45s / 1min / 1.5min / 2min / 3min / 5min
-- **Zeitraumfilter:** 2min bis 30 Tage oder gesamt (max. 2000 Punkte), mit localStorage-Persistenz
+- **Zeitraumfilter:** 2min bis 30 Tage oder gesamt, mit localStorage-Persistenz
 - **Session- und Import-Filter:** exklusive Auswahl per Dropdown
 - **Auto-Follow:** Karte folgt automatisch dem neuesten eingehenden Punkt, ohne den gewählten Nutzer-Zoom zu erzwingen
-- **Fit-Bounds:** gesamten Track auf einmal anzeigen
+- **Fit-Bounds-Modus:** `Gesamt` über globale `map-meta`-Bounding-Box oder `Ansicht` über aktuell sichtbare Layerdaten
 - **GeoJSON-Export** des aktuell geladenen Kartenmodells
-- **Copy-to-Clipboard** für Koordinaten
-- **Kartensteuerung:** separates Dropdown-Menü `☰ Karte` oberhalb des Layer-Menüs für Zeitraum, Polling, Refresh, Legende, Darkmode, Vollbild, Auto-Center und Fit-Bounds
-- **Browser-Standort:** eigener Button in der Kartensteuerung liest den aktuellen Browser-Standort aus, markiert ihn auf der Karte und zentriert dorthin
+- **Browser-Standort** und separater Schnellzugriff auf den neuesten Serverpunkt
 - **Vollbild:** native API auf Desktop/Android; CSS-Fallback (`position:fixed; 100vw/100dvh`) auf iOS
 - **Live-Punkt-Log:** scrollbare Echtzeit-Tabelle direkt unter der Karte; reagiert direkt auf Filter- und Log-Limit-Änderungen; auf Mobile: Spalten `Genauigkeit`, `Modus`, `Request ID` ausgeblendet
-- **Session-Länge und Statistik:** kommen aus dem serverseitig vorbereiteten Kartenmodell statt aus der offenen Browser-Tab-Dauer
+- **Download-Fortschrittsoverlay** mit echten geladenen Bytes und Prozentanzeige, wenn `Content-Length` vorhanden ist
 - **Server-Verarbeitungsanzeige:** oberhalb der Karte wird angezeigt, ob alle verfügbaren Serverdaten verarbeitet sind, wie viele Punkte noch fehlen und welche Restdauer für laufende Importjobs geschätzt wird
-- **iPhone-Import:** Datei-Picker ist für Mobile Safari gehärtet; der File-Input liegt als echter unsichtbarer Overlay-Input in der Drop-Zone statt über einen versteckten `display:none`-Input mit programmgesteuertem Klick
-- **Import-Transparenz:** Die Importseite zeigt serverseitige Verarbeitung live an, inklusive erkanntem Format, Rohpunkten, Dedupe-Zahlen, bereits vorhandenen Punkten, ZIP-Einträgen, Laufzeiten und Warnungen
-- **Import-Manager:** Nach dem Löschen der letzten Import-Session wechselt die Seite sauber in den leeren Zustand statt eine leere Tabelle stehen zu lassen.
-- **Tempo-Legende:** Die Kartenlegende beschreibt den aktiven Geschwindigkeits-Layer korrekt mit `0–100 km/h` in `5 km/h`-Stufen; darüber bleibt die Farbskala kontinuierlich.
+- **Tempo-Legende:** `0–100 km/h` in `5 km/h`-Stufen; darüber kontinuierliche Farbskala
 
 ### Responsive Layout
 
@@ -152,7 +152,7 @@ Interaktive GPS-Echtzeit-Karte mit:
 | <768px | 1-Spalte; Filter-Panel einklappbar; Karte 350–400px |
 | <1024px | Sidebar wird zur Top-Navigation |
 
-CSS-Grid, `min-width:0` auf allen Grid-Children, `box-sizing:border-box` durchgängig. `clamp()` für fließende Skalierung. Leaflet `invalidateSize()` sofort + ResizeObserver.
+CSS-Grid, `min-width:0` auf allen Grid-Children, `box-sizing:border-box` durchgängig. `clamp()` für fließende Skalierung. MapLibre-Resize über `map.resize()`, Viewport-Refresh und mobile Media Queries.
 
 ### Startseite (`/dashboard`)
 

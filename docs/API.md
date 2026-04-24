@@ -45,6 +45,7 @@
 - `GET /api/stats`
 - `GET /api/live-summary`
 - `GET /api/points`
+- `GET /api/map-meta`
 - `GET /api/map-data`
 - `GET /api/points/{id}`
 - `GET /api/requests`
@@ -82,12 +83,16 @@ Zusätzlich für Punkte:
 ## `GET /api/map-data`
 
 - liefert ein serverseitig vorbereitetes Kartenmodell für `/dashboard/map`
-- reduziert Client-Arbeit für mobile Geräte deutlich, weil Layer nicht mehr im Browser aus Rohpunkten zusammengesetzt werden
-- unterstützt dieselben Grundfilter wie `GET /api/points` für:
+- reduziert Client-Arbeit deutlich, weil Layer nicht mehr primär im Browser aus Rohpunkten zusammengesetzt werden
+- Grundfilter:
   - `date_from`
   - `date_to`
   - `session_id`
-  - `page_size`
+- zusätzliche Karten-/Refresh-Parameter:
+  - `bbox`
+  - `page_size` (nur Fallback, wenn noch kein Viewport verfügbar ist)
+  - `log_limit`
+  - `latest_known_ts`
 - zusätzliche Layer- und Tuning-Parameter:
   - `zoom`
   - `route_time_gap_min`
@@ -108,7 +113,28 @@ Zusätzlich für Punkte:
   - `stats`
   - `layers`
   - `logItems`
+  - `processing`
 - `ETag`/`304` wird wie bei `GET /api/points` unterstützt
+- bei unverändertem Viewport und unverändertem Datenstand antwortet der Server zusätzlich mit `304` und `X-Map-Delta: noop`
+- bei echtem Delta kann `meta.deltaMode=true` gesetzt sein; dann enthält die Antwort ein `delta`-Objekt mit inkrementellen Punkt-/Log-Ergänzungen und gezielten Layer-Replacements
+
+## `GET /api/map-meta`
+
+- globaler Metapfad für `/dashboard/map`
+- liefert:
+  - `meta.totalPoints`
+  - `meta.firstPointTsUtc`
+  - `meta.lastPointTsUtc`
+  - `meta.boundingBox`
+  - `processing`
+- wird für globale Statistik, `Fit Bounds = Gesamt` und die Verarbeitungsanzeige verwendet
+- unterstützt `ETag`/`304`
+
+## `GET /ws/map`
+
+- WebSocket-Endpunkt für Karten-Clients
+- sendet bei neuem Ingest `{"type":"new_location","sessionId":"..."}` an verbundene Browser
+- dient als Echtzeit-Hinweis für die Kartenansicht; ersetzt den konfigurierbaren Polling-Pfad nicht vollständig
 
 ## Import
 

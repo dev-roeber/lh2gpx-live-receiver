@@ -12,20 +12,26 @@
 
 ## Karte
 
-- `/dashboard/map` lädt ein serverseitig vorbereitetes Kartenmodell
+- `/dashboard/map` lädt globale Kartenmetadaten und ein serverseitig vorbereitetes Kartenmodell
 - steuerbar sind:
   - Zeitraum
   - Polling
-  - Maximalzahl geladener Punkte
+  - Fit-Bounds-Modus `Gesamt` oder `Ansicht`
+  - Fallback-Punkte, falls noch kein Karten-Viewport verfügbar ist
   - Session- oder Import-Filter
   - Auto-Follow oder Fit-Bounds
   - Layer für Punkte, Heatmap, Linien, Genauigkeit, Labels, Tempo, Stops, Tages-Tracks und Snap
 - die Kartensteuerung liegt im Dropdown `☰ Karte`
 - im Kartenmenü gibt es einen Browser-Standort-Button für den aktuellen Gerätestandort
+- im Kartenmenü gibt es zusätzlich `3D`, `Vollbild`, `Legende`, `Refresh` und den Schnellzugriff auf den neuesten Serverpunkt
 - `Auto-Follow` behält den aktuellen Zoom
 - der normale Linien-Layer ist straßennäher, weil serverseitig gesnappte Geometrie bevorzugt wird
+- die Karte lädt viewport-basiert; bei Bewegung und Zoom wird die aktuelle Ansicht neu angefordert
+- Live-Updates laufen hybrid über WebSocket-Hinweise, Delta-Refresh und das eingestellte Polling
+- ein Timeline-Regler kann die aktuell geladenen Punkte zeitlich abspielen oder filtern
 - GeoJSON exportiert den aktuell geladenen Kartenstand
 - oberhalb der Karte zeigt eine Server-Verarbeitungsanzeige, ob laufende Importdaten schon vollständig verarbeitet sind, wie viele Punkte noch fehlen und welche ETA aktuell geschätzt wird
+- während des Downloads zeigt ein Overlay echte geladene Bytes und, falls bekannt, den Prozentfortschritt
 
 ## Punkte, Requests, Sessions
 

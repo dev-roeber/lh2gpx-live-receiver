@@ -26,6 +26,7 @@
 - alle Dashboard-Routen nutzen `_base_template_context()`
 - Snapshot-Daten kommen aus `_dashboard_snapshot()`
 - Punkte- und Request-Views liefern auch im Fehlerfall strukturkompatible Leerpayloads
+- die Kartenansicht lädt globale Metadaten über `GET /api/map-meta`
 - die Kartenansicht lädt ihr Arbeitsmodell über `GET /api/map-data`
 
 ## Auth-Modell
@@ -63,8 +64,11 @@
 
 ## Kartenmodell `/dashboard/map`
 
+- `map.html` nutzt MapLibre GL JS statt Leaflet
+- `map.html` spiegelt geladene Punkte zusätzlich in IndexedDB via Dexie
+- `map.html` lädt globale Karteninfos separat über `GET /api/map-meta`
 - `map.html` berechnet Layer nicht mehr primär aus `/api/points`
-- der Browser fragt `GET /api/map-data` mit Filter- und Layer-Flags ab
+- der Browser fragt `GET /api/map-data` mit Filter-, Viewport-, Delta- und Layer-Flags ab
 - serverseitig vorbereitet werden:
   - Punkte
   - Heatmap-Zellen
@@ -77,7 +81,14 @@
 - GeoJSON-Export nutzt das aktuell geladene Kartenmodell statt blind den gesamten Datenbestand zu exportieren
 - Kartensteuerung ist nicht mehr als untere Quick-Bar umgesetzt, sondern als separates Dropdown-Menü oberhalb des Layer-Menüs
 - die Kartensteuerung enthält einen Browser-Geolocation-Button, der den aktuellen Standort des Clients per `navigator.geolocation` auf der Karte markiert
+- zusätzlich gibt es dort 3D-Pitch, Vollbild, Legenden-Toggle, Fit-Bounds-Modus und Schnellzugriff auf den neuesten Serverpunkt
 - Vollbildlayout wird über einen gemeinsamen Layoutpfad für nativen Fullscreen und CSS-Fallback synchronisiert
 - `map.html` baut das Live-Log DOM-basiert statt ingestnahe Felder per `innerHTML` einzusetzen
 - die Tempo-Legende beschreibt die aktive Backend-Quantisierung korrekt: `0–100 km/h` in `5 km/h`-Stufen, darüber kontinuierliche Farbskala
 - `/api/map-data` liefert zusätzlich eine Verarbeitungszusammenfassung laufender Import-Tasks, inklusive bekannter Rohpunktzahl, Restpunkten und ETA-Schätzung
+- Live-Updates laufen hybrid:
+  - WebSocket `/ws/map` signalisiert neue Daten
+  - Polling bleibt konfigurierbar
+  - `latest_known_ts` und `ETag` vermeiden unnötige Vollantworten
+  - Delta-Antworten ergänzen Punkte/Logs inkrementell und ersetzen kontextabhängige Layer gezielt
+- ein Download-Overlay zeigt echten Byte-Fortschritt der aktuellen Kartenantwort

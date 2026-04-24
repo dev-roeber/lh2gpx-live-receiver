@@ -11,7 +11,7 @@
 - SQLite für Requests und GPS-Punkte
 - optionales NDJSON-Audit für Rohpayloads
 - serverseitig gerenderte Operator-UI
-- serverseitige Karten-Layer-Aufbereitung für `/dashboard/map`
+- MapLibre-basierte Operator-Karte mit serverseitiger Layer-Aufbereitung für `/dashboard/map`
 - Caddy als TLS-Reverse-Proxy
 
 ## Request-Fluss
@@ -33,7 +33,9 @@
 ## Kartenmodell
 
 - `/dashboard/map` rendert nicht mehr aus rohen Punktelisten allein
-- der Browser lädt stattdessen `GET /api/map-data`
+- der Browser lädt stattdessen:
+  - `GET /api/map-meta` für globale Kartenmetadaten
+  - `GET /api/map-data` für viewport-basierte Layerdaten
 - der Server bereitet daraus vor:
   - Punktlayer
   - Heatmap-Aggregate
@@ -42,10 +44,17 @@
   - Stop-Erkennung
   - Tages-Tracks
   - optionalen Straßen-Snap
+- der Browser hält zusätzlich einen lokalen IndexedDB-Mirror bereits geladener Punkte
+- Live-Updates laufen hybrid:
+  - WebSocket `/ws/map` signalisiert neue Daten
+  - Polling bleibt als konfigurierbarer Refresh-Pfad aktiv
+  - `latest_known_ts` und `ETag` vermeiden unnötige Vollantworten
+  - echte Deltas ergänzen Punkte und Logs inkrementell
 - Ziel:
   - kleinere Payloads
   - weniger Client-CPU
   - konsistentere Darstellung auf mobilen Geräten
+  - stabilerer Live-Betrieb bei großen Zeiträumen
 
 ## Hot-Reload
 

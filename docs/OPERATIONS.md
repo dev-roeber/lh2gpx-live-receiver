@@ -13,6 +13,7 @@
 - `POINTS_PAGE_SIZE_DEFAULT=50`
 - `POINTS_PAGE_SIZE_MAX=2000`
 - `RATE_LIMIT_REQUESTS_PER_MINUTE=0`
+- Karten-Fallback-Limit zusätzlich intern auf `20000` gedeckelt
 
 ## Laufende Instanz
 
@@ -38,6 +39,7 @@
 - SQLite läuft im WAL-Modus
 - `VACUUM` nur im Wartungsfenster
 - Raw-Payload-Datei nur bei echtem Debug-Bedarf aktiv halten
+- Kartenlast primär über `/api/map-data`, `/api/map-meta` und `/ws/map` bewerten; `/api/points` ist nicht mehr der primäre Kartenpfad
 
 ## Validierungsskripte
 
