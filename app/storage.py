@@ -169,13 +169,15 @@ class ReceiverStorage:
                         payload.source,
                         str(payload.sessionID),
                         payload.captureMode,
-                        point_timestamp_local.strftime("%Y-%m-%d"),
-                        point_timestamp_local.strftime("%H:%M:%S"),
-                        point_timestamp_local.isoformat(),
-                        _slippy_tile_x(point.longitude, zoom=10),
-                        _slippy_tile_y(point.latitude, zoom=10),
-                        _slippy_tile_x(point.longitude, zoom=14),
-                        _slippy_tile_y(point.latitude, zoom=14),
+                point_timestamp_local.strftime("%Y-%m-%d"),
+                point_timestamp_local.strftime("%H:%M:%S"),
+                point_timestamp_local.isoformat(),
+                _slippy_tile_x(point.longitude, zoom=10),
+                _slippy_tile_y(point.latitude, zoom=10),
+                _slippy_tile_x(point.longitude, zoom=14),
+                _slippy_tile_y(point.latitude, zoom=14),
+                _tile_key(_slippy_tile_x(point.longitude, zoom=10), _slippy_tile_y(point.latitude, zoom=10), zoom=10),
+                _tile_key(_slippy_tile_x(point.longitude, zoom=14), _slippy_tile_y(point.latitude, zoom=14), zoom=14),
                     )
                 )
 
@@ -198,9 +200,11 @@ class ReceiverStorage:
                     tile_z10_x,
                     tile_z10_y,
                     tile_z14_x,
-                    tile_z14_y
+                    tile_z14_y,
+                    tile_z10_key,
+                    tile_z14_key
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 point_rows,
             )
@@ -854,6 +858,8 @@ class ReceiverStorage:
                     _slippy_tile_y(float(p["latitude"]), zoom=10),
                     _slippy_tile_x(float(p["longitude"]), zoom=14),
                     _slippy_tile_y(float(p["latitude"]), zoom=14),
+                    _tile_key(_slippy_tile_x(float(p["longitude"]), zoom=10), _slippy_tile_y(float(p["latitude"]), zoom=10), zoom=10),
+                    _tile_key(_slippy_tile_x(float(p["longitude"]), zoom=14), _slippy_tile_y(float(p["latitude"]), zoom=14), zoom=14),
                 ))
             except Exception:
                 invalid_rows += 1
@@ -930,8 +936,8 @@ class ReceiverStorage:
                             request_id, received_at_utc, sent_at_utc, point_timestamp_utc,
                             latitude, longitude, horizontal_accuracy_m, source, session_id,
                             capture_mode, point_date_local, point_time_local, point_timestamp_local,
-                            tile_z10_x, tile_z10_y, tile_z14_x, tile_z14_y
-                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            tile_z10_x, tile_z10_y, tile_z14_x, tile_z14_y, tile_z10_key, tile_z14_key
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         batch,
                     )
                     self._update_point_rollups(connection, batch)
@@ -2103,7 +2109,7 @@ class ReceiverStorage:
             row["name"]
             for row in connection.execute("PRAGMA table_info(gps_points)").fetchall()
         }
-        for column_name in ("tile_z10_x", "tile_z10_y", "tile_z14_x", "tile_z14_y"):
+        for column_name in ("tile_z10_x", "tile_z10_y", "tile_z14_x", "tile_z14_y", "tile_z10_key", "tile_z14_key"):
             if column_name not in existing_columns:
                 connection.execute(f"ALTER TABLE gps_points ADD COLUMN {column_name} INTEGER")
 
@@ -2113,6 +2119,7 @@ class ReceiverStorage:
             SELECT id, latitude, longitude
             FROM gps_points
             WHERE tile_z10_x IS NULL OR tile_z10_y IS NULL OR tile_z14_x IS NULL OR tile_z14_y IS NULL
+               OR tile_z10_key IS NULL OR tile_z14_key IS NULL
             """
         ).fetchall()
         if not rows:
@@ -2120,17 +2127,11 @@ class ReceiverStorage:
         connection.executemany(
             """
             UPDATE gps_points
-            SET tile_z10_x = ?, tile_z10_y = ?, tile_z14_x = ?, tile_z14_y = ?
+            SET tile_z10_x = ?, tile_z10_y = ?, tile_z14_x = ?, tile_z14_y = ?, tile_z10_key = ?, tile_z14_key = ?
             WHERE id = ?
             """,
             [
-                (
-                    _slippy_tile_x(float(row["longitude"]), zoom=10),
-                    _slippy_tile_y(float(row["latitude"]), zoom=10),
-                    _slippy_tile_x(float(row["longitude"]), zoom=14),
-                    _slippy_tile_y(float(row["latitude"]), zoom=14),
-                    int(row["id"]),
-                )
+                _tile_columns_for_row(float(row["latitude"]), float(row["longitude"]), int(row["id"]))
                 for row in rows
             ],
         )
@@ -2356,7 +2357,9 @@ class ReceiverStorage:
                 tile_z10_x INTEGER,
                 tile_z10_y INTEGER,
                 tile_z14_x INTEGER,
-                tile_z14_y INTEGER
+                tile_z14_y INTEGER,
+                tile_z10_key INTEGER,
+                tile_z14_key INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS point_rollups (
@@ -2460,6 +2463,10 @@ class ReceiverStorage:
                 ON gps_points(tile_z10_x, tile_z10_y, point_timestamp_utc DESC, id DESC);
             CREATE INDEX IF NOT EXISTS idx_gps_points_tile_z14
                 ON gps_points(tile_z14_x, tile_z14_y, point_timestamp_utc DESC, id DESC);
+            CREATE INDEX IF NOT EXISTS idx_gps_points_tile_z10_key
+                ON gps_points(tile_z10_key, point_timestamp_utc DESC, id DESC);
+            CREATE INDEX IF NOT EXISTS idx_gps_points_tile_z14_key
+                ON gps_points(tile_z14_key, point_timestamp_utc DESC, id DESC);
             CREATE INDEX IF NOT EXISTS idx_session_stop_rollups_session
                 ON session_stop_rollups(session_id, start_time_utc ASC, end_time_utc ASC);
             CREATE INDEX IF NOT EXISTS idx_session_daytrack_rollups_session
@@ -2505,13 +2512,13 @@ class ReceiverStorage:
             )
         spatial_tiles_ready = connection.execute(
             "SELECT value FROM schema_metadata WHERE key = ?",
-            ("gps_points_tiles_ready_v1",),
+            ("gps_points_tiles_ready_v2",),
         ).fetchone()
         if not spatial_tiles_ready:
             self._rebuild_spatial_tiles(connection)
             connection.execute(
                 "INSERT OR REPLACE INTO schema_metadata(key, value) VALUES(?, ?)",
-                ("gps_points_tiles_ready_v1", "1"),
+                ("gps_points_tiles_ready_v2", "1"),
             )
         session_track_rollups_ready = connection.execute(
             "SELECT value FROM schema_metadata WHERE key = ?",
@@ -2672,7 +2679,8 @@ def _append_bbox_filter(
         return where_clause, parameters
     min_lon, min_lat, max_lon, max_lat = bbox
     clauses = [] if not where_clause else [where_clause.removeprefix("WHERE ").strip()]
-    tile_clause, tile_parameters = _build_tile_bbox_clause(bbox, zoom_hint=spatial_zoom_hint)
+    tile_key_clause, tile_key_parameters = _build_tile_key_bbox_clause(bbox, zoom_hint=spatial_zoom_hint)
+    tile_clause, tile_parameters = _build_tile_bbox_clause(bbox, zoom_hint=spatial_zoom_hint) if tile_key_clause is None else (None, [])
     if min_lon <= max_lon:
         clauses.append(
             "id IN (SELECT id FROM gps_points_rtree WHERE min_lon <= ? AND max_lon >= ? AND min_lat <= ? AND max_lat >= ?)"
@@ -2687,10 +2695,54 @@ def _append_bbox_filter(
             )"""
         )
         parameters = [*parameters, max_lat, min_lat, 180.0, min_lon, max_lon, -180.0]
-    if tile_clause:
+    if tile_key_clause:
+        clauses.append(tile_key_clause)
+        parameters = [*parameters, *tile_key_parameters]
+    elif tile_clause:
         clauses.append(tile_clause)
         parameters = [*parameters, *tile_parameters]
     return f"WHERE {' AND '.join(clauses)}", parameters
+
+
+def _build_tile_key_bbox_clause(
+    bbox: tuple[float, float, float, float],
+    *,
+    zoom_hint: int | None,
+) -> tuple[str | None, list[Any]]:
+    if zoom_hint is None:
+        return None, []
+    min_lon, min_lat, max_lon, max_lat = bbox
+    tile_zoom = 14 if zoom_hint >= 13 else 10
+    scale = 1 << tile_zoom
+    clamped_min_lat = max(-85.05112878, min(85.05112878, min_lat))
+    clamped_max_lat = max(-85.05112878, min(85.05112878, max_lat))
+    y_top = _slippy_tile_y(clamped_max_lat, zoom=tile_zoom)
+    y_bottom = _slippy_tile_y(clamped_min_lat, zoom=tile_zoom)
+    min_y = min(y_top, y_bottom)
+    max_y = max(y_top, y_bottom)
+    if min_lon <= max_lon:
+        x_ranges = [(
+            min(_slippy_tile_x(min_lon, zoom=tile_zoom), _slippy_tile_x(max_lon, zoom=tile_zoom)),
+            max(_slippy_tile_x(min_lon, zoom=tile_zoom), _slippy_tile_x(max_lon, zoom=tile_zoom)),
+        )]
+    else:
+        x_ranges = [
+            (_slippy_tile_x(min_lon, zoom=tile_zoom), scale - 1),
+            (0, _slippy_tile_x(max_lon, zoom=tile_zoom)),
+        ]
+    total_tiles = sum((max_x - min_x + 1) * (max_y - min_y + 1) for min_x, max_x in x_ranges)
+    if total_tiles <= 0 or total_tiles > 256:
+        return None, []
+    keys: list[int] = []
+    for min_x, max_x in x_ranges:
+        for x in range(min_x, max_x + 1):
+            for y in range(min_y, max_y + 1):
+                keys.append(_tile_key(x, y, zoom=tile_zoom))
+    if not keys:
+        return None, []
+    key_column = f"tile_z{tile_zoom}_key"
+    placeholders = ",".join("?" for _ in keys)
+    return f"{key_column} IN ({placeholders})", keys
 
 
 def _build_tile_bbox_clause(
@@ -2866,6 +2918,30 @@ def _slippy_tile_y(latitude: float, *, zoom: int) -> int:
     lat_rad = math.radians(clamped_lat)
     mercator = (1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0
     return max(0, min(scale - 1, int(mercator * scale)))
+
+
+def _tile_key(x: int, y: int, *, zoom: int) -> int:
+    value = 0
+    for bit in range(zoom):
+        value |= ((x >> bit) & 1) << (2 * bit)
+        value |= ((y >> bit) & 1) << (2 * bit + 1)
+    return value
+
+
+def _tile_columns_for_row(latitude: float, longitude: float, row_id: int) -> tuple[int, int, int, int, int, int, int]:
+    z10_x = _slippy_tile_x(longitude, zoom=10)
+    z10_y = _slippy_tile_y(latitude, zoom=10)
+    z14_x = _slippy_tile_x(longitude, zoom=14)
+    z14_y = _slippy_tile_y(latitude, zoom=14)
+    return (
+        z10_x,
+        z10_y,
+        z14_x,
+        z14_y,
+        _tile_key(z10_x, z10_y, zoom=10),
+        _tile_key(z14_x, z14_y, zoom=14),
+        row_id,
+    )
 
 
 def _normalize_datetime_filter(value: str, *, end_of_day: bool) -> str:

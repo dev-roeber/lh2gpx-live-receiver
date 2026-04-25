@@ -264,6 +264,21 @@ def test_session_track_rollups_are_precomputed_for_default_parameters(tmp_path: 
     assert daytracks[0]["segments"]
 
 
+def test_spatial_tile_keys_are_persisted(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    client.post("/live-location", json=valid_payload())
+
+    storage = client.app.state.storage
+    with sqlite3.connect(storage.sqlite_path) as connection:
+        row = connection.execute(
+            "SELECT tile_z10_key, tile_z14_key FROM gps_points ORDER BY id ASC LIMIT 1"
+        ).fetchone()
+
+    assert row is not None
+    assert row[0] is not None
+    assert row[1] is not None
+
+
 def test_request_and_session_detail_endpoints(tmp_path: Path) -> None:
     client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
     client.post("/live-location", json=valid_payload())
