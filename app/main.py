@@ -1097,6 +1097,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if cached:
             _, etag, body = cached
             cache_state = "hit"
+            if request.headers.get("if-none-match") == f'"{etag}"':
+                return Response(status_code=304, headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache", "X-Map-Cache": "hit"})
         else:
             storage = _storage(request)
             if latest_known_ts:
@@ -1115,15 +1117,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             "X-Map-Latest-Ts": latest_visible_ts,
                             "X-Map-Mode": "delta-noop",
                             "X-Map-Cache": "miss",
-                            "Server-Timing": ", ".join(
-                                [
-                                    'cache;desc="miss"',
-                                    f"latest_check;dur={latest_check_duration_ms:.2f}",
-                                    f"total;dur={total_duration_ms:.2f}",
-                                ]
-                            ),
+                            "Server-Timing": f"latest_check;dur={latest_check_duration_ms:.2f}, total;dur={total_duration_ms:.2f}",
                         },
                     )
+            
             if viewport_bbox:
                 counts_started_at = time.perf_counter()
                 total_points = storage.count_points(filters)
@@ -3233,22 +3230,43 @@ def _base_template_context(
     }
 
 
+def _fallback_file_info(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "sizeBytes": 0,
+            "lastModifiedUtc": None,
+        }
+    stat = path.stat()
+    return {
+        "path": str(path),
+        "exists": True,
+        "sizeBytes": stat.st_size,
+        "lastModifiedUtc": isoformat_utc(datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)),
+    }
+
+
 def _dashboard_snapshot(request: Request) -> dict[str, Any]:
     try:
         return _storage(request).get_dashboard_snapshot()
     except StorageError:
         readiness = asdict(_storage(request).readiness())
         now_utc = datetime.now(timezone.utc)
+        sqlite_path = Path(readiness["sqlite_path"])
+        raw_path = Path(readiness["raw_ndjson_path"])
         return {
-            "generatedAtUtc": now_utc.isoformat(),
+            "generatedAtUtc": isoformat_utc(now_utc),
             "storage": {
                 "sqlitePath": readiness["sqlite_path"],
                 "rawPayloadNdjsonPath": readiness["raw_ndjson_path"],
                 "legacyRequestNdjsonPath": str(_settings(request).legacy_request_ndjson_path),
                 "rawPayloadNdjsonEnabled": _settings(request).raw_payload_ndjson_enabled,
                 "readiness": readiness,
-                "sqliteFile": {"exists": Path(readiness["sqlite_path"]).exists(), "path": readiness["sqlite_path"], "sizeBytes": None, "modifiedAtUtc": None},
-                "rawPayloadFile": {"exists": Path(readiness["raw_ndjson_path"]).exists(), "path": readiness["raw_ndjson_path"], "sizeBytes": None, "modifiedAtUtc": None},
+                "sqliteFile": _fallback_file_info(sqlite_path),
+                "sqliteWalFile": _fallback_file_info(sqlite_path.with_suffix(sqlite_path.suffix + "-wal")),
+                "sqliteShmFile": _fallback_file_info(sqlite_path.with_suffix(sqlite_path.suffix + "-shm")),
+                "rawPayloadFile": _fallback_file_info(raw_path),
             },
             "totals": {
                 "totalRequests": 0,

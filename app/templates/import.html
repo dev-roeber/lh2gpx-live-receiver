@@ -600,9 +600,12 @@ function addImportToTable(t) {
     <td class="mgr-date">${escapeHtml(lastTs)}</td>
     <td style="text-align:right;white-space:nowrap;">
       <a href="/dashboard/map?import_session=${encodeURIComponent(t.session_id)}" class="btn-pill secondary sm">Karte</a>
-      <button class="btn-pill danger sm" onclick="deleteSession('${escapeHtml(t.session_id)}', this)">Löschen</button>
+      <button class="btn-pill danger sm" data-delete-session="${escapeHtml(t.session_id)}">Löschen</button>
     </td>
   `;
+  const deleteBtn = row.querySelector('[data-delete-session]');
+  deleteBtn.addEventListener('click', () => deleteSession(t.session_id, deleteBtn));
+  
   body.prepend(row);
   updateImportManagerEmptyState();
 }

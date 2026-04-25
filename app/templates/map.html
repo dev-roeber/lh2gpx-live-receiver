@@ -2897,6 +2897,16 @@
   let socket = null;
   let socketReconnectTimer = null;
 
+  function invalidateMapClientCacheForStructuralChange() {
+    console.log('Strukturelle Änderung erkannt: Client-Caches werden invalidiert.');
+    lastETag = null;
+    lastMapBaseQueryKey = '';
+    lastVisiblePointTsUtc = null;
+    lastMetaEtag = null;
+    lastMetaQueryKey = '';
+    lastMetaFetchedAtMs = 0;
+  }
+
   function initWebSocket() {
     if (!('WebSocket' in window)) {
       console.warn('WebSocket im Browser nicht verfügbar.');
@@ -2912,11 +2922,13 @@
       const data = JSON.parse(event.data);
       if (data.type === 'new_location' || data.type === 'import_completed' || data.type === 'session_deleted') {
         console.log(`Echtzeit-Update empfangen (${data.type})...`);
-        // Force refresh for import/delete to clear any potential stale view
-        if (data.type !== 'new_location') {
-          lastETag = null;
+        
+        if (data.type === 'import_completed' || data.type === 'session_deleted') {
+          // Strukturelle Änderung -> Full Refresh erzwingen (kein Delta-Refresh)
+          invalidateMapClientCacheForStructuralChange();
           updateMapMeta({ force: true }).catch(() => {});
         }
+        
         debouncedMapRefresh();
       }
     };
