@@ -2459,14 +2459,6 @@ class ReceiverStorage:
                 ON gps_points(source, point_timestamp_utc DESC);
             CREATE INDEX IF NOT EXISTS idx_gps_points_date_local
                 ON gps_points(point_date_local DESC, point_time_local DESC);
-            CREATE INDEX IF NOT EXISTS idx_gps_points_tile_z10
-                ON gps_points(tile_z10_x, tile_z10_y, point_timestamp_utc DESC, id DESC);
-            CREATE INDEX IF NOT EXISTS idx_gps_points_tile_z14
-                ON gps_points(tile_z14_x, tile_z14_y, point_timestamp_utc DESC, id DESC);
-            CREATE INDEX IF NOT EXISTS idx_gps_points_tile_z10_key
-                ON gps_points(tile_z10_key, point_timestamp_utc DESC, id DESC);
-            CREATE INDEX IF NOT EXISTS idx_gps_points_tile_z14_key
-                ON gps_points(tile_z14_key, point_timestamp_utc DESC, id DESC);
             CREATE INDEX IF NOT EXISTS idx_session_stop_rollups_session
                 ON session_stop_rollups(session_id, start_time_utc ASC, end_time_utc ASC);
             CREATE INDEX IF NOT EXISTS idx_session_daytrack_rollups_session
@@ -2474,6 +2466,18 @@ class ReceiverStorage:
             """
         )
         self._ensure_gps_points_tile_columns(connection)
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_gps_points_tile_z10 ON gps_points(tile_z10_x, tile_z10_y, point_timestamp_utc DESC, id DESC)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_gps_points_tile_z14 ON gps_points(tile_z14_x, tile_z14_y, point_timestamp_utc DESC, id DESC)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_gps_points_tile_z10_key ON gps_points(tile_z10_key, point_timestamp_utc DESC, id DESC)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_gps_points_tile_z14_key ON gps_points(tile_z14_key, point_timestamp_utc DESC, id DESC)"
+        )
         rtree_ready = connection.execute(
             "SELECT value FROM schema_metadata WHERE key = ?",
             ("gps_points_rtree_ready_v1",),
