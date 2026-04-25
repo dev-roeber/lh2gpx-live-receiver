@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -167,6 +168,10 @@ class ReceiverStorage:
                         point_timestamp_local.strftime("%Y-%m-%d"),
                         point_timestamp_local.strftime("%H:%M:%S"),
                         point_timestamp_local.isoformat(),
+                        _slippy_tile_x(point.longitude, zoom=10),
+                        _slippy_tile_y(point.latitude, zoom=10),
+                        _slippy_tile_x(point.longitude, zoom=14),
+                        _slippy_tile_y(point.latitude, zoom=14),
                     )
                 )
 
@@ -185,9 +190,13 @@ class ReceiverStorage:
                     capture_mode,
                     point_date_local,
                     point_time_local,
-                    point_timestamp_local
+                    point_timestamp_local,
+                    tile_z10_x,
+                    tile_z10_y,
+                    tile_z14_x,
+                    tile_z14_y
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 point_rows,
             )
@@ -836,6 +845,10 @@ class ReceiverStorage:
                     ts_local.strftime("%Y-%m-%d"),
                     ts_local.strftime("%H:%M:%S"),
                     ts_local.isoformat(),
+                    _slippy_tile_x(float(p["longitude"]), zoom=10),
+                    _slippy_tile_y(float(p["latitude"]), zoom=10),
+                    _slippy_tile_x(float(p["longitude"]), zoom=14),
+                    _slippy_tile_y(float(p["latitude"]), zoom=14),
                 ))
             except Exception:
                 invalid_rows += 1
@@ -911,8 +924,9 @@ class ReceiverStorage:
                         """INSERT INTO gps_points (
                             request_id, received_at_utc, sent_at_utc, point_timestamp_utc,
                             latitude, longitude, horizontal_accuracy_m, source, session_id,
-                            capture_mode, point_date_local, point_time_local, point_timestamp_local
-                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            capture_mode, point_date_local, point_time_local, point_timestamp_local,
+                            tile_z10_x, tile_z10_y, tile_z14_x, tile_z14_y
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         batch,
                     )
                     self._update_point_rollups(connection, batch)
@@ -949,7 +963,13 @@ class ReceiverStorage:
             "recentPoints": self.list_points(PointFilters(page=1, page_size=capped_limit))["items"],
         }
 
-    def count_points(self, filters: PointFilters, *, bbox: tuple[float, float, float, float] | None = None) -> int:
+    def count_points(
+        self,
+        filters: PointFilters,
+        *,
+        bbox: tuple[float, float, float, float] | None = None,
+        spatial_zoom_hint: int | None = None,
+    ) -> int:
         self._require_ready()
         where_clause, parameters = _build_shared_filters(
             date_from=filters.date_from,
@@ -964,7 +984,7 @@ class ReceiverStorage:
             local_date_column="point_date_local",
             local_time_column="point_time_local",
         )
-        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox)
+        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox, spatial_zoom_hint=spatial_zoom_hint)
         count_query = f"SELECT COUNT(*) AS total FROM gps_points {where_clause}"
         with self._connect() as connection:
             total = connection.execute(count_query, parameters).fetchone()["total"]
@@ -975,6 +995,7 @@ class ReceiverStorage:
         filters: PointFilters,
         *,
         bbox: tuple[float, float, float, float] | None = None,
+        spatial_zoom_hint: int | None = None,
     ) -> str | None:
         self._require_ready()
         where_clause, parameters = _build_shared_filters(
@@ -990,7 +1011,7 @@ class ReceiverStorage:
             local_date_column="point_date_local",
             local_time_column="point_time_local",
         )
-        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox)
+        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox, spatial_zoom_hint=spatial_zoom_hint)
         query = f"SELECT MAX(point_timestamp_utc) AS latest_point_ts_utc FROM gps_points {where_clause}"
         with self._connect() as connection:
             row = connection.execute(query, parameters).fetchone()
@@ -1003,6 +1024,7 @@ class ReceiverStorage:
         filters: PointFilters,
         *,
         bbox: tuple[float, float, float, float],
+        spatial_zoom_hint: int | None = None,
     ) -> list[dict[str, Any]]:
         self._require_ready()
         where_clause, parameters = _build_shared_filters(
@@ -1018,7 +1040,7 @@ class ReceiverStorage:
             local_date_column="point_date_local",
             local_time_column="point_time_local",
         )
-        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox)
+        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox, spatial_zoom_hint=spatial_zoom_hint)
         query = f"""
             SELECT
                 id,
@@ -1049,6 +1071,7 @@ class ReceiverStorage:
         *,
         bbox: tuple[float, float, float, float] | None = None,
         limit: int = 50000,
+        spatial_zoom_hint: int | None = None,
     ) -> list[dict[str, Any]]:
         self._require_ready()
         capped_limit = max(1, min(int(limit), 50000))
@@ -1065,7 +1088,7 @@ class ReceiverStorage:
             local_date_column="point_date_local",
             local_time_column="point_time_local",
         )
-        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox)
+        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox, spatial_zoom_hint=spatial_zoom_hint)
         query = f"""
             SELECT
                 id,
@@ -1092,6 +1115,7 @@ class ReceiverStorage:
         *,
         since_utc: str,
         bbox: tuple[float, float, float, float] | None = None,
+        spatial_zoom_hint: int | None = None,
     ) -> list[dict[str, Any]]:
         self._require_ready()
         where_clause, parameters = _build_shared_filters(
@@ -1107,7 +1131,7 @@ class ReceiverStorage:
             local_date_column="point_date_local",
             local_time_column="point_time_local",
         )
-        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox)
+        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox, spatial_zoom_hint=spatial_zoom_hint)
         clauses = [] if not where_clause else [where_clause.removeprefix("WHERE ").strip()]
         clauses.append("point_timestamp_utc > ?")
         parameters = [*parameters, since_utc]
@@ -1140,6 +1164,7 @@ class ReceiverStorage:
         filters: PointFilters,
         *,
         bbox: tuple[float, float, float, float] | None = None,
+        spatial_zoom_hint: int | None = None,
     ) -> list[dict[str, Any]]:
         self._require_ready()
         where_clause, parameters = _build_shared_filters(
@@ -1155,7 +1180,7 @@ class ReceiverStorage:
             local_date_column="point_date_local",
             local_time_column="point_time_local",
         )
-        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox)
+        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox, spatial_zoom_hint=spatial_zoom_hint)
         query = f"""
             SELECT
                 latitude,
@@ -1848,6 +1873,43 @@ class ReceiverStorage:
             ],
         )
 
+    def _ensure_gps_points_tile_columns(self, connection: sqlite3.Connection) -> None:
+        existing_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(gps_points)").fetchall()
+        }
+        for column_name in ("tile_z10_x", "tile_z10_y", "tile_z14_x", "tile_z14_y"):
+            if column_name not in existing_columns:
+                connection.execute(f"ALTER TABLE gps_points ADD COLUMN {column_name} INTEGER")
+
+    def _rebuild_spatial_tiles(self, connection: sqlite3.Connection) -> None:
+        rows = connection.execute(
+            """
+            SELECT id, latitude, longitude
+            FROM gps_points
+            WHERE tile_z10_x IS NULL OR tile_z10_y IS NULL OR tile_z14_x IS NULL OR tile_z14_y IS NULL
+            """
+        ).fetchall()
+        if not rows:
+            return
+        connection.executemany(
+            """
+            UPDATE gps_points
+            SET tile_z10_x = ?, tile_z10_y = ?, tile_z14_x = ?, tile_z14_y = ?
+            WHERE id = ?
+            """,
+            [
+                (
+                    _slippy_tile_x(float(row["longitude"]), zoom=10),
+                    _slippy_tile_y(float(row["latitude"]), zoom=10),
+                    _slippy_tile_x(float(row["longitude"]), zoom=14),
+                    _slippy_tile_y(float(row["latitude"]), zoom=14),
+                    int(row["id"]),
+                )
+                for row in rows
+            ],
+        )
+
     def _rebuild_global_rollup(self, connection: sqlite3.Connection) -> None:
         row = connection.execute(
             """
@@ -2065,7 +2127,11 @@ class ReceiverStorage:
                 capture_mode TEXT NOT NULL,
                 point_date_local TEXT NOT NULL,
                 point_time_local TEXT NOT NULL,
-                point_timestamp_local TEXT NOT NULL
+                point_timestamp_local TEXT NOT NULL,
+                tile_z10_x INTEGER,
+                tile_z10_y INTEGER,
+                tile_z14_x INTEGER,
+                tile_z14_y INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS point_rollups (
@@ -2140,8 +2206,13 @@ class ReceiverStorage:
                 ON gps_points(source, point_timestamp_utc DESC);
             CREATE INDEX IF NOT EXISTS idx_gps_points_date_local
                 ON gps_points(point_date_local DESC, point_time_local DESC);
+            CREATE INDEX IF NOT EXISTS idx_gps_points_tile_z10
+                ON gps_points(tile_z10_x, tile_z10_y, point_timestamp_utc DESC, id DESC);
+            CREATE INDEX IF NOT EXISTS idx_gps_points_tile_z14
+                ON gps_points(tile_z14_x, tile_z14_y, point_timestamp_utc DESC, id DESC);
             """
         )
+        self._ensure_gps_points_tile_columns(connection)
         rtree_ready = connection.execute(
             "SELECT value FROM schema_metadata WHERE key = ?",
             ("gps_points_rtree_ready_v1",),
@@ -2177,6 +2248,16 @@ class ReceiverStorage:
             connection.execute(
                 "INSERT OR REPLACE INTO schema_metadata(key, value) VALUES(?, ?)",
                 ("timeline_day_markers_ready_v1", "1"),
+            )
+        spatial_tiles_ready = connection.execute(
+            "SELECT value FROM schema_metadata WHERE key = ?",
+            ("gps_points_tiles_ready_v1",),
+        ).fetchone()
+        if not spatial_tiles_ready:
+            self._rebuild_spatial_tiles(connection)
+            connection.execute(
+                "INSERT OR REPLACE INTO schema_metadata(key, value) VALUES(?, ?)",
+                ("gps_points_tiles_ready_v1", "1"),
             )
 
     def _maybe_import_legacy_ndjson(self, connection: sqlite3.Connection) -> None:
@@ -2320,11 +2401,14 @@ def _append_bbox_filter(
     where_clause: str,
     parameters: list[Any],
     bbox: tuple[float, float, float, float] | None,
+    *,
+    spatial_zoom_hint: int | None = None,
 ) -> tuple[str, list[Any]]:
     if not bbox:
         return where_clause, parameters
     min_lon, min_lat, max_lon, max_lat = bbox
     clauses = [] if not where_clause else [where_clause.removeprefix("WHERE ").strip()]
+    tile_clause, tile_parameters = _build_tile_bbox_clause(bbox, zoom_hint=spatial_zoom_hint)
     if min_lon <= max_lon:
         clauses.append(
             "id IN (SELECT id FROM gps_points_rtree WHERE min_lon <= ? AND max_lon >= ? AND min_lat <= ? AND max_lat >= ?)"
@@ -2339,7 +2423,46 @@ def _append_bbox_filter(
             )"""
         )
         parameters = [*parameters, max_lat, min_lat, 180.0, min_lon, max_lon, -180.0]
+    if tile_clause:
+        clauses.append(tile_clause)
+        parameters = [*parameters, *tile_parameters]
     return f"WHERE {' AND '.join(clauses)}", parameters
+
+
+def _build_tile_bbox_clause(
+    bbox: tuple[float, float, float, float],
+    *,
+    zoom_hint: int | None,
+) -> tuple[str | None, list[Any]]:
+    if zoom_hint is None:
+        return None, []
+    min_lon, min_lat, max_lon, max_lat = bbox
+    tile_zoom = 14 if zoom_hint >= 13 else 10
+    x_column = f"tile_z{tile_zoom}_x"
+    y_column = f"tile_z{tile_zoom}_y"
+    clamped_min_lat = max(-85.05112878, min(85.05112878, min_lat))
+    clamped_max_lat = max(-85.05112878, min(85.05112878, max_lat))
+    y_top = _slippy_tile_y(clamped_max_lat, zoom=tile_zoom)
+    y_bottom = _slippy_tile_y(clamped_min_lat, zoom=tile_zoom)
+    min_y = min(y_top, y_bottom)
+    max_y = max(y_top, y_bottom)
+    if min_lon <= max_lon:
+        min_x = min(_slippy_tile_x(min_lon, zoom=tile_zoom), _slippy_tile_x(max_lon, zoom=tile_zoom))
+        max_x = max(_slippy_tile_x(min_lon, zoom=tile_zoom), _slippy_tile_x(max_lon, zoom=tile_zoom))
+        return f"{x_column} BETWEEN ? AND ? AND {y_column} BETWEEN ? AND ?", [min_x, max_x, min_y, max_y]
+    return (
+        f"(({x_column} BETWEEN ? AND ? AND {y_column} BETWEEN ? AND ?) OR ({x_column} BETWEEN ? AND ? AND {y_column} BETWEEN ? AND ?))",
+        [
+            _slippy_tile_x(min_lon, zoom=tile_zoom),
+            (1 << tile_zoom) - 1,
+            min_y,
+            max_y,
+            0,
+            _slippy_tile_x(max_lon, zoom=tile_zoom),
+            min_y,
+            max_y,
+        ],
+    )
 
 
 def _compute_bounding_box(points: list[dict[str, Any]]) -> dict[str, float] | None:
@@ -2353,6 +2476,20 @@ def _compute_bounding_box(points: list[dict[str, Any]]) -> dict[str, float] | No
         "minLongitude": min(longitudes),
         "maxLongitude": max(longitudes),
     }
+
+
+def _slippy_tile_x(longitude: float, *, zoom: int) -> int:
+    scale = 1 << zoom
+    normalized = ((float(longitude) + 180.0) / 360.0) * scale
+    return max(0, min(scale - 1, int(normalized)))
+
+
+def _slippy_tile_y(latitude: float, *, zoom: int) -> int:
+    scale = 1 << zoom
+    clamped_lat = max(-85.05112878, min(85.05112878, float(latitude)))
+    lat_rad = math.radians(clamped_lat)
+    mercator = (1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0
+    return max(0, min(scale - 1, int(mercator * scale)))
 
 
 def _normalize_datetime_filter(value: str, *, end_of_day: bool) -> str:

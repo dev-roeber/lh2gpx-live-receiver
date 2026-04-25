@@ -892,7 +892,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             storage = _storage(request)
             counts_started_at = time.perf_counter()
             if viewport_bbox:
-                viewport_items = storage.list_points_in_bbox(filters, bbox=viewport_bbox)
+                viewport_items = storage.list_points_in_bbox(filters, bbox=viewport_bbox, spatial_zoom_hint=effective_zoom)
                 visible_points = len(viewport_items)
                 total_points = storage.count_points(filters)
             else:
@@ -1078,7 +1078,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             storage = _storage(request)
             if latest_known_ts:
                 latest_check_started_at = time.perf_counter()
-                latest_visible_ts = storage.latest_point_timestamp(filters, bbox=viewport_bbox)
+                latest_visible_ts = storage.latest_point_timestamp(filters, bbox=viewport_bbox, spatial_zoom_hint=effective_zoom)
                 latest_visible_dt = _parse_iso_timestamp(latest_visible_ts)
                 latest_known_dt = _parse_iso_timestamp(latest_known_ts)
                 latest_check_duration_ms = round((time.perf_counter() - latest_check_started_at) * 1000, 2)
@@ -1104,7 +1104,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if viewport_bbox:
                 counts_started_at = time.perf_counter()
                 total_points = storage.count_points(filters)
-                viewport_items = storage.list_points_in_bbox(filters, bbox=viewport_bbox)
+                viewport_items = storage.list_points_in_bbox(filters, bbox=viewport_bbox, spatial_zoom_hint=effective_zoom)
                 visible_points = len(viewport_items)
                 counts_duration_ms = round((time.perf_counter() - counts_started_at) * 1000, 2)
             else:
@@ -1126,7 +1126,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     delta_mode = True
                     map_mode = "delta"
                     normalized_since = latest_known_dt.astimezone(timezone.utc).isoformat()
-                    delta_viewport_items = storage.list_points_since(filters, since_utc=normalized_since, bbox=viewport_bbox)
+                    delta_viewport_items = storage.list_points_since(
+                        filters,
+                        since_utc=normalized_since,
+                        bbox=viewport_bbox,
+                        spatial_zoom_hint=effective_zoom,
+                    )
             heatmap_entries = []
             if include_heatmap:
                 heatmap_started_at = time.perf_counter()
@@ -2505,7 +2510,7 @@ def _resolve_heatmap_layer(
         return cached[1]
 
     now = time.time()
-    rows = storage.list_heatmap_points(filters, bbox=bbox)
+    rows = storage.list_heatmap_points(filters, bbox=bbox, spatial_zoom_hint=zoom)
     result = _aggregate_heatmap(rows, zoom=zoom)
     _cache_put(_HEATMAP_LAYER_CACHE, cache_key, (now, result), ttl=_HEATMAP_LAYER_CACHE_TTL, max_items=_LAYER_CACHE_MAX)
     return result
@@ -2546,7 +2551,7 @@ def _resolve_track_context(
     if preloaded_points_desc is not None:
         points_desc = preloaded_points_desc
     elif bbox:
-        points_desc = storage.list_points_in_bbox(filters, bbox=bbox)
+        points_desc = storage.list_points_in_bbox(filters, bbox=bbox, spatial_zoom_hint=zoom)
     else:
         points_desc = storage.list_points(filters)["items"]
     points_asc = list(reversed(points_desc))

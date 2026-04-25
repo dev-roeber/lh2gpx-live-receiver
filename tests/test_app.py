@@ -87,6 +87,7 @@ def test_valid_token_accepts_payload_and_persists_points(tmp_path: Path) -> None
     assert body["pointsAccepted"] == 2
     assert body["storage"]["sqlitePath"].endswith("receiver.sqlite3")
     assert query_scalar(tmp_path, "SELECT COUNT(*) FROM gps_points") == 2
+    assert query_scalar(tmp_path, "SELECT COUNT(*) FROM gps_points WHERE tile_z10_x IS NOT NULL AND tile_z10_y IS NOT NULL AND tile_z14_x IS NOT NULL AND tile_z14_y IS NOT NULL") == 2
     assert query_scalar(tmp_path, "SELECT COUNT(*) FROM ingest_requests WHERE ingest_status = 'accepted'") == 1
     assert read_raw_payload_file(tmp_path)[0]["payload"]["extraTopLevel"] == {"device": "iPhone 15 Pro Max"}
 
