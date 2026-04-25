@@ -39,7 +39,13 @@
 - SQLite läuft im WAL-Modus
 - `VACUUM` nur im Wartungsfenster
 - Raw-Payload-Datei nur bei echtem Debug-Bedarf aktiv halten
-- Kartenlast primär über `/api/map-data`, `/api/map-meta` und `/ws/map` bewerten; `/api/points` ist nicht mehr der primäre Kartenpfad
+- Kartenlast primär über `/api/map-data`, `/api/map-meta`, `/api/timeline`, `/api/timeline-preview` und `/ws/map` bewerten; `/api/points` ist nicht mehr der primäre Kartenpfad
+- räumliche Hot-Paths nutzen aktuell:
+  - `gps_points_rtree`
+  - tile-basierte Prefilter (`tile_z10_*`, `tile_z14_*`)
+- ingest-nahe Vorberechnung ist bereits aktiv für:
+  - `point_rollups`
+  - `timeline_day_markers`
 
 ## Validierungsskripte
 

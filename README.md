@@ -23,7 +23,7 @@ Receiver- und Operator-Server für optionale Live-Location-Uploads aus der `Loca
 ## Aktueller Stand
 
 - **Design-System (April 2026):** Vollständig auf iOS-inspiriertes Dark-Design umgestellt. OLED-Schwarz als Hintergrund, Mint `#30D158` als primärer Akzent, semantische Farben (Blau, Orange, Lila, Rot, Teal) für Status und Kategorien. Glasmorphismus-Header, Pill-Buttons, gerundete Karten.
-- **Interaktive Karte:** `/dashboard/map` mit MapLibre GL JS, separatem Metapfad `/api/map-meta`, viewport-basierten Layern über `/api/map-data`, lokalem IndexedDB-Mirror via Dexie, hybrider Live-Aktualisierung aus WebSocket-Hinweisen, Delta-Refresh und konfigurierbarem Polling, Timeline-Scrubbing, 3D-Pitch, GeoJSON-Export, Browser-Standort und Server-Verarbeitungsstatus.
+- **Interaktive Karte:** `/dashboard/map` mit MapLibre GL JS, separatem Metapfad `/api/map-meta`, viewport-basierten Layern über `/api/map-data`, eigenem Timeline-Endpoint `/api/timeline`, leichtem `/api/timeline-preview`, lokalem IndexedDB-Mirror via Dexie, hybrider Live-Aktualisierung aus WebSocket-Hinweisen, Delta-Refresh und konfigurierbarem Polling, Timeline-Scrubbing, Echtzeit-Replay, 3D-Pitch, GeoJSON-Export, Browser-Standort und Server-Verarbeitungsstatus.
 - **Responsive:** CSS-Grid-basiertes 3-View-System. Desktop: Filter-Panel | Karte | Live-Log. Tablet: 2-Spalten. Mobile: vollständig gestackt, Filter einklappbar. Kartensteuerung und Layer-Menü sind auf kleinen Displays als getrennte Dropdowns nutzbar.
 - **Sichere Operator-UI:** Karten-Live-Log und Import-Status rendern server- bzw. ingestnahe Inhalte nicht mehr als ungefiltertes HTML.
 - **Login:** Bearer-basierter Dashboard-Login mit signiertem Session-Cookie. Nach Login Redirect auf `/dashboard/map`.
@@ -77,6 +77,10 @@ Unbekannte additive Zusatzfelder werden weiter toleriert und im Rohpayload gespe
   - Punkteliste mit Filter und Export.
 - `GET /api/map-data`
   - serverseitig vorbereitete Layer für Karte, Heatmap, Track, Speed, Stops, Daytracks und optional Snap.
+- `GET /api/timeline`
+  - leichte Timeline-Daten inkl. Marker und Metadaten.
+- `GET /api/timeline-preview`
+  - leichter Karten-Preview-Pfad für Timeline und Replay.
 - `POST /api/import`
   - startet asynchronen Dateiimport für `json`, `gpx`, `kml`, `kmz`, `geojson`, `geo.json`, `csv`, `zip`.
 - `GET /api/import/status/{task_id}`
@@ -123,12 +127,25 @@ Interaktive GPS-Echtzeit-Karte mit:
 
 - **MapLibre GL JS** als Karten-Engine, nicht mehr Leaflet
 - **serverseitigem Kartenmodell** über `GET /api/map-data` und **globalen Kartenmetadaten** über `GET /api/map-meta`
+- **separatem Timeline-Modell** über `GET /api/timeline` und leichtem Vorschaupfad `GET /api/timeline-preview`
 - **viewport-basierter Datenladung**: der Server liefert primär Daten für die aktuelle Ansicht; `Fallback-Punkte` greift nur, wenn noch kein Viewport verfügbar ist
+- **ingest-naher Vorberechnung** für:
+  - globale und Session-Rollups
+  - Timeline-Day-Marker
+  - tile-basierte Raumspalten (`z10`, `z14`) als zusätzlicher Spatial-Fast-Path neben dem SQLite-RTree
 - **serverseitig vorbereiteten Layern** für Punkte, Heatmap, Polylinien, Genauigkeit, Geschwindigkeit, Stops, Daytracks und optionalen Straßen-Snap
 - **hybridem Live-Pfad**: WebSocket `/ws/map` signalisiert neue Daten; Polling bleibt als konfigurierbarer Refresh- und Fallback-Pfad aktiv
-- **Delta-/Noop-Refresh**: unveränderte Ansichten erhalten `304`/Noop; bei Änderungen werden Punkte und Logs inkrementell ergänzt, kontextabhängige Layer gezielt ersetzt
+- **Delta-/Noop-Refresh**: unveränderte Ansichten erhalten `304`/Noop; bei Änderungen werden Punkte und Logs inkrementell ergänzt, Polylinien/Geschwindigkeit teils append-fähig verarbeitet und kontextabhängige Layer gezielt ersetzt
 - **lokalem IndexedDB-Mirror** via Dexie für bereits geladene Punktdaten
-- **Timeline-Scrubbing** mit Play/Pause und Zeitregler für die aktuell geladenen Punkte
+- **Timeline-Scrubbing** mit:
+  - Play/Pause
+  - Start/Zurück/Jetzt/Vor/Ende
+  - Geschwindigkeiten
+  - Schrittmodus
+  - Quelle `Ansicht` oder `Filter`
+  - Echtzeit-Replay
+  - Auto-Follow
+  - Aktivitätsleiste und Marker-Strip
 - **3D-Pitch-Toggle** für die MapLibre-Karte
 - **Live-Polling:** 2s / 3s / 5s (Standard) / 10s / 15s / 20s / 30s / 45s / 1min / 1.5min / 2min / 3min / 5min
 - **Zeitraumfilter:** 2min bis 30 Tage oder gesamt, mit localStorage-Persistenz
@@ -139,7 +156,12 @@ Interaktive GPS-Echtzeit-Karte mit:
 - **Browser-Standort** und separater Schnellzugriff auf den neuesten Serverpunkt
 - **Vollbild:** native API auf Desktop/Android; CSS-Fallback (`position:fixed; 100vw/100dvh`) auf iOS
 - **Live-Punkt-Log:** scrollbare Echtzeit-Tabelle direkt unter der Karte; reagiert direkt auf Filter- und Log-Limit-Änderungen; auf Mobile: Spalten `Genauigkeit`, `Modus`, `Request ID` ausgeblendet
-- **Download-Fortschrittsoverlay** mit echten geladenen Bytes und Prozentanzeige, wenn `Content-Length` vorhanden ist
+- **Download-Fortschrittsoverlay** mit:
+  - serverseitigen Timing-Phasen
+  - Download-/Render-Phasen
+  - ETA
+  - Retry im Fehlerzustand
+  - kompaktem Sync-Pill für schnelle Noop-/Delta-Fälle
 - **Server-Verarbeitungsanzeige:** oberhalb der Karte wird angezeigt, ob alle verfügbaren Serverdaten verarbeitet sind, wie viele Punkte noch fehlen und welche Restdauer für laufende Importjobs geschätzt wird
 - **Tempo-Legende:** `0–100 km/h` in `5 km/h`-Stufen; darüber kontinuierliche Farbskala
 
@@ -152,7 +174,7 @@ Interaktive GPS-Echtzeit-Karte mit:
 | <768px | 1-Spalte; Filter-Panel einklappbar; Karte 350–400px |
 | <1024px | Sidebar wird zur Top-Navigation |
 
-CSS-Grid, `min-width:0` auf allen Grid-Children, `box-sizing:border-box` durchgängig. `clamp()` für fließende Skalierung. MapLibre-Resize über `map.resize()`, Viewport-Refresh und mobile Media Queries.
+CSS-Grid, `min-width:0` auf allen Grid-Children, `box-sizing:border-box` durchgängig. `clamp()` für fließende Skalierung. MapLibre-Resize über `map.resize()`, Viewport-Refresh, mobile Media Queries und Overlay-Layoutlogik direkt am Kartencontainer.
 
 ### Startseite (`/dashboard`)
 

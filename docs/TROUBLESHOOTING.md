@@ -90,6 +90,8 @@ Pruefen:
 - `/dashboard/map`
 - `/api/map-meta`
 - `/api/map-data`
+- `/api/timeline`
+- `/api/timeline-preview`
 - `/ws/map`
 - ob `include_snap=true` aktiv ist; dieser Layer ist bewusst der teuerste Pfad
 - Container-Logs auf Laufzeiten von `/api/map-data`
@@ -99,6 +101,7 @@ Hinweise:
 
 - ohne Snap ist die serverseitige Kartenpipeline deutlich schneller
 - mit Snap sind mehrere Sekunden Laufzeit möglich, weil der Server OSRM-Matching anfragt und cacht
+- Timeline/Replay nutzen bewusst leichtere Endpunkte; bei zähem Scrubbing zuerst `/api/timeline-preview` und die Browser-Konsole prüfen
 - die Karte arbeitet hybrid aus WebSocket-Hinweisen, Polling und Delta-Refresh; ein WebSocket-Problem blockiert die Karte daher nicht komplett, kann aber Live-Reaktivität verschlechtern
 
 ## Export leer

@@ -28,10 +28,21 @@
 - der normale Linien-Layer ist straßennäher, weil serverseitig gesnappte Geometrie bevorzugt wird
 - die Karte lädt viewport-basiert; bei Bewegung und Zoom wird die aktuelle Ansicht neu angefordert
 - Live-Updates laufen hybrid über WebSocket-Hinweise, Delta-Refresh und das eingestellte Polling
-- ein Timeline-Regler kann die aktuell geladenen Punkte zeitlich abspielen oder filtern
+- die Timeline kann die aktuell geladenen Punkte zeitlich abspielen oder filtern und bietet zusätzlich:
+  - Start / Zurück / Jetzt / Vor / Ende
+  - Geschwindigkeiten
+  - Schrittmodus
+  - Quelle `Ansicht` oder `Filter`
+  - Echtzeit-Replay
+  - Auto-Follow
+  - Aktivitäts- und Marker-Leiste
 - GeoJSON exportiert den aktuell geladenen Kartenstand
 - oberhalb der Karte zeigt eine Server-Verarbeitungsanzeige, ob laufende Importdaten schon vollständig verarbeitet sind, wie viele Punkte noch fehlen und welche ETA aktuell geschätzt wird
-- während des Downloads zeigt ein Overlay echte geladene Bytes und, falls bekannt, den Prozentfortschritt
+- während des Downloads zeigt ein Overlay:
+  - echte geladene Bytes
+  - Prozent, falls bekannt
+  - Phasen/ETA
+  - Retry bei Fehlern
 
 ## Punkte, Requests, Sessions
 

@@ -67,6 +67,8 @@
 - `map.html` nutzt MapLibre GL JS statt Leaflet
 - `map.html` spiegelt geladene Punkte zusätzlich in IndexedDB via Dexie
 - `map.html` lädt globale Karteninfos separat über `GET /api/map-meta`
+- `map.html` lädt Timeline-Daten separat über `GET /api/timeline`
+- `map.html` lädt Timeline-Vorschauen separat über `GET /api/timeline-preview`
 - `map.html` berechnet Layer nicht mehr primär aus `/api/points`
 - der Browser fragt `GET /api/map-data` mit Filter-, Viewport-, Delta- und Layer-Flags ab
 - serverseitig vorbereitet werden:
@@ -90,5 +92,15 @@
   - WebSocket `/ws/map` signalisiert neue Daten
   - Polling bleibt konfigurierbar
   - `latest_known_ts` und `ETag` vermeiden unnötige Vollantworten
-  - Delta-Antworten ergänzen Punkte/Logs inkrementell und ersetzen kontextabhängige Layer gezielt
-- ein Download-Overlay zeigt echten Byte-Fortschritt der aktuellen Kartenantwort
+  - Delta-Antworten ergänzen Punkte/Logs inkrementell, Polylinien/Tempo teils append-fähig und ersetzen kontextabhängige Layer gezielt
+- ein Download-Overlay zeigt:
+  - echten Byte-Fortschritt der aktuellen Kartenantwort
+  - `Server-Timing`-Details
+  - ETA
+  - Retry im Fehlerzustand
+- Timeline und Replay arbeiten mit:
+  - separatem Timeline-Endpoint
+  - separatem Preview-Endpoint
+  - Activity-Strip
+  - Marker-Strip
+  - serverseitig vorbereiteten Day-Markern

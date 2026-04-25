@@ -47,6 +47,8 @@
 - `GET /api/points`
 - `GET /api/map-meta`
 - `GET /api/map-data`
+- `GET /api/timeline`
+- `GET /api/timeline-preview`
 - `GET /api/points/{id}`
 - `GET /api/requests`
 - `GET /api/requests/{request_id}`
@@ -116,7 +118,14 @@ Zusätzlich für Punkte:
   - `processing`
 - `ETag`/`304` wird wie bei `GET /api/points` unterstützt
 - bei unverändertem Viewport und unverändertem Datenstand antwortet der Server zusätzlich mit `304` und `X-Map-Delta: noop`
-- bei echtem Delta kann `meta.deltaMode=true` gesetzt sein; dann enthält die Antwort ein `delta`-Objekt mit inkrementellen Punkt-/Log-Ergänzungen und gezielten Layer-Replacements
+- bei echtem Delta kann `meta.deltaMode=true` gesetzt sein; dann enthält die Antwort ein `delta`-Objekt mit:
+  - inkrementellen Punkt-/Log-Ergänzungen
+  - append-fähigen Polylinien-/Tempo-Deltas
+  - gezielten Layer-Replacements für schwerere Kontextlayer
+- Response-Header enthalten zusätzlich u. a.:
+  - `X-Map-Cache`
+  - `X-Map-Mode`
+  - `Server-Timing`
 
 ## `GET /api/map-meta`
 
@@ -130,7 +139,57 @@ Zusätzlich für Punkte:
 - wird für globale Statistik, `Fit Bounds = Gesamt` und die Verarbeitungsanzeige verwendet
 - unterstützt `ETag`/`304`
 
-## `GET /ws/map`
+## `GET /api/timeline`
+
+- leichter Timeline-Endpoint für `/dashboard/map`
+- liefert:
+  - `timeline.items`
+  - `timeline.count`
+  - `timeline.meta`
+  - `timeline.markers`
+- unterstützt Filter:
+  - `date_from`
+  - `date_to`
+  - `time_from`
+  - `time_to`
+  - `session_id`
+  - `capture_mode`
+  - `source`
+  - `search`
+  - `bbox`
+  - `limit`
+  - `stop_min_duration_min`
+  - `stop_radius_m`
+- `timeline.meta` enthält aktuell:
+  - `minTimestampUtc`
+  - `maxTimestampUtc`
+  - `truncated`
+  - `bboxFiltered`
+  - `rawCount`
+  - `sampledCount`
+- Marker enthalten Tageswechsel und Stop-Marker
+- Day-Marker werden, wenn möglich, aus ingest-nah vorgehaltenen `timeline_day_markers` gelesen
+
+## `GET /api/timeline-preview`
+
+- leichter Preview-Pfad für Timeline-Scrubbing und Replay
+- nutzt dieselben Grundfilter wie `map-data`
+- ist bewusst leichter als `map-data`
+- liefert aktuell nur:
+  - Punkte
+  - Latest Point
+  - Polylinien
+  - Genauigkeit
+  - Log
+  - Stats
+- bewusst nicht Teil des Preview-Pfads:
+  - Heatmap
+  - Speed
+  - Stops
+  - Daytracks
+  - Snap
+
+## WebSocket `/ws/map`
 
 - WebSocket-Endpunkt für Karten-Clients
 - sendet bei neuem Ingest `{"type":"new_location","sessionId":"..."}` an verbundene Browser

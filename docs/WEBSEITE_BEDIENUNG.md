@@ -38,9 +38,27 @@
 - `Auto-Center` behält den aktuellen Nutzer-Zoom bei
 - normale `Linien` folgen Straßen deutlich näher, weil der Polyline-Layer bevorzugt serverseitig gesnappte Geometrie nutzt
 - ein Timeline-Regler kann die aktuell geladenen Punkte zeitlich filtern oder abspielen
+- die Timeline bietet zusätzlich:
+  - `Start`
+  - `Zurück`
+  - `Jetzt`
+  - `Vor`
+  - `Ende`
+  - Quelle `Ansicht` oder `Filter`
+  - Schrittmodus
+  - Echtzeit-Replay
+  - Auto-Follow
+  - Aktivitätsleiste
+  - Marker für Tageswechsel und Stops
 - der Browser hält bereits geladene Punkte zusätzlich lokal in IndexedDB
 - Live-Updates kommen hybrid über WebSocket-Hinweise, Delta-Refresh und konfigurierbares Polling
-- während der Kartenabfrage zeigt ein Download-Overlay geladene Bytes und, wenn verfügbar, Prozentfortschritt
+- während der Kartenabfrage zeigt ein Download-Overlay:
+  - geladene Bytes
+  - Prozent, wenn `Content-Length` vorhanden ist
+  - Server-/Client-Phasen
+  - ETA
+  - Retry bei Fehlern
+  - einen kompakten Sync-Hinweis bei schnellen Noop-/Delta-Fällen
 - oberhalb der Karte zeigt eine Verarbeitungsanzeige, ob alle aktuell verfügbaren Serverdaten verarbeitet sind oder noch Importpunkte fehlen
 
 ## Weitere Seiten

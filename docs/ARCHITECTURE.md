@@ -36,6 +36,8 @@
 - der Browser lädt stattdessen:
   - `GET /api/map-meta` für globale Kartenmetadaten
   - `GET /api/map-data` für viewport-basierte Layerdaten
+  - `GET /api/timeline` für leichte Timeline-Daten
+  - `GET /api/timeline-preview` für Scrubbing-/Replay-Vorschau
 - der Server bereitet daraus vor:
   - Punktlayer
   - Heatmap-Aggregate
@@ -50,6 +52,13 @@
   - Polling bleibt als konfigurierbarer Refresh-Pfad aktiv
   - `latest_known_ts` und `ETag` vermeiden unnötige Vollantworten
   - echte Deltas ergänzen Punkte und Logs inkrementell
+- ingest-nahe Vorberechnung entlastet den Request-Pfad bereits für:
+  - globale und Session-Zusammenfassungen in `point_rollups`
+  - Timeline-Day-Marker in `timeline_day_markers`
+  - tile-basierte Raumspalten auf `gps_points`
+- räumliche Kartenabfragen nutzen aktuell:
+  - SQLite-RTree `gps_points_rtree`
+  - zusätzliche Tile-Prefilter über `tile_z10_*` und `tile_z14_*`
 - Ziel:
   - kleinere Payloads
   - weniger Client-CPU
