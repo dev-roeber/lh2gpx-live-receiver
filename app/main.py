@@ -254,6 +254,18 @@ def _summarize_import_tasks() -> dict[str, Any]:
     }
 
 
+def _invalidate_data_caches() -> None:
+    """Clears all data-related caches after import or deletion."""
+    _POINTS_CACHE.clear()
+    _MAP_META_CACHE.clear()
+    _MAP_DATA_CACHE.clear()
+    _TIMELINE_PREVIEW_CACHE.clear()
+    _HEATMAP_LAYER_CACHE.clear()
+    _TRACK_CONTEXT_CACHE.clear()
+    _TRACK_LAYER_CACHE.clear()
+    _SNAP_CACHE.clear()
+
+
 async def _run_import_task(task_id: str, filename: str, data: bytes, storage: "ReceiverStorage") -> None:
     started_at = time.perf_counter()
     try:
@@ -278,6 +290,7 @@ async def _run_import_task(task_id: str, filename: str, data: bytes, storage: "R
                 "warnings": parse_report.get("warnings", []),
             }
         )
+
         import_id = str(uuid4())
         session_id = f"import-{import_id[:8]}"
         insert_started_at = time.perf_counter()
@@ -298,6 +311,7 @@ async def _run_import_task(task_id: str, filename: str, data: bytes, storage: "R
                     "processedPoints": processed_points,
                     "remainingPoints": remaining_points,
                     "insertedPoints": int(progress.get("inserted_points") or 0),
+                    "inserted": int(progress.get("inserted_points") or 0),  # Compatibility
                     "progressPercent": round((processed_points / raw_points) * 100, 1) if raw_points > 0 else 100.0,
                     "rowsPerSecond": rows_per_second,
                     "estimatedRemainingSeconds": eta_seconds,
@@ -338,6 +352,7 @@ async def _run_import_task(task_id: str, filename: str, data: bytes, storage: "R
                 "dedupedInFile": result["deduped_in_file"],
                 "alreadyExisting": result["already_existing"],
                 "inserted": result["inserted"],
+                "insertedPoints": result["inserted"],  # Compatibility
                 "skippedTotal": result["skipped_total"],
                 "processedPoints": result["raw_points"],
                 "remainingPoints": 0,
@@ -354,6 +369,14 @@ async def _run_import_task(task_id: str, filename: str, data: bytes, storage: "R
                 "archiveEntriesFailed": parse_report.get("archive_entries_failed"),
             },
         }
+        # Invalidate caches and notify clients
+        _invalidate_data_caches()
+        await manager.broadcast({
+            "type": "import_completed",
+            "sessionId": session_id,
+            "inserted": result["inserted"]
+        })
+
     except GpsImportError as e:
         _import_tasks[task_id] = {
             "status": "error",
@@ -1505,7 +1528,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return templates.TemplateResponse(request=request, name="dashboard.html", context=context)
 
     @app.get("/dashboard/map", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
-    async def dashboard_map(request: Request) -> HTMLResponse:
+    async def dashboard_map(request: Request, session_id: str | None = None, import_session: str | None = None) -> HTMLResponse:
         snapshot = _dashboard_snapshot(request)
         try:
             all_sessions = _storage(request).list_sessions()
@@ -1526,6 +1549,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "sessions": sessions,
             "import_sessions": import_sessions,
             "config_summary": _settings(request).masked_config_summary(),
+            "query_session_id": session_id,
+            "query_import_session": import_session,
         })
         return templates.TemplateResponse(request=request, name="map.html", context=context)
 
@@ -1554,6 +1579,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=503, detail=str(e))
         if deleted == 0:
             raise HTTPException(status_code=404, detail="Session nicht gefunden oder bereits leer.")
+
+        _invalidate_data_caches()
+        await manager.broadcast({
+            "type": "session_deleted",
+            "sessionId": session_id,
+            "deleted": deleted
+        })
         return JSONResponse({"ok": True, "deleted": deleted, "session_id": session_id})
 
     @app.post("/api/import", dependencies=[Depends(_require_admin_access)])

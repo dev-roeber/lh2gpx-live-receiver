@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import math
+import os
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -758,6 +759,8 @@ class ReceiverStorage:
                 "rawPayloadNdjsonEnabled": self.settings.raw_payload_ndjson_enabled,
                 "readiness": asdict(self.readiness()),
                 "sqliteFile": _file_info(self.sqlite_path),
+                "sqliteWalFile": _file_info(self.sqlite_path.with_suffix(self.sqlite_path.suffix + "-wal")),
+                "sqliteShmFile": _file_info(self.sqlite_path.with_suffix(self.sqlite_path.suffix + "-shm")),
                 "rawPayloadFile": _file_info(self.raw_ndjson_path),
             },
             "totals": {

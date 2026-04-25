@@ -132,7 +132,7 @@
           <td class="mgr-date">{{ s.first_point_ts_utc[:10] if s.first_point_ts_utc else '—' }}</td>
           <td class="mgr-date">{{ s.last_point_ts_utc[:10] if s.last_point_ts_utc else '—' }}</td>
           <td style="text-align:right;white-space:nowrap;">
-            <a href="/dashboard/map" class="btn-pill secondary sm">Karte</a>
+            <a href="/dashboard/map?import_session={{ s.session_id }}" class="btn-pill secondary sm">Karte</a>
             <button class="btn-pill danger sm" onclick="deleteSession('{{ s.session_id }}', this)">Löschen</button>
           </td>
         </tr>
@@ -559,6 +559,54 @@ importBtn.addEventListener('click', () => {
 });
 
 // === Import-Fortschritt pollen ===
+function addImportToTable(t) {
+  let body = document.getElementById('import-mgr-body');
+  const empty = document.getElementById('import-manager-empty');
+  
+  // Falls die Tabelle noch gar nicht existiert (Empty-State)
+  if (empty || !body) {
+    importManagerContent.innerHTML = `
+      <div class="table-panel" id="import-manager-table-wrap" style="overflow-x:auto;">
+        <table class="import-mgr-table">
+          <thead>
+            <tr>
+              <th>Dateiname</th>
+              <th>Punkte</th>
+              <th>Erster Punkt</th>
+              <th>Letzter Punkt</th>
+              <th style="text-align:right;">Aktionen</th>
+            </tr>
+          </thead>
+          <tbody id="import-mgr-body"></tbody>
+        </table>
+      </div>
+    `;
+    body = document.getElementById('import-mgr-body');
+  }
+
+  // Doppelte Einträge vermeiden
+  if (document.getElementById('row-' + t.session_id)) return;
+
+  const row = document.createElement('tr');
+  row.id = 'row-' + t.session_id;
+  const metrics = t.metrics || {};
+  const firstTs = metrics.firstTimestampUtc ? metrics.firstTimestampUtc.slice(0, 10) : '—';
+  const lastTs = metrics.lastTimestampUtc ? metrics.lastTimestampUtc.slice(0, 10) : '—';
+  
+  row.innerHTML = `
+    <td class="mgr-filename" title="${escapeHtml(t.filename)}">${escapeHtml(t.filename)}</td>
+    <td style="color:var(--mint);font-weight:600;">${escapeHtml(t.inserted.toLocaleString('de-DE'))}</td>
+    <td class="mgr-date">${escapeHtml(firstTs)}</td>
+    <td class="mgr-date">${escapeHtml(lastTs)}</td>
+    <td style="text-align:right;white-space:nowrap;">
+      <a href="/dashboard/map?import_session=${encodeURIComponent(t.session_id)}" class="btn-pill secondary sm">Karte</a>
+      <button class="btn-pill danger sm" onclick="deleteSession('${escapeHtml(t.session_id)}', this)">Löschen</button>
+    </td>
+  `;
+  body.prepend(row);
+  updateImportManagerEmptyState();
+}
+
 async function pollImportStatus(taskId) {
   const PHASES = { queued: [90, 'In Warteschlange…'], parsing: [92, 'Datei wird geparst…'], inserting: null, done: [100, 'Fertig.'], error: [100, 'Fehler.'] };
   let dots = 0;
@@ -591,11 +639,12 @@ async function pollImportStatus(taskId) {
           `✓ <strong>${escapeHtml(t.inserted.toLocaleString('de-DE'))} Punkte</strong> erfolgreich importiert` +
           (t.skipped > 0 ? ` · ${escapeHtml(t.skipped.toLocaleString('de-DE'))} übersprungen` : '') +
           ` · Session <code>${escapeHtml(t.session_id)}</code>` +
-          `<br><a href="/dashboard/map" class="btn-pill primary sm" style="margin-top:10px;display:inline-block;">Auf Karte ansehen →</a>`,
+          `<br><a href="/dashboard/map?import_session=${encodeURIComponent(t.session_id)}" class="btn-pill primary sm" style="margin-top:10px;display:inline-block;">Auf Karte ansehen →</a>`,
           'success',
           { allowHtml: true }
         );
         clearFile(true);
+        addImportToTable(t);
       } else if (t.status === 'error') {
         clearInterval(timer);
         progressWrap.style.display = 'none';

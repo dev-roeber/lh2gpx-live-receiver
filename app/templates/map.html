@@ -539,6 +539,8 @@
 
 <script>
   const MAP_CONFIG = {{ config_summary | tojson }};
+  const QUERY_SESSION_ID = {{ query_session_id | tojson }};
+  const QUERY_IMPORT_SESSION = {{ query_import_session | tojson }};
   const FILTER_DEBOUNCE = 300;
   const CLUSTER_THRESHOLD = 50;
   const ROUTE_DEFAULTS_VERSION = '2';
@@ -2908,9 +2910,13 @@
 
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      if (data.type === 'new_location') {
-        console.log('Echtzeit-Update empfangen...');
-        // Sofortiges Update triggern
+      if (data.type === 'new_location' || data.type === 'import_completed' || data.type === 'session_deleted') {
+        console.log(`Echtzeit-Update empfangen (${data.type})...`);
+        // Force refresh for import/delete to clear any potential stale view
+        if (data.type !== 'new_location') {
+          lastETag = null;
+          updateMapMeta({ force: true }).catch(() => {});
+        }
         debouncedMapRefresh();
       }
     };
@@ -3022,6 +3028,27 @@
     document.getElementById('polling-interval').value = String(POLLING_INTERVAL);
     document.getElementById('fit-bounds-mode').value = FIT_BOUNDS_MODE;
     document.getElementById('time-range-select').value = TIME_RANGE;
+
+    // Apply Deep-Link Filters from Query Params
+    if (QUERY_SESSION_ID) {
+      document.getElementById('session-filter-toggle').checked = true;
+      const select = document.getElementById('session-select-dropdown');
+      select.disabled = false;
+      select.value = QUERY_SESSION_ID;
+      // Ensure import filter is off
+      document.getElementById('import-filter-toggle').checked = false;
+      document.getElementById('import-select-dropdown').disabled = true;
+      document.getElementById('import-select-dropdown').value = '';
+    } else if (QUERY_IMPORT_SESSION) {
+      document.getElementById('import-filter-toggle').checked = true;
+      const select = document.getElementById('import-select-dropdown');
+      select.disabled = false;
+      select.value = QUERY_IMPORT_SESSION;
+      // Ensure session filter is off
+      document.getElementById('session-filter-toggle').checked = false;
+      document.getElementById('session-select-dropdown').disabled = true;
+      document.getElementById('session-select-dropdown').value = '';
+    }
 
     if (supportsResizeObserver) {
       const resizeObserver = new ResizeObserver(() => forceMapResize());

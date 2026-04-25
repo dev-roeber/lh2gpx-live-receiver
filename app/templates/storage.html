@@ -71,7 +71,13 @@
     <div id="vacuum-status" style="display:none;font-size:0.82rem;padding:6px 0;"></div>
     <dl class="meta-list">
       <div><dt>SQLite-Pfad</dt><dd>{{ snapshot.storage.sqlitePath }}</dd></div>
-      <div><dt>SQLite Groesse</dt><dd>{{ format_bytes(snapshot.storage.sqliteFile.sizeBytes) }}</dd></div>
+      <div><dt>SQLite Groesse</dt><dd id="sqlite-size">{{ format_bytes(snapshot.storage.sqliteFile.sizeBytes) }}</dd></div>
+      {% if snapshot.storage.sqliteWalFile.exists %}
+      <div><dt>SQLite WAL Groesse</dt><dd>{{ format_bytes(snapshot.storage.sqliteWalFile.sizeBytes) }}</dd></div>
+      {% endif %}
+      {% if snapshot.storage.sqliteShmFile.exists %}
+      <div><dt>SQLite SHM Groesse</dt><dd>{{ format_bytes(snapshot.storage.sqliteShmFile.sizeBytes) }}</dd></div>
+      {% endif %}
       <div><dt>SQLite zuletzt geaendert</dt><dd>{{ format_timestamp(snapshot.storage.sqliteFile.lastModifiedUtc).utc or 'n/a' }}</dd></div>
       <div><dt>Raw-Payload-Pfad</dt><dd>{{ snapshot.storage.rawPayloadNdjsonPath }}</dd></div>
       <div><dt>Raw-Payload Groesse</dt><dd>{{ format_bytes(snapshot.storage.rawPayloadFile.sizeBytes) }}</dd></div>
@@ -121,6 +127,8 @@ async function runVacuum() {
       statusEl.textContent = freed > 0
         ? `✓ ${fmt(freed)} freigegeben (${fmt(json.size_before)} → ${fmt(json.size_after)})`
         : `✓ VACUUM abgeschlossen – kein Speicher freizugeben`;
+      // Kurzer Reload um alle Metriken zu aktualisieren
+      setTimeout(() => location.reload(), 2000);
     } else {
       statusEl.style.color = 'var(--red, #ef4444)';
       statusEl.textContent = '✗ ' + (json.detail || 'Fehler beim VACUUM');
