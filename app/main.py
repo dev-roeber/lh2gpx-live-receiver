@@ -1118,6 +1118,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             delta_viewport_items = []
             delta_polyline_entries: list[dict[str, Any]] = []
             delta_speed_entries: list[dict[str, Any]] = []
+            delta_stop_entries: list[dict[str, Any]] = []
+            delta_daytrack_entries: list[dict[str, Any]] = []
+            delta_snap_entries: list[dict[str, Any]] = []
             delta_mode = False
             latest_visible_ts = viewport_items[0]["point_timestamp_utc"] if viewport_items else None
             if latest_known_ts:
@@ -1179,6 +1182,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     route_time_gap_min=route_time_gap_min,
                     include_snap=include_snap and not delta_mode,
                 )
+                if not viewport_bbox and filters.session_id:
+                    if include_stops:
+                        precomputed_stops = storage.list_precomputed_session_stops(
+                            filters,
+                            stop_radius_m=stop_radius_m,
+                            stop_min_duration_min=stop_min_duration_min,
+                        )
+                        if precomputed_stops is not None:
+                            track_layers["stops"] = precomputed_stops
+                    if include_daytrack:
+                        precomputed_daytracks = storage.list_precomputed_session_daytracks(
+                            filters,
+                            zoom=effective_zoom,
+                            route_time_gap_min=route_time_gap_min,
+                        )
+                        if precomputed_daytracks is not None:
+                            track_layers["daytracks"] = precomputed_daytracks
                 track_layers_duration_ms = round((time.perf_counter() - track_layers_started_at) * 1000, 2)
                 buffered_items = track_layers["context_points_desc"]
                 if delta_mode and delta_viewport_items:
@@ -1197,6 +1217,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             )
                         if include_speed and not defer_expensive_track_layers:
                             delta_speed_entries = _serialize_speed_segments(delta_context_points_asc, zoom=effective_zoom)
+                        if include_stops and not defer_expensive_track_layers:
+                            min_delta_ts = min(str(point["point_timestamp_utc"]) for point in delta_viewport_items)
+                            delta_stop_entries = [
+                                item
+                                for item in track_layers["stops"]
+                                if str(item.get("endTimeUtc") or "") >= min_delta_ts or str(item.get("startTimeUtc") or "") >= min_delta_ts
+                            ]
+                        if include_daytrack and not defer_expensive_track_layers:
+                            affected_days = {str(point["point_date_local"]) for point in delta_viewport_items}
+                            delta_daytrack_entries = [
+                                item for item in track_layers["daytracks"] if str(item.get("day") or "") in affected_days
+                            ]
+                        if include_snap and len(delta_context_points_asc) <= 8 and len(delta_segments) <= 2:
+                            delta_snap_entries = _serialize_snap_segments(delta_segments, zoom=effective_zoom)
             if delta_mode:
                 payload_started_at = time.perf_counter()
                 payload = await asyncio.to_thread(
@@ -1210,8 +1244,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     speed_entries=track_layers["speed"],
                     delta_speed_entries=delta_speed_entries,
                     stop_entries=track_layers["stops"],
+                    delta_stop_entries=delta_stop_entries,
                     daytrack_entries=track_layers["daytracks"],
+                    delta_daytrack_entries=delta_daytrack_entries,
                     snap_entries=track_layers["snap"],
+                    delta_snap_entries=delta_snap_entries,
                     total_points=total_points,
                     visible_points=visible_points,
                     segment_count=int(track_layers["segment_count"]),
@@ -1222,7 +1259,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     include_speed=include_speed and not defer_expensive_track_layers,
                     include_stops=include_stops and not defer_expensive_track_layers,
                     include_daytrack=include_daytrack and not defer_expensive_track_layers,
-                    include_snap=include_snap and not delta_mode,
+                    include_snap=include_snap,
                 )
                 payload_duration_ms = round((time.perf_counter() - payload_started_at) * 1000, 2)
             else:
@@ -2019,8 +2056,11 @@ def _prepare_map_delta_payload(
     speed_entries: list[dict[str, Any]],
     delta_speed_entries: list[dict[str, Any]],
     stop_entries: list[dict[str, Any]],
+    delta_stop_entries: list[dict[str, Any]],
     daytrack_entries: list[dict[str, Any]],
+    delta_daytrack_entries: list[dict[str, Any]],
     snap_entries: list[dict[str, Any]],
+    delta_snap_entries: list[dict[str, Any]],
     total_points: int,
     visible_points: int,
     segment_count: int,
@@ -2081,11 +2121,20 @@ def _prepare_map_delta_payload(
         else:
             payload["delta"]["replaceSpeed"] = speed_entries
     if include_stops:
-        payload["delta"]["replaceStops"] = stop_entries
+        if delta_stop_entries:
+            payload["delta"]["upsertStops"] = delta_stop_entries
+        else:
+            payload["delta"]["replaceStops"] = stop_entries
     if include_daytrack:
-        payload["delta"]["replaceDaytracks"] = daytrack_entries
+        if delta_daytrack_entries:
+            payload["delta"]["upsertDaytracks"] = delta_daytrack_entries
+        else:
+            payload["delta"]["replaceDaytracks"] = daytrack_entries
     if include_snap:
-        payload["delta"]["replaceSnap"] = snap_entries
+        if delta_snap_entries:
+            payload["delta"]["appendSnap"] = delta_snap_entries
+        elif snap_entries:
+            payload["delta"]["replaceSnap"] = snap_entries
     return payload
 
 

@@ -17,6 +17,10 @@ from zoneinfo import ZoneInfo
 from .config import Settings
 from .models import LiveLocationRequest, PointFilters, RequestFilters, RequestMetadata, payload_to_json
 
+_DEFAULT_ROUTE_TIME_GAP_MIN = 15
+_DEFAULT_STOP_MIN_DURATION_MIN = 5
+_DEFAULT_STOP_RADIUS_M = 100
+
 
 class StorageError(RuntimeError):
     public_message = "Storage unavailable."
@@ -202,6 +206,7 @@ class ReceiverStorage:
             )
             self._update_point_rollups(connection, point_rows)
             self._update_timeline_day_markers(connection, point_rows)
+            self._update_session_track_rollups(connection, point_rows)
 
         return {
             "requestId": metadata.request_id,
@@ -931,6 +936,7 @@ class ReceiverStorage:
                     )
                     self._update_point_rollups(connection, batch)
                     self._update_timeline_day_markers(connection, batch)
+                    self._update_session_track_rollups(connection, batch)
                     inserted_so_far += len(batch)
                     if progress_callback:
                         progress_callback(
@@ -1418,6 +1424,111 @@ class ReceiverStorage:
             for row in rows
         ]
 
+    def list_precomputed_session_stops(
+        self,
+        filters: PointFilters,
+        *,
+        stop_radius_m: int,
+        stop_min_duration_min: int,
+    ) -> list[dict[str, Any]] | None:
+        self._require_ready()
+        if (
+            not filters.session_id
+            or filters.date_from
+            or filters.date_to
+            or filters.time_from
+            or filters.time_to
+            or filters.capture_mode
+            or filters.source
+            or filters.search
+            or stop_radius_m != _DEFAULT_STOP_RADIUS_M
+            or stop_min_duration_min != _DEFAULT_STOP_MIN_DURATION_MIN
+        ):
+            return None
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    latitude,
+                    longitude,
+                    radius_m,
+                    duration_min,
+                    start_time_utc,
+                    end_time_utc,
+                    start_label,
+                    end_label,
+                    points_count
+                FROM session_stop_rollups
+                WHERE session_id = ?
+                ORDER BY start_time_utc ASC, end_time_utc ASC
+                """,
+                (filters.session_id,),
+            ).fetchall()
+        return [
+            {
+                "lat": float(row["latitude"]),
+                "lon": float(row["longitude"]),
+                "radius": int(row["radius_m"]),
+                "durationMin": int(row["duration_min"]),
+                "startTimeUtc": row["start_time_utc"],
+                "endTimeUtc": row["end_time_utc"],
+                "startLabel": row["start_label"] or "",
+                "endLabel": row["end_label"] or "",
+                "pointsCount": int(row["points_count"]),
+            }
+            for row in rows
+        ]
+
+    def list_precomputed_session_daytracks(
+        self,
+        filters: PointFilters,
+        *,
+        zoom: int,
+        route_time_gap_min: int,
+    ) -> list[dict[str, Any]] | None:
+        self._require_ready()
+        if (
+            not filters.session_id
+            or filters.date_from
+            or filters.date_to
+            or filters.time_from
+            or filters.time_to
+            or filters.capture_mode
+            or filters.source
+            or filters.search
+            or route_time_gap_min != _DEFAULT_ROUTE_TIME_GAP_MIN
+        ):
+            return None
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    point_date_local,
+                    color_index,
+                    label_latitude,
+                    label_longitude,
+                    raw_segments_json,
+                    points_count
+                FROM session_daytrack_rollups
+                WHERE session_id = ?
+                ORDER BY point_date_local ASC
+                """,
+                (filters.session_id,),
+            ).fetchall()
+        return [
+            {
+                "day": row["point_date_local"],
+                "color": _storage_palette_color(int(row["color_index"])),
+                "labelPoint": [float(row["label_latitude"]), float(row["label_longitude"])],
+                "segments": [
+                    _storage_simplify_coords(segment, zoom)
+                    for segment in json.loads(row["raw_segments_json"] or "[]")
+                ],
+                "pointsCount": int(row["points_count"]),
+            }
+            for row in rows
+        ]
+
     def _try_rollup_summary(self, filters: PointFilters) -> dict[str, Any] | None:
         if (
             filters.date_from
@@ -1666,6 +1777,8 @@ class ReceiverStorage:
                 "DELETE FROM timeline_day_markers WHERE scope_type = 'session' AND scope_key = ?",
                 (session_id,),
             )
+            connection.execute("DELETE FROM session_stop_rollups WHERE session_id = ?", (session_id,))
+            connection.execute("DELETE FROM session_daytrack_rollups WHERE session_id = ?", (session_id,))
             self._rebuild_global_rollup(connection)
             self._rebuild_global_timeline_day_markers(connection)
             connection.commit()
@@ -1707,6 +1820,13 @@ class ReceiverStorage:
             grouped.setdefault(str(row[8]), []).append(row)
         for session_id, rows in grouped.items():
             self._apply_timeline_day_marker_rows(connection, "session", session_id, rows)
+
+    def _update_session_track_rollups(self, connection: sqlite3.Connection, point_rows: list[tuple[Any, ...]]) -> None:
+        if not point_rows:
+            return
+        session_ids = sorted({str(row[8]) for row in point_rows if row[8]})
+        for session_id in session_ids:
+            self._rebuild_session_track_rollups(connection, session_id)
 
     def _apply_rollup_rows(
         self,
@@ -1848,6 +1968,82 @@ class ReceiverStorage:
             ],
         )
 
+    def _rebuild_session_track_rollups(self, connection: sqlite3.Connection, session_id: str) -> None:
+        connection.execute("DELETE FROM session_stop_rollups WHERE session_id = ?", (session_id,))
+        connection.execute("DELETE FROM session_daytrack_rollups WHERE session_id = ?", (session_id,))
+        points = self._list_session_points_asc(connection, session_id)
+        if not points:
+            return
+
+        stops = _storage_detect_stops(
+            points,
+            stop_radius_m=_DEFAULT_STOP_RADIUS_M,
+            stop_min_duration_min=_DEFAULT_STOP_MIN_DURATION_MIN,
+        )
+        if stops:
+            connection.executemany(
+                """
+                INSERT OR REPLACE INTO session_stop_rollups(
+                    session_id,
+                    start_time_utc,
+                    end_time_utc,
+                    latitude,
+                    longitude,
+                    radius_m,
+                    duration_min,
+                    start_label,
+                    end_label,
+                    points_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        session_id,
+                        item["startTimeUtc"],
+                        item["endTimeUtc"],
+                        item["lat"],
+                        item["lon"],
+                        item["radius"],
+                        item["durationMin"],
+                        item["startLabel"],
+                        item["endLabel"],
+                        item["pointsCount"],
+                    )
+                    for item in stops
+                ],
+            )
+
+        daytracks = _storage_build_daytrack_rollups(
+            points,
+            route_time_gap_min=_DEFAULT_ROUTE_TIME_GAP_MIN,
+        )
+        if daytracks:
+            connection.executemany(
+                """
+                INSERT OR REPLACE INTO session_daytrack_rollups(
+                    session_id,
+                    point_date_local,
+                    color_index,
+                    label_latitude,
+                    label_longitude,
+                    raw_segments_json,
+                    points_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        session_id,
+                        item["day"],
+                        item["colorIndex"],
+                        item["labelLat"],
+                        item["labelLon"],
+                        json.dumps(item["rawSegments"], separators=(",", ":")),
+                        item["pointsCount"],
+                    )
+                    for item in daytracks
+                ],
+            )
+
     def _rebuild_global_timeline_day_markers(self, connection: sqlite3.Connection) -> None:
         connection.execute(
             "DELETE FROM timeline_day_markers WHERE scope_type = 'global' AND scope_key = '__global__'"
@@ -1872,6 +2068,35 @@ class ReceiverStorage:
                 for row in rows
             ],
         )
+
+    def _rebuild_all_session_track_rollups(self, connection: sqlite3.Connection) -> None:
+        connection.execute("DELETE FROM session_stop_rollups")
+        connection.execute("DELETE FROM session_daytrack_rollups")
+        rows = connection.execute("SELECT DISTINCT session_id FROM gps_points ORDER BY session_id ASC").fetchall()
+        for row in rows:
+            self._rebuild_session_track_rollups(connection, str(row["session_id"]))
+
+    def _list_session_points_asc(self, connection: sqlite3.Connection, session_id: str) -> list[dict[str, Any]]:
+        rows = connection.execute(
+            """
+            SELECT
+                id,
+                point_timestamp_utc,
+                point_timestamp_local,
+                point_date_local,
+                latitude,
+                longitude,
+                horizontal_accuracy_m,
+                source,
+                capture_mode,
+                request_id
+            FROM gps_points
+            WHERE session_id = ?
+            ORDER BY point_timestamp_utc ASC, id ASC
+            """,
+            (session_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     def _ensure_gps_points_tile_columns(self, connection: sqlite3.Connection) -> None:
         existing_columns = {
@@ -2156,6 +2381,31 @@ class ReceiverStorage:
                 PRIMARY KEY (scope_type, scope_key, point_date_local)
             );
 
+            CREATE TABLE IF NOT EXISTS session_stop_rollups (
+                session_id TEXT NOT NULL,
+                start_time_utc TEXT NOT NULL,
+                end_time_utc TEXT NOT NULL,
+                latitude REAL NOT NULL,
+                longitude REAL NOT NULL,
+                radius_m INTEGER NOT NULL,
+                duration_min INTEGER NOT NULL,
+                start_label TEXT NOT NULL,
+                end_label TEXT NOT NULL,
+                points_count INTEGER NOT NULL,
+                PRIMARY KEY (session_id, start_time_utc, end_time_utc)
+            );
+
+            CREATE TABLE IF NOT EXISTS session_daytrack_rollups (
+                session_id TEXT NOT NULL,
+                point_date_local TEXT NOT NULL,
+                color_index INTEGER NOT NULL,
+                label_latitude REAL NOT NULL,
+                label_longitude REAL NOT NULL,
+                raw_segments_json TEXT NOT NULL,
+                points_count INTEGER NOT NULL,
+                PRIMARY KEY (session_id, point_date_local)
+            );
+
             CREATE VIRTUAL TABLE IF NOT EXISTS gps_points_rtree USING rtree(
                 id,
                 min_lon, max_lon,
@@ -2210,6 +2460,10 @@ class ReceiverStorage:
                 ON gps_points(tile_z10_x, tile_z10_y, point_timestamp_utc DESC, id DESC);
             CREATE INDEX IF NOT EXISTS idx_gps_points_tile_z14
                 ON gps_points(tile_z14_x, tile_z14_y, point_timestamp_utc DESC, id DESC);
+            CREATE INDEX IF NOT EXISTS idx_session_stop_rollups_session
+                ON session_stop_rollups(session_id, start_time_utc ASC, end_time_utc ASC);
+            CREATE INDEX IF NOT EXISTS idx_session_daytrack_rollups_session
+                ON session_daytrack_rollups(session_id, point_date_local ASC);
             """
         )
         self._ensure_gps_points_tile_columns(connection)
@@ -2258,6 +2512,16 @@ class ReceiverStorage:
             connection.execute(
                 "INSERT OR REPLACE INTO schema_metadata(key, value) VALUES(?, ?)",
                 ("gps_points_tiles_ready_v1", "1"),
+            )
+        session_track_rollups_ready = connection.execute(
+            "SELECT value FROM schema_metadata WHERE key = ?",
+            ("session_track_rollups_ready_v1",),
+        ).fetchone()
+        if not session_track_rollups_ready:
+            self._rebuild_all_session_track_rollups(connection)
+            connection.execute(
+                "INSERT OR REPLACE INTO schema_metadata(key, value) VALUES(?, ?)",
+                ("session_track_rollups_ready_v1", "1"),
             )
 
     def _maybe_import_legacy_ndjson(self, connection: sqlite3.Connection) -> None:
@@ -2463,6 +2727,118 @@ def _build_tile_bbox_clause(
             max_y,
         ],
     )
+
+
+def _storage_point_dt(point: dict[str, Any]) -> datetime:
+    return datetime.fromisoformat(str(point["point_timestamp_utc"]))
+
+
+def _storage_haversine_m(a: dict[str, Any], b: dict[str, Any]) -> float:
+    lat1 = math.radians(float(a["latitude"]))
+    lat2 = math.radians(float(b["latitude"]))
+    d_lat = lat2 - lat1
+    d_lon = math.radians(float(b["longitude"]) - float(a["longitude"]))
+    hav = math.sin(d_lat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(d_lon / 2) ** 2
+    return 6371000 * 2 * math.asin(min(1, math.sqrt(hav)))
+
+
+def _storage_segment_track(
+    points_asc: list[dict[str, Any]],
+    *,
+    time_gap_ms: int,
+    dist_gap_m: int,
+) -> list[list[dict[str, Any]]]:
+    if not points_asc:
+        return []
+    segments = [[points_asc[0]]]
+    previous = points_asc[0]
+    for point in points_asc[1:]:
+        delta_ms = (_storage_point_dt(point) - _storage_point_dt(previous)).total_seconds() * 1000
+        if delta_ms > time_gap_ms or _storage_haversine_m(previous, point) > dist_gap_m:
+            segments.append([])
+        segments[-1].append(point)
+        previous = point
+    return [segment for segment in segments if len(segment) >= 2]
+
+
+def _storage_detect_stops(
+    points_asc: list[dict[str, Any]],
+    *,
+    stop_radius_m: int,
+    stop_min_duration_min: int,
+) -> list[dict[str, Any]]:
+    minimum_ms = stop_min_duration_min * 60000
+    index = 0
+    stops: list[dict[str, Any]] = []
+    while index < len(points_asc):
+        anchor = points_asc[index]
+        cursor = index + 1
+        while cursor < len(points_asc) and _storage_haversine_m(anchor, points_asc[cursor]) <= stop_radius_m:
+            cursor += 1
+        if cursor > index + 1:
+            duration_ms = (_storage_point_dt(points_asc[cursor - 1]) - _storage_point_dt(anchor)).total_seconds() * 1000
+            if duration_ms >= minimum_ms:
+                midpoint = points_asc[(index + cursor - 1) // 2]
+                stops.append(
+                    {
+                        "lat": float(midpoint["latitude"]),
+                        "lon": float(midpoint["longitude"]),
+                        "radius": stop_radius_m,
+                        "durationMin": round(duration_ms / 60000),
+                        "startTimeUtc": anchor["point_timestamp_utc"],
+                        "endTimeUtc": points_asc[cursor - 1]["point_timestamp_utc"],
+                        "startLabel": (anchor["point_timestamp_local"] or "")[11:16],
+                        "endLabel": (points_asc[cursor - 1]["point_timestamp_local"] or "")[11:16],
+                        "pointsCount": cursor - index,
+                    }
+                )
+                index = cursor
+                continue
+        index += 1
+    return stops
+
+
+def _storage_build_daytrack_rollups(
+    points_asc: list[dict[str, Any]],
+    *,
+    route_time_gap_min: int,
+) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for point in points_asc:
+        grouped.setdefault(str(point["point_date_local"]), []).append(point)
+    rollups: list[dict[str, Any]] = []
+    for index, (day, items) in enumerate(sorted(grouped.items())):
+        segments = _storage_segment_track(items, time_gap_ms=route_time_gap_min * 60000, dist_gap_m=200000)
+        rollups.append(
+            {
+                "day": day,
+                "colorIndex": index,
+                "labelLat": float(items[0]["latitude"]),
+                "labelLon": float(items[0]["longitude"]),
+                "rawSegments": [
+                    [[float(point["latitude"]), float(point["longitude"])] for point in segment]
+                    for segment in segments
+                ],
+                "pointsCount": len(items),
+            }
+        )
+    return rollups
+
+
+def _storage_simplify_coords(segment: list[list[float]], zoom: int) -> list[list[float]]:
+    if len(segment) <= 2:
+        return segment
+    target = max(2, min(len(segment), int(zoom * 1.5)))
+    step = max(1, len(segment) // target)
+    simplified = segment[::step]
+    if simplified[-1] != segment[-1]:
+        simplified.append(segment[-1])
+    return simplified
+
+
+def _storage_palette_color(index: int) -> str:
+    palette = ["#0A84FF", "#30D158", "#FF9F0A", "#BF5AF2", "#FF375F", "#64D2FF", "#FFD60A"]
+    return palette[index % len(palette)]
 
 
 def _compute_bounding_box(points: list[dict[str, Any]]) -> dict[str, float] | None:

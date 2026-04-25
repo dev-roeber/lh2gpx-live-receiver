@@ -1693,14 +1693,38 @@
     }
     if ('replaceStops' in delta) {
       merged.layers.stops = delta.replaceStops || [];
+    } else if (Array.isArray(delta.upsertStops)) {
+      merged.layers.stops = mergeLayerEntries(
+        merged.layers.stops || [],
+        delta.upsertStops,
+        item => `${item.startTimeUtc || ''}:${item.endTimeUtc || ''}`
+      );
+    }
+    if ('replaceStops' in delta || Array.isArray(delta.upsertStops)) {
       renderStops(merged.layers.stops);
     }
     if ('replaceDaytracks' in delta) {
       merged.layers.daytracks = delta.replaceDaytracks || [];
+    } else if (Array.isArray(delta.upsertDaytracks)) {
+      merged.layers.daytracks = mergeLayerEntries(
+        merged.layers.daytracks || [],
+        delta.upsertDaytracks,
+        item => String(item.day || '')
+      );
+    }
+    if ('replaceDaytracks' in delta || Array.isArray(delta.upsertDaytracks)) {
       renderDaytracks(merged.layers.daytracks);
     }
     if ('replaceSnap' in delta) {
       merged.layers.snap = delta.replaceSnap || [];
+    } else if (Array.isArray(delta.appendSnap)) {
+      merged.layers.snap = mergeLayerEntries(
+        merged.layers.snap || [],
+        delta.appendSnap,
+        item => JSON.stringify(item.coords || [])
+      );
+    }
+    if ('replaceSnap' in delta || Array.isArray(delta.appendSnap)) {
       renderSnap(merged.layers.snap);
     }
     if (Array.isArray(delta.appendLogItems)) {

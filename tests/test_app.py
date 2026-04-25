@@ -226,6 +226,44 @@ def test_timeline_day_markers_are_precomputed_per_scope(tmp_path: Path) -> None:
     assert [marker["label"] for marker in storage.list_precomputed_timeline_day_markers(PointFilters())] == ["2026-03-20"]
 
 
+def test_session_track_rollups_are_precomputed_for_default_parameters(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    payload = valid_payload()
+    payload["points"] = [
+        {
+            "latitude": 52.52,
+            "longitude": 13.405,
+            "timestamp": "2026-03-20T12:00:00Z",
+            "horizontalAccuracyM": 4.0,
+        },
+        {
+            "latitude": 52.52001,
+            "longitude": 13.40501,
+            "timestamp": "2026-03-20T12:06:00Z",
+            "horizontalAccuracyM": 4.0,
+        },
+        {
+            "latitude": 52.521,
+            "longitude": 13.406,
+            "timestamp": "2026-03-20T12:10:00Z",
+            "horizontalAccuracyM": 4.0,
+        },
+    ]
+    client.post("/live-location", json=payload)
+
+    storage = client.app.state.storage
+    filters = PointFilters(session_id="123e4567-e89b-12d3-a456-426614174000")
+    stops = storage.list_precomputed_session_stops(filters, stop_radius_m=100, stop_min_duration_min=5)
+    daytracks = storage.list_precomputed_session_daytracks(filters, zoom=14, route_time_gap_min=15)
+
+    assert stops is not None
+    assert len(stops) == 1
+    assert stops[0]["durationMin"] >= 6
+    assert daytracks is not None
+    assert [entry["day"] for entry in daytracks] == ["2026-03-20"]
+    assert daytracks[0]["segments"]
+
+
 def test_request_and_session_detail_endpoints(tmp_path: Path) -> None:
     client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
     client.post("/live-location", json=valid_payload())
@@ -632,6 +670,66 @@ def test_map_data_returns_delta_payload_for_newer_viewport_points(tmp_path: Path
     assert len(payload["delta"]["appendLogItems"]) == 1
     assert "replaceHeatmap" in payload["delta"]
     assert "appendSpeed" not in payload["delta"]
+
+
+def test_prepare_map_delta_payload_supports_partial_context_layers() -> None:
+    current_viewport_points_desc = [
+        {
+            "id": 2,
+            "point_timestamp_utc": "2026-03-20T12:05:00+00:00",
+            "point_timestamp_local": "2026-03-20 12:05:00 UTC",
+            "latitude": 52.5201,
+            "longitude": 13.4051,
+            "horizontal_accuracy_m": 5.0,
+            "source": "test",
+            "capture_mode": "live",
+            "request_id": "req-2",
+        }
+    ]
+    new_viewport_points_desc = [
+        {
+            "id": 3,
+            "point_timestamp_utc": "2026-03-20T12:10:00+00:00",
+            "point_timestamp_local": "2026-03-20 12:10:00 UTC",
+            "latitude": 52.5202,
+            "longitude": 13.4052,
+            "horizontal_accuracy_m": 4.0,
+            "source": "test",
+            "capture_mode": "live",
+            "request_id": "req-3",
+        }
+    ]
+    payload = _prepare_map_delta_payload(
+        current_viewport_points_desc,
+        new_viewport_points_desc,
+        [*new_viewport_points_desc, *current_viewport_points_desc],
+        heatmap_entries=[],
+        polyline_entries=[],
+        delta_polyline_entries=[],
+        speed_entries=[],
+        delta_speed_entries=[],
+        stop_entries=[],
+        delta_stop_entries=[{"startTimeUtc": "2026-03-20T12:00:00+00:00", "endTimeUtc": "2026-03-20T12:06:00+00:00"}],
+        daytrack_entries=[],
+        delta_daytrack_entries=[{"day": "2026-03-20", "segments": [], "pointsCount": 3, "labelPoint": [52.52, 13.405], "color": "#0A84FF"}],
+        snap_entries=[],
+        delta_snap_entries=[{"coords": [[52.52, 13.405], [52.5202, 13.4052]]}],
+        total_points=3,
+        visible_points=2,
+        segment_count=1,
+        log_limit=5,
+        include_points=True,
+        include_heatmap=False,
+        include_accuracy=False,
+        include_speed=False,
+        include_stops=True,
+        include_daytrack=True,
+        include_snap=True,
+    )
+
+    assert "upsertStops" in payload["delta"]
+    assert "upsertDaytracks" in payload["delta"]
+    assert "appendSnap" in payload["delta"]
 
 
 def test_timeline_preview_returns_lightweight_layers(tmp_path: Path) -> None:
