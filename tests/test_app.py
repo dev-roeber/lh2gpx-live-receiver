@@ -193,6 +193,38 @@ def test_timeline_endpoint_returns_lightweight_points(tmp_path: Path) -> None:
     assert isinstance(body["timeline"]["markers"], list)
 
 
+def test_timeline_day_markers_are_precomputed_per_scope(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    first = valid_payload()
+    second = valid_payload()
+    second["sessionID"] = "123e4567-e89b-12d3-a456-426614174111"
+    second["points"] = [
+        {
+            "latitude": 52.53,
+            "longitude": 13.41,
+            "timestamp": "2026-03-21T08:00:00Z",
+            "horizontalAccuracyM": 4.0,
+        }
+    ]
+
+    client.post("/live-location", json=first)
+    client.post("/live-location", json=second)
+
+    storage = client.app.state.storage
+    global_markers = storage.list_precomputed_timeline_day_markers(PointFilters())
+    session_markers = storage.list_precomputed_timeline_day_markers(
+        PointFilters(session_id="123e4567-e89b-12d3-a456-426614174111")
+    )
+
+    assert [marker["label"] for marker in global_markers] == ["2026-03-20", "2026-03-21"]
+    assert [marker["label"] for marker in session_markers] == ["2026-03-21"]
+
+    deleted = storage.delete_session("123e4567-e89b-12d3-a456-426614174111")
+
+    assert deleted == 1
+    assert [marker["label"] for marker in storage.list_precomputed_timeline_day_markers(PointFilters())] == ["2026-03-20"]
+
+
 def test_request_and_session_detail_endpoints(tmp_path: Path) -> None:
     client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
     client.post("/live-location", json=valid_payload())
@@ -622,55 +654,6 @@ def test_timeline_preview_returns_lightweight_layers(tmp_path: Path) -> None:
     assert payload["layers"]["daytracks"] == []
     assert payload["layers"]["snap"] == []
 
-
-def test_prepare_map_delta_payload_supports_incremental_context_layers() -> None:
-    current_viewport = [
-        {
-            "id": 2,
-            "point_timestamp_utc": "2026-04-23T12:01:00+00:00",
-            "point_timestamp_local": "2026-04-23 12:01:00 UTC",
-            "latitude": 52.5205,
-            "longitude": 13.4055,
-            "horizontal_accuracy_m": 8.0,
-            "source": "test",
-            "capture_mode": "live",
-            "request_id": "req-2",
-        }
-    ]
-    new_viewport = [current_viewport[0]]
-    payload = _prepare_map_delta_payload(
-        current_viewport,
-        new_viewport,
-        current_viewport,
-        heatmap_entries=[],
-        polyline_entries=[],
-        delta_polyline_entries=[{"coords": [[52.5205, 13.4055], [52.5207, 13.4057]], "color": "#0A84FF", "pointsCount": 2, "startLabel": "", "endLabel": "", "startPoint": [52.5205, 13.4055], "endPoint": [52.5207, 13.4057]}],
-        speed_entries=[],
-        delta_speed_entries=[{"coords": [[52.5205, 13.4055], [52.5207, 13.4057]], "kmh": 12.0, "color": "#0A84FF"}],
-        stop_entries=[],
-        delta_stop_entries=[{"lat": 52.5206, "lon": 13.4056, "radius": 100, "durationMin": 5, "startLabel": "12:00", "endLabel": "12:05", "pointsCount": 3}],
-        daytrack_entries=[],
-        delta_daytrack_entries=[{"day": "2026-04-23", "color": "#0A84FF", "labelPoint": [52.5205, 13.4055], "segments": [[[52.5205, 13.4055], [52.5207, 13.4057]]], "pointsCount": 2}],
-        snap_entries=[],
-        delta_snap_entries=[{"coords": [[52.5205, 13.4055], [52.5207, 13.4057]]}],
-        total_points=1,
-        visible_points=1,
-        segment_count=1,
-        log_limit=10,
-        include_points=True,
-        include_heatmap=False,
-        include_accuracy=False,
-        include_speed=True,
-        include_stops=True,
-        include_daytrack=True,
-        include_snap=True,
-    )
-
-    assert "appendPolylines" in payload["delta"]
-    assert "appendSpeed" in payload["delta"]
-    assert "appendStops" in payload["delta"]
-    assert "appendDaytracks" in payload["delta"]
-    assert "appendSnap" in payload["delta"]
 
 
 def test_prepare_map_payload_keeps_viewport_layers_separate_from_buffered_geometry() -> None:

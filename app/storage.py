@@ -192,6 +192,7 @@ class ReceiverStorage:
                 point_rows,
             )
             self._update_point_rollups(connection, point_rows)
+            self._update_timeline_day_markers(connection, point_rows)
 
         return {
             "requestId": metadata.request_id,
@@ -915,6 +916,7 @@ class ReceiverStorage:
                         batch,
                     )
                     self._update_point_rollups(connection, batch)
+                    self._update_timeline_day_markers(connection, batch)
                     inserted_so_far += len(batch)
                     if progress_callback:
                         progress_callback(
@@ -1360,6 +1362,37 @@ class ReceiverStorage:
             "boundingBox": bounding_box,
         }
 
+    def list_precomputed_timeline_day_markers(self, filters: PointFilters) -> list[dict[str, Any]] | None:
+        self._require_ready()
+        if filters.time_from or filters.time_to or filters.capture_mode or filters.source or filters.search:
+            return None
+        scope_type = "session" if filters.session_id else "global"
+        scope_key = filters.session_id or "__global__"
+        clauses = ["scope_type = ?", "scope_key = ?"]
+        parameters: list[Any] = [scope_type, scope_key]
+        if filters.date_from:
+            clauses.append("point_date_local >= ?")
+            parameters.append(filters.date_from)
+        if filters.date_to:
+            clauses.append("point_date_local <= ?")
+            parameters.append(filters.date_to)
+        query = f"""
+            SELECT point_date_local, first_point_ts_utc, label
+            FROM timeline_day_markers
+            WHERE {" AND ".join(clauses)}
+            ORDER BY first_point_ts_utc ASC, point_date_local ASC
+        """
+        with self._connect() as connection:
+            rows = connection.execute(query, parameters).fetchall()
+        return [
+            {
+                "type": "day",
+                "timestampUtc": row["first_point_ts_utc"],
+                "label": row["label"],
+            }
+            for row in rows
+        ]
+
     def _try_rollup_summary(self, filters: PointFilters) -> dict[str, Any] | None:
         if (
             filters.date_from
@@ -1604,7 +1637,12 @@ class ReceiverStorage:
                 "DELETE FROM point_rollups WHERE scope_type = 'session' AND scope_key = ?",
                 (session_id,),
             )
+            connection.execute(
+                "DELETE FROM timeline_day_markers WHERE scope_type = 'session' AND scope_key = ?",
+                (session_id,),
+            )
             self._rebuild_global_rollup(connection)
+            self._rebuild_global_timeline_day_markers(connection)
             connection.commit()
             # WAL-Checkpoint damit Dateigröße zeitnah reduziert wird
             connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -1634,6 +1672,16 @@ class ReceiverStorage:
             grouped.setdefault(str(row[8]), []).append(row)
         for session_id, rows in grouped.items():
             self._apply_rollup_rows(connection, "session", session_id, rows)
+
+    def _update_timeline_day_markers(self, connection: sqlite3.Connection, point_rows: list[tuple[Any, ...]]) -> None:
+        if not point_rows:
+            return
+        self._apply_timeline_day_marker_rows(connection, "global", "__global__", point_rows)
+        grouped: dict[str, list[tuple[Any, ...]]] = {}
+        for row in point_rows:
+            grouped.setdefault(str(row[8]), []).append(row)
+        for session_id, rows in grouped.items():
+            self._apply_timeline_day_marker_rows(connection, "session", session_id, rows)
 
     def _apply_rollup_rows(
         self,
@@ -1721,6 +1769,84 @@ class ReceiverStorage:
                     row["max_longitude"],
                 ),
             )
+
+    def _apply_timeline_day_marker_rows(
+        self,
+        connection: sqlite3.Connection,
+        scope_type: str,
+        scope_key: str,
+        point_rows: list[tuple[Any, ...]],
+    ) -> None:
+        day_rows: dict[str, str] = {}
+        for row in point_rows:
+            point_date_local = str(row[10])
+            point_ts_utc = str(row[3])
+            current = day_rows.get(point_date_local)
+            if current is None or point_ts_utc < current:
+                day_rows[point_date_local] = point_ts_utc
+        connection.executemany(
+            """
+            INSERT INTO timeline_day_markers(scope_type, scope_key, point_date_local, first_point_ts_utc, label)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(scope_type, scope_key, point_date_local) DO UPDATE SET
+                first_point_ts_utc = MIN(timeline_day_markers.first_point_ts_utc, excluded.first_point_ts_utc),
+                label = excluded.label
+            """,
+            [
+                (scope_type, scope_key, point_date_local, first_point_ts_utc, point_date_local)
+                for point_date_local, first_point_ts_utc in day_rows.items()
+            ],
+        )
+
+    def _rebuild_timeline_day_markers(self, connection: sqlite3.Connection) -> None:
+        connection.execute("DELETE FROM timeline_day_markers")
+        self._rebuild_global_timeline_day_markers(connection)
+        session_rows = connection.execute(
+            """
+            SELECT
+                session_id,
+                point_date_local,
+                MIN(point_timestamp_utc) AS first_point_ts_utc
+            FROM gps_points
+            GROUP BY session_id, point_date_local
+            """
+        ).fetchall()
+        connection.executemany(
+            """
+            INSERT OR REPLACE INTO timeline_day_markers(
+                scope_type, scope_key, point_date_local, first_point_ts_utc, label
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                ("session", row["session_id"], row["point_date_local"], row["first_point_ts_utc"], row["point_date_local"])
+                for row in session_rows
+            ],
+        )
+
+    def _rebuild_global_timeline_day_markers(self, connection: sqlite3.Connection) -> None:
+        connection.execute(
+            "DELETE FROM timeline_day_markers WHERE scope_type = 'global' AND scope_key = '__global__'"
+        )
+        rows = connection.execute(
+            """
+            SELECT
+                point_date_local,
+                MIN(point_timestamp_utc) AS first_point_ts_utc
+            FROM gps_points
+            GROUP BY point_date_local
+            """
+        ).fetchall()
+        connection.executemany(
+            """
+            INSERT OR REPLACE INTO timeline_day_markers(
+                scope_type, scope_key, point_date_local, first_point_ts_utc, label
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                ("global", "__global__", row["point_date_local"], row["first_point_ts_utc"], row["point_date_local"])
+                for row in rows
+            ],
+        )
 
     def _rebuild_global_rollup(self, connection: sqlite3.Connection) -> None:
         row = connection.execute(
@@ -1955,6 +2081,15 @@ class ReceiverStorage:
                 PRIMARY KEY (scope_type, scope_key)
             );
 
+            CREATE TABLE IF NOT EXISTS timeline_day_markers (
+                scope_type TEXT NOT NULL,
+                scope_key TEXT NOT NULL,
+                point_date_local TEXT NOT NULL,
+                first_point_ts_utc TEXT NOT NULL,
+                label TEXT NOT NULL,
+                PRIMARY KEY (scope_type, scope_key, point_date_local)
+            );
+
             CREATE VIRTUAL TABLE IF NOT EXISTS gps_points_rtree USING rtree(
                 id,
                 min_lon, max_lon,
@@ -2032,6 +2167,16 @@ class ReceiverStorage:
             connection.execute(
                 "INSERT OR REPLACE INTO schema_metadata(key, value) VALUES(?, ?)",
                 ("point_rollups_ready_v1", "1"),
+            )
+        timeline_markers_ready = connection.execute(
+            "SELECT value FROM schema_metadata WHERE key = ?",
+            ("timeline_day_markers_ready_v1",),
+        ).fetchone()
+        if not timeline_markers_ready:
+            self._rebuild_timeline_day_markers(connection)
+            connection.execute(
+                "INSERT OR REPLACE INTO schema_metadata(key, value) VALUES(?, ?)",
+                ("timeline_day_markers_ready_v1", "1"),
             )
 
     def _maybe_import_legacy_ndjson(self, connection: sqlite3.Connection) -> None:

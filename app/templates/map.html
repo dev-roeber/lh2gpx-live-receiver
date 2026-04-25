@@ -1563,28 +1563,6 @@
     return Array.from(merged.values());
   }
 
-  function mergeDaytrackEntries(existing, appended) {
-    const merged = new Map();
-    (existing || []).forEach(item => {
-      merged.set(item.day, Object.assign({}, item, { segments: (item.segments || []).slice() }));
-    });
-    (appended || []).forEach(item => {
-      const current = merged.get(item.day);
-      if (!current) {
-        merged.set(item.day, Object.assign({}, item, { segments: (item.segments || []).slice() }));
-        return;
-      }
-      const segmentMap = new Map((current.segments || []).map(segment => [JSON.stringify(segment || []), segment]));
-      (item.segments || []).forEach(segment => segmentMap.set(JSON.stringify(segment || []), segment));
-      current.segments = Array.from(segmentMap.values());
-      current.pointsCount = Math.max(current.pointsCount || 0, item.pointsCount || 0);
-      current.labelPoint = item.labelPoint || current.labelPoint;
-      current.color = item.color || current.color;
-      merged.set(item.day, current);
-    });
-    return Array.from(merged.values()).sort((a, b) => String(a.day || '').localeCompare(String(b.day || '')));
-  }
-
   function updateStatistics(stats, meta) {
     document.getElementById('stat-points-per-min').innerText = (stats.pointsPerMinute || 0).toFixed(1);
     document.getElementById('stat-avg-accuracy').innerText = stats.avgAccuracyM ? `${Math.round(stats.avgAccuracyM)}m` : '-';
@@ -1716,30 +1694,13 @@
     if ('replaceStops' in delta) {
       merged.layers.stops = delta.replaceStops || [];
       renderStops(merged.layers.stops);
-    } else if (Array.isArray(delta.appendStops)) {
-      merged.layers.stops = mergeLayerEntries(
-        merged.layers.stops || [],
-        delta.appendStops,
-        item => `${item.lat}:${item.lon}:${item.durationMin}:${item.startLabel || ''}:${item.endLabel || ''}`
-      );
-      renderStops(merged.layers.stops);
     }
     if ('replaceDaytracks' in delta) {
       merged.layers.daytracks = delta.replaceDaytracks || [];
       renderDaytracks(merged.layers.daytracks);
-    } else if (Array.isArray(delta.appendDaytracks)) {
-      merged.layers.daytracks = mergeDaytrackEntries(merged.layers.daytracks || [], delta.appendDaytracks);
-      renderDaytracks(merged.layers.daytracks);
     }
     if ('replaceSnap' in delta) {
       merged.layers.snap = delta.replaceSnap || [];
-      renderSnap(merged.layers.snap);
-    } else if (Array.isArray(delta.appendSnap)) {
-      merged.layers.snap = mergeLayerEntries(
-        merged.layers.snap || [],
-        delta.appendSnap,
-        item => JSON.stringify(item.coords || [])
-      );
       renderSnap(merged.layers.snap);
     }
     if (Array.isArray(delta.appendLogItems)) {

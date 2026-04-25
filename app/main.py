@@ -796,10 +796,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             now = time.time()
             raw_items = _storage(request).list_timeline_points(filters, bbox=viewport_bbox, limit=50000)
             items = _adaptive_timeline_sample(raw_items, limit=limit)
+            precomputed_day_markers = None
+            if viewport_bbox is None:
+                precomputed_day_markers = _storage(request).list_precomputed_timeline_day_markers(filters)
             markers = _build_timeline_markers(
                 raw_items,
                 stop_min_duration_min=stop_min_duration_min,
                 stop_radius_m=stop_radius_m,
+                precomputed_day_markers=precomputed_day_markers,
             )
             result = {
                 "requestId": request.state.request_id,
@@ -1114,9 +1118,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             delta_viewport_items = []
             delta_polyline_entries: list[dict[str, Any]] = []
             delta_speed_entries: list[dict[str, Any]] = []
-            delta_stop_entries: list[dict[str, Any]] = []
-            delta_daytrack_entries: list[dict[str, Any]] = []
-            delta_snap_entries: list[dict[str, Any]] = []
             delta_mode = False
             latest_visible_ts = viewport_items[0]["point_timestamp_utc"] if viewport_items else None
             if latest_known_ts:
@@ -1191,20 +1192,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             )
                         if include_speed and not defer_expensive_track_layers:
                             delta_speed_entries = _serialize_speed_segments(delta_context_points_asc, zoom=effective_zoom)
-                        if include_stops and not defer_expensive_track_layers:
-                            delta_stop_entries = _detect_stops(
-                                delta_context_points_asc,
-                                stop_radius_m=stop_radius_m,
-                                stop_min_duration_min=stop_min_duration_min,
-                            )
-                        if include_daytrack and not defer_expensive_track_layers:
-                            delta_daytrack_entries = _serialize_daytracks(
-                                delta_context_points_asc,
-                                zoom=effective_zoom,
-                                route_time_gap_min=route_time_gap_min,
-                            )
-                        if include_snap and len(delta_segments) <= 2 and len(delta_viewport_items) <= 8:
-                            delta_snap_entries = _serialize_snap_segments(delta_segments, zoom=effective_zoom)
             if delta_mode:
                 payload_started_at = time.perf_counter()
                 payload = await asyncio.to_thread(
@@ -1218,11 +1205,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     speed_entries=track_layers["speed"],
                     delta_speed_entries=delta_speed_entries,
                     stop_entries=track_layers["stops"],
-                    delta_stop_entries=delta_stop_entries,
                     daytrack_entries=track_layers["daytracks"],
-                    delta_daytrack_entries=delta_daytrack_entries,
                     snap_entries=track_layers["snap"],
-                    delta_snap_entries=delta_snap_entries,
                     total_points=total_points,
                     visible_points=visible_points,
                     segment_count=int(track_layers["segment_count"]),
@@ -2030,11 +2014,8 @@ def _prepare_map_delta_payload(
     speed_entries: list[dict[str, Any]],
     delta_speed_entries: list[dict[str, Any]],
     stop_entries: list[dict[str, Any]],
-    delta_stop_entries: list[dict[str, Any]],
     daytrack_entries: list[dict[str, Any]],
-    delta_daytrack_entries: list[dict[str, Any]],
     snap_entries: list[dict[str, Any]],
-    delta_snap_entries: list[dict[str, Any]],
     total_points: int,
     visible_points: int,
     segment_count: int,
@@ -2095,20 +2076,11 @@ def _prepare_map_delta_payload(
         else:
             payload["delta"]["replaceSpeed"] = speed_entries
     if include_stops:
-        if delta_stop_entries:
-            payload["delta"]["appendStops"] = delta_stop_entries
-        else:
-            payload["delta"]["replaceStops"] = stop_entries
+        payload["delta"]["replaceStops"] = stop_entries
     if include_daytrack:
-        if delta_daytrack_entries:
-            payload["delta"]["appendDaytracks"] = delta_daytrack_entries
-        else:
-            payload["delta"]["replaceDaytracks"] = daytrack_entries
+        payload["delta"]["replaceDaytracks"] = daytrack_entries
     if include_snap:
-        if delta_snap_entries:
-            payload["delta"]["appendSnap"] = delta_snap_entries
-        else:
-            payload["delta"]["replaceSnap"] = snap_entries
+        payload["delta"]["replaceSnap"] = snap_entries
     return payload
 
 
@@ -2807,20 +2779,33 @@ def _build_timeline_markers(
     *,
     stop_min_duration_min: int,
     stop_radius_m: int,
+    precomputed_day_markers: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     if not points_asc:
-        return []
+        return list(precomputed_day_markers or [])
     markers: list[dict[str, Any]] = []
     seen_keys: set[tuple[str, str]] = set()
-    previous_day = None
-    for point in points_asc:
-        day = point.get("point_date_local") or (point.get("point_timestamp_local") or "")[:10]
-        if day and day != previous_day:
+    if precomputed_day_markers:
+        for marker in precomputed_day_markers:
+            day = str(marker.get("label") or "")
+            timestamp_utc = marker.get("timestampUtc")
+            if not day or not timestamp_utc:
+                continue
             key = ("day", day)
-            if key not in seen_keys:
-                markers.append({"type": "day", "timestampUtc": point["point_timestamp_utc"], "label": day})
-                seen_keys.add(key)
-        previous_day = day
+            if key in seen_keys:
+                continue
+            markers.append({"type": "day", "timestampUtc": timestamp_utc, "label": day})
+            seen_keys.add(key)
+    else:
+        previous_day = None
+        for point in points_asc:
+            day = point.get("point_date_local") or (point.get("point_timestamp_local") or "")[:10]
+            if day and day != previous_day:
+                key = ("day", day)
+                if key not in seen_keys:
+                    markers.append({"type": "day", "timestampUtc": point["point_timestamp_utc"], "label": day})
+                    seen_keys.add(key)
+            previous_day = day
     for stop in _detect_stops(
         points_asc,
         stop_radius_m=stop_radius_m,
