@@ -1114,6 +1114,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             delta_viewport_items = []
             delta_polyline_entries: list[dict[str, Any]] = []
             delta_speed_entries: list[dict[str, Any]] = []
+            delta_stop_entries: list[dict[str, Any]] = []
+            delta_daytrack_entries: list[dict[str, Any]] = []
+            delta_snap_entries: list[dict[str, Any]] = []
             delta_mode = False
             latest_visible_ts = viewport_items[0]["point_timestamp_utc"] if viewport_items else None
             if latest_known_ts:
@@ -1188,6 +1191,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             )
                         if include_speed and not defer_expensive_track_layers:
                             delta_speed_entries = _serialize_speed_segments(delta_context_points_asc, zoom=effective_zoom)
+                        if include_stops and not defer_expensive_track_layers:
+                            delta_stop_entries = _detect_stops(
+                                delta_context_points_asc,
+                                stop_radius_m=stop_radius_m,
+                                stop_min_duration_min=stop_min_duration_min,
+                            )
+                        if include_daytrack and not defer_expensive_track_layers:
+                            delta_daytrack_entries = _serialize_daytracks(
+                                delta_context_points_asc,
+                                zoom=effective_zoom,
+                                route_time_gap_min=route_time_gap_min,
+                            )
+                        if include_snap and len(delta_segments) <= 2 and len(delta_viewport_items) <= 8:
+                            delta_snap_entries = _serialize_snap_segments(delta_segments, zoom=effective_zoom)
             if delta_mode:
                 payload_started_at = time.perf_counter()
                 payload = await asyncio.to_thread(
@@ -1201,8 +1218,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     speed_entries=track_layers["speed"],
                     delta_speed_entries=delta_speed_entries,
                     stop_entries=track_layers["stops"],
+                    delta_stop_entries=delta_stop_entries,
                     daytrack_entries=track_layers["daytracks"],
+                    delta_daytrack_entries=delta_daytrack_entries,
                     snap_entries=track_layers["snap"],
+                    delta_snap_entries=delta_snap_entries,
                     total_points=total_points,
                     visible_points=visible_points,
                     segment_count=int(track_layers["segment_count"]),
@@ -2010,8 +2030,11 @@ def _prepare_map_delta_payload(
     speed_entries: list[dict[str, Any]],
     delta_speed_entries: list[dict[str, Any]],
     stop_entries: list[dict[str, Any]],
+    delta_stop_entries: list[dict[str, Any]],
     daytrack_entries: list[dict[str, Any]],
+    delta_daytrack_entries: list[dict[str, Any]],
     snap_entries: list[dict[str, Any]],
+    delta_snap_entries: list[dict[str, Any]],
     total_points: int,
     visible_points: int,
     segment_count: int,
@@ -2072,11 +2095,20 @@ def _prepare_map_delta_payload(
         else:
             payload["delta"]["replaceSpeed"] = speed_entries
     if include_stops:
-        payload["delta"]["replaceStops"] = stop_entries
+        if delta_stop_entries:
+            payload["delta"]["appendStops"] = delta_stop_entries
+        else:
+            payload["delta"]["replaceStops"] = stop_entries
     if include_daytrack:
-        payload["delta"]["replaceDaytracks"] = daytrack_entries
+        if delta_daytrack_entries:
+            payload["delta"]["appendDaytracks"] = delta_daytrack_entries
+        else:
+            payload["delta"]["replaceDaytracks"] = daytrack_entries
     if include_snap:
-        payload["delta"]["replaceSnap"] = snap_entries
+        if delta_snap_entries:
+            payload["delta"]["appendSnap"] = delta_snap_entries
+        else:
+            payload["delta"]["replaceSnap"] = snap_entries
     return payload
 
 

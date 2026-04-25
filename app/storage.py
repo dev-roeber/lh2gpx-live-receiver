@@ -191,6 +191,7 @@ class ReceiverStorage:
                 """,
                 point_rows,
             )
+            self._update_point_rollups(connection, point_rows)
 
         return {
             "requestId": metadata.request_id,
@@ -913,6 +914,7 @@ class ReceiverStorage:
                         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         batch,
                     )
+                    self._update_point_rollups(connection, batch)
                     inserted_so_far += len(batch)
                     if progress_callback:
                         progress_callback(
@@ -1312,6 +1314,9 @@ class ReceiverStorage:
 
     def summarize_points(self, filters: PointFilters) -> dict[str, Any]:
         self._require_ready()
+        fast_rollup = self._try_rollup_summary(filters)
+        if fast_rollup is not None:
+            return fast_rollup
         where_clause, parameters = _build_shared_filters(
             date_from=filters.date_from,
             date_to=filters.date_to,
@@ -1339,6 +1344,54 @@ class ReceiverStorage:
         """
         with self._connect() as connection:
             row = dict(connection.execute(query, parameters).fetchone())
+        total_points = int(row["total_points"] or 0)
+        bounding_box = None
+        if total_points:
+            bounding_box = {
+                "minLatitude": float(row["min_latitude"]),
+                "maxLatitude": float(row["max_latitude"]),
+                "minLongitude": float(row["min_longitude"]),
+                "maxLongitude": float(row["max_longitude"]),
+            }
+        return {
+            "totalPoints": total_points,
+            "firstPointTsUtc": row["first_point_ts_utc"],
+            "lastPointTsUtc": row["last_point_ts_utc"],
+            "boundingBox": bounding_box,
+        }
+
+    def _try_rollup_summary(self, filters: PointFilters) -> dict[str, Any] | None:
+        if (
+            filters.date_from
+            or filters.date_to
+            or filters.time_from
+            or filters.time_to
+            or filters.capture_mode
+            or filters.source
+            or filters.search
+        ):
+            return None
+        scope_type = "session" if filters.session_id else "global"
+        scope_key = filters.session_id or "__global__"
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    total_points,
+                    first_point_ts_utc,
+                    last_point_ts_utc,
+                    min_latitude,
+                    max_latitude,
+                    min_longitude,
+                    max_longitude
+                FROM point_rollups
+                WHERE scope_type = ? AND scope_key = ?
+                """,
+                (scope_type, scope_key),
+            ).fetchone()
+        if not row:
+            return None
+        row = dict(row)
         total_points = int(row["total_points"] or 0)
         bounding_box = None
         if total_points:
@@ -1547,6 +1600,11 @@ class ReceiverStorage:
             connection.execute(
                 "DELETE FROM ingest_requests WHERE session_id = ?", (session_id,)
             )
+            connection.execute(
+                "DELETE FROM point_rollups WHERE scope_type = 'session' AND scope_key = ?",
+                (session_id,),
+            )
+            self._rebuild_global_rollup(connection)
             connection.commit()
             # WAL-Checkpoint damit Dateigröße zeitnah reduziert wird
             connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -1566,6 +1624,143 @@ class ReceiverStorage:
                 conn.close()
         size_after = self.sqlite_path.stat().st_size if self.sqlite_path.exists() else 0
         return {"size_before": size_before, "size_after": size_after, "freed_bytes": size_before - size_after}
+
+    def _update_point_rollups(self, connection: sqlite3.Connection, point_rows: list[tuple[Any, ...]]) -> None:
+        if not point_rows:
+            return
+        self._apply_rollup_rows(connection, "global", "__global__", point_rows)
+        grouped: dict[str, list[tuple[Any, ...]]] = {}
+        for row in point_rows:
+            grouped.setdefault(str(row[8]), []).append(row)
+        for session_id, rows in grouped.items():
+            self._apply_rollup_rows(connection, "session", session_id, rows)
+
+    def _apply_rollup_rows(
+        self,
+        connection: sqlite3.Connection,
+        scope_type: str,
+        scope_key: str,
+        point_rows: list[tuple[Any, ...]],
+    ) -> None:
+        timestamps = [str(row[3]) for row in point_rows]
+        latitudes = [float(row[4]) for row in point_rows]
+        longitudes = [float(row[5]) for row in point_rows]
+        connection.execute(
+            """
+            INSERT INTO point_rollups(
+                scope_type, scope_key, total_points,
+                first_point_ts_utc, last_point_ts_utc,
+                min_latitude, max_latitude, min_longitude, max_longitude
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(scope_type, scope_key) DO UPDATE SET
+                total_points = point_rollups.total_points + excluded.total_points,
+                first_point_ts_utc = CASE
+                    WHEN point_rollups.first_point_ts_utc IS NULL THEN excluded.first_point_ts_utc
+                    WHEN excluded.first_point_ts_utc < point_rollups.first_point_ts_utc THEN excluded.first_point_ts_utc
+                    ELSE point_rollups.first_point_ts_utc
+                END,
+                last_point_ts_utc = CASE
+                    WHEN point_rollups.last_point_ts_utc IS NULL THEN excluded.last_point_ts_utc
+                    WHEN excluded.last_point_ts_utc > point_rollups.last_point_ts_utc THEN excluded.last_point_ts_utc
+                    ELSE point_rollups.last_point_ts_utc
+                END,
+                min_latitude = MIN(point_rollups.min_latitude, excluded.min_latitude),
+                max_latitude = MAX(point_rollups.max_latitude, excluded.max_latitude),
+                min_longitude = MIN(point_rollups.min_longitude, excluded.min_longitude),
+                max_longitude = MAX(point_rollups.max_longitude, excluded.max_longitude)
+            """,
+            (
+                scope_type,
+                scope_key,
+                len(point_rows),
+                min(timestamps),
+                max(timestamps),
+                min(latitudes),
+                max(latitudes),
+                min(longitudes),
+                max(longitudes),
+            ),
+        )
+
+    def _rebuild_point_rollups(self, connection: sqlite3.Connection) -> None:
+        connection.execute("DELETE FROM point_rollups")
+        self._rebuild_global_rollup(connection)
+        session_rows = connection.execute(
+            """
+            SELECT
+                session_id,
+                COUNT(*) AS total_points,
+                MIN(point_timestamp_utc) AS first_point_ts_utc,
+                MAX(point_timestamp_utc) AS last_point_ts_utc,
+                MIN(latitude) AS min_latitude,
+                MAX(latitude) AS max_latitude,
+                MIN(longitude) AS min_longitude,
+                MAX(longitude) AS max_longitude
+            FROM gps_points
+            GROUP BY session_id
+            """
+        ).fetchall()
+        for row in session_rows:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO point_rollups(
+                    scope_type, scope_key, total_points,
+                    first_point_ts_utc, last_point_ts_utc,
+                    min_latitude, max_latitude, min_longitude, max_longitude
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "session",
+                    row["session_id"],
+                    row["total_points"],
+                    row["first_point_ts_utc"],
+                    row["last_point_ts_utc"],
+                    row["min_latitude"],
+                    row["max_latitude"],
+                    row["min_longitude"],
+                    row["max_longitude"],
+                ),
+            )
+
+    def _rebuild_global_rollup(self, connection: sqlite3.Connection) -> None:
+        row = connection.execute(
+            """
+            SELECT
+                COUNT(*) AS total_points,
+                MIN(point_timestamp_utc) AS first_point_ts_utc,
+                MAX(point_timestamp_utc) AS last_point_ts_utc,
+                MIN(latitude) AS min_latitude,
+                MAX(latitude) AS max_latitude,
+                MIN(longitude) AS min_longitude,
+                MAX(longitude) AS max_longitude
+            FROM gps_points
+            """
+        ).fetchone()
+        if not row or not int(row["total_points"] or 0):
+            connection.execute(
+                "DELETE FROM point_rollups WHERE scope_type = 'global' AND scope_key = '__global__'"
+            )
+            return
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO point_rollups(
+                scope_type, scope_key, total_points,
+                first_point_ts_utc, last_point_ts_utc,
+                min_latitude, max_latitude, min_longitude, max_longitude
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "global",
+                "__global__",
+                row["total_points"],
+                row["first_point_ts_utc"],
+                row["last_point_ts_utc"],
+                row["min_latitude"],
+                row["max_latitude"],
+                row["min_longitude"],
+                row["max_longitude"],
+            ),
+        )
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
         self._require_ready()
@@ -1747,6 +1942,19 @@ class ReceiverStorage:
                 point_timestamp_local TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS point_rollups (
+                scope_type TEXT NOT NULL,
+                scope_key TEXT NOT NULL,
+                total_points INTEGER NOT NULL DEFAULT 0,
+                first_point_ts_utc TEXT,
+                last_point_ts_utc TEXT,
+                min_latitude REAL,
+                max_latitude REAL,
+                min_longitude REAL,
+                max_longitude REAL,
+                PRIMARY KEY (scope_type, scope_key)
+            );
+
             CREATE VIRTUAL TABLE IF NOT EXISTS gps_points_rtree USING rtree(
                 id,
                 min_lon, max_lon,
@@ -1814,6 +2022,16 @@ class ReceiverStorage:
             connection.execute(
                 "INSERT OR REPLACE INTO schema_metadata(key, value) VALUES(?, ?)",
                 ("gps_points_rtree_ready_v1", "1"),
+            )
+        rollups_ready = connection.execute(
+            "SELECT value FROM schema_metadata WHERE key = ?",
+            ("point_rollups_ready_v1",),
+        ).fetchone()
+        if not rollups_ready:
+            self._rebuild_point_rollups(connection)
+            connection.execute(
+                "INSERT OR REPLACE INTO schema_metadata(key, value) VALUES(?, ?)",
+                ("point_rollups_ready_v1", "1"),
             )
 
     def _maybe_import_legacy_ndjson(self, connection: sqlite3.Connection) -> None:

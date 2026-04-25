@@ -16,6 +16,7 @@ from app.main import (
     _HEATMAP_LAYER_CACHE,
     _TRACK_CONTEXT_CACHE,
     _TRACK_LAYER_CACHE,
+    _prepare_map_delta_payload,
     _prepare_map_payload,
     _resolve_heatmap_layer,
     _resolve_track_context,
@@ -597,7 +598,7 @@ def test_map_data_returns_delta_payload_for_newer_viewport_points(tmp_path: Path
     assert len(payload["delta"]["appendPoints"]) == 1
     assert len(payload["delta"]["appendLogItems"]) == 1
     assert "replaceHeatmap" in payload["delta"]
-    assert "replaceSpeed" not in payload["delta"]
+    assert "appendSpeed" not in payload["delta"]
 
 
 def test_timeline_preview_returns_lightweight_layers(tmp_path: Path) -> None:
@@ -620,6 +621,56 @@ def test_timeline_preview_returns_lightweight_layers(tmp_path: Path) -> None:
     assert payload["layers"]["stops"] == []
     assert payload["layers"]["daytracks"] == []
     assert payload["layers"]["snap"] == []
+
+
+def test_prepare_map_delta_payload_supports_incremental_context_layers() -> None:
+    current_viewport = [
+        {
+            "id": 2,
+            "point_timestamp_utc": "2026-04-23T12:01:00+00:00",
+            "point_timestamp_local": "2026-04-23 12:01:00 UTC",
+            "latitude": 52.5205,
+            "longitude": 13.4055,
+            "horizontal_accuracy_m": 8.0,
+            "source": "test",
+            "capture_mode": "live",
+            "request_id": "req-2",
+        }
+    ]
+    new_viewport = [current_viewport[0]]
+    payload = _prepare_map_delta_payload(
+        current_viewport,
+        new_viewport,
+        current_viewport,
+        heatmap_entries=[],
+        polyline_entries=[],
+        delta_polyline_entries=[{"coords": [[52.5205, 13.4055], [52.5207, 13.4057]], "color": "#0A84FF", "pointsCount": 2, "startLabel": "", "endLabel": "", "startPoint": [52.5205, 13.4055], "endPoint": [52.5207, 13.4057]}],
+        speed_entries=[],
+        delta_speed_entries=[{"coords": [[52.5205, 13.4055], [52.5207, 13.4057]], "kmh": 12.0, "color": "#0A84FF"}],
+        stop_entries=[],
+        delta_stop_entries=[{"lat": 52.5206, "lon": 13.4056, "radius": 100, "durationMin": 5, "startLabel": "12:00", "endLabel": "12:05", "pointsCount": 3}],
+        daytrack_entries=[],
+        delta_daytrack_entries=[{"day": "2026-04-23", "color": "#0A84FF", "labelPoint": [52.5205, 13.4055], "segments": [[[52.5205, 13.4055], [52.5207, 13.4057]]], "pointsCount": 2}],
+        snap_entries=[],
+        delta_snap_entries=[{"coords": [[52.5205, 13.4055], [52.5207, 13.4057]]}],
+        total_points=1,
+        visible_points=1,
+        segment_count=1,
+        log_limit=10,
+        include_points=True,
+        include_heatmap=False,
+        include_accuracy=False,
+        include_speed=True,
+        include_stops=True,
+        include_daytrack=True,
+        include_snap=True,
+    )
+
+    assert "appendPolylines" in payload["delta"]
+    assert "appendSpeed" in payload["delta"]
+    assert "appendStops" in payload["delta"]
+    assert "appendDaytracks" in payload["delta"]
+    assert "appendSnap" in payload["delta"]
 
 
 def test_prepare_map_payload_keeps_viewport_layers_separate_from_buffered_geometry() -> None:
