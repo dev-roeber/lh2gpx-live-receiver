@@ -1101,6 +1101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 return Response(status_code=304, headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache", "X-Map-Cache": "hit"})
         else:
             storage = _storage(request)
+            delta_mode = False
             if latest_known_ts:
                 latest_check_started_at = time.perf_counter()
                 latest_visible_ts = storage.latest_point_timestamp(filters, bbox=viewport_bbox, spatial_zoom_hint=effective_zoom)
@@ -1120,12 +1121,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             "Server-Timing": f"latest_check;dur={latest_check_duration_ms:.2f}, total;dur={total_duration_ms:.2f}",
                         },
                     )
+                delta_mode = True # It might be delta mode if we have new points
             
             if viewport_bbox:
                 counts_started_at = time.perf_counter()
                 total_points = storage.count_points(filters)
-                viewport_items = storage.list_points_in_bbox(filters, bbox=viewport_bbox, spatial_zoom_hint=effective_zoom)
-                visible_points = len(viewport_items)
+                visible_points = storage.count_points(filters, bbox=viewport_bbox, spatial_zoom_hint=effective_zoom)
+                
+                # OPTIMIZATION: Use sampled listing if we are not in delta mode and have many points.
+                if not delta_mode and include_points:
+                    target_limit = _target_point_limit(effective_zoom, visible_points)
+                    viewport_items = storage.list_points_in_bbox_sampled(
+                        filters, 
+                        bbox=viewport_bbox, 
+                        target_limit=target_limit,
+                        spatial_zoom_hint=effective_zoom
+                    )
+                else:
+                    viewport_items = storage.list_points_in_bbox(filters, bbox=viewport_bbox, spatial_zoom_hint=effective_zoom)
+                
                 counts_duration_ms = round((time.perf_counter() - counts_started_at) * 1000, 2)
             else:
                 counts_started_at = time.perf_counter()
@@ -1141,12 +1155,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             delta_stop_entries: list[dict[str, Any]] = []
             delta_daytrack_entries: list[dict[str, Any]] = []
             delta_snap_entries: list[dict[str, Any]] = []
-            delta_mode = False
+            # delta_mode = False  <-- Removed this redundant assignment
             latest_visible_ts = viewport_items[0]["point_timestamp_utc"] if viewport_items else None
             if latest_known_ts:
                 latest_known_dt = _parse_iso_timestamp(latest_known_ts)
                 if latest_known_dt:
-                    delta_mode = True
+                    # delta_mode = True <-- Already handled above
                     map_mode = "delta"
                     normalized_since = latest_known_dt.astimezone(timezone.utc).isoformat()
                     delta_viewport_items = storage.list_points_since(
@@ -1158,7 +1172,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             heatmap_entries = []
             if include_heatmap:
                 heatmap_started_at = time.perf_counter()
-                heatmap_entries = _aggregate_heatmap(viewport_items, zoom=effective_zoom)
+                # OPTIMIZATION: Use cached heatmap layer
+                heatmap_entries = _resolve_heatmap_layer(storage, filters, bbox=viewport_bbox, zoom=effective_zoom)
                 heatmap_duration_ms = round((time.perf_counter() - heatmap_started_at) * 1000, 2)
             track_layers = {
                 "polylines": [],

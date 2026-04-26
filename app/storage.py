@@ -1080,6 +1080,65 @@ class ReceiverStorage:
             rows = connection.execute(query, parameters).fetchall()
         return [dict(row) for row in rows]
 
+    def list_points_in_bbox_sampled(
+        self,
+        filters: PointFilters,
+        *,
+        bbox: tuple[float, float, float, float],
+        target_limit: int = 2000,
+        spatial_zoom_hint: int | None = None,
+    ) -> list[dict[str, Any]]:
+        self._require_ready()
+        total_in_bbox = self.count_points(filters, bbox=bbox, spatial_zoom_hint=spatial_zoom_hint)
+        if total_in_bbox <= target_limit:
+            return self.list_points_in_bbox(filters, bbox=bbox, spatial_zoom_hint=spatial_zoom_hint)
+
+        stride = max(1, total_in_bbox // target_limit)
+        where_clause, parameters = _build_shared_filters(
+            date_from=filters.date_from,
+            date_to=filters.date_to,
+            time_from=filters.time_from,
+            time_to=filters.time_to,
+            session_id=filters.session_id,
+            capture_mode=filters.capture_mode,
+            source=filters.source,
+            search=filters.search,
+            time_column="point_timestamp_utc",
+            local_date_column="point_date_local",
+            local_time_column="point_time_local",
+        )
+        where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox, spatial_zoom_hint=spatial_zoom_hint)
+        
+        # Sampling logic using row_number() window function
+        query = f"""
+            SELECT * FROM (
+                SELECT
+                    id,
+                    request_id,
+                    received_at_utc,
+                    sent_at_utc,
+                    point_timestamp_utc,
+                    point_timestamp_local,
+                    point_date_local,
+                    point_time_local,
+                    latitude,
+                    longitude,
+                    horizontal_accuracy_m,
+                    session_id,
+                    source,
+                    capture_mode,
+                    row_number() OVER (ORDER BY point_timestamp_utc DESC, id DESC) as rn
+                FROM gps_points
+                {where_clause}
+            ) WHERE rn % ? = 0 OR rn = 1 OR rn = ?
+            ORDER BY point_timestamp_utc DESC, id DESC
+        """
+        parameters.extend([stride, total_in_bbox])
+        
+        with self._connect() as connection:
+            rows = connection.execute(query, parameters).fetchall()
+        return [dict(row) for row in rows]
+
     def list_timeline_points(
         self,
         filters: PointFilters,

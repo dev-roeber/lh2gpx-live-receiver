@@ -602,6 +602,10 @@
       db.version(1).stores({
         points: 'id, timestampUtc, sessionId'
       });
+      // Version 2 mit zusammengesetztem Index für schnellere Filterung
+      db.version(2).stores({
+        points: 'id, timestampUtc, sessionId, [sessionId+timestampUtc]'
+      });
       localMirrorAvailable = true;
     }
   } catch (error) {
@@ -622,7 +626,7 @@
         timestampLocal: p.timestampLocal,
         accuracyM: p.accuracyM,
         source: p.source,
-        sessionId: p.session_id
+        sessionId: p.session_id || p.sessionId
       }));
       await db.points.bulkPut(toSave);
     } catch (error) {
@@ -632,23 +636,38 @@
 
   async function getLocalPoints(filters) {
     if (!localMirrorAvailable || !db) return [];
-    let items = await db.points.toArray();
-    if (filters.date_from) items = items.filter(item => String(item.timestampUtc || '') >= filters.date_from);
-    if (filters.date_to) items = items.filter(item => String(item.timestampUtc || '') <= filters.date_to);
-    if (filters.session_id) items = items.filter(item => item.sessionId === filters.session_id);
-    if (filters.bbox) {
-      const parts = String(filters.bbox).split(',').map(Number);
-      if (parts.length === 4 && parts.every(Number.isFinite)) {
-        const [minLon, minLat, maxLon, maxLat] = parts;
-        items = items.filter(item =>
-          Number(item.lon) >= minLon &&
-          Number(item.lon) <= maxLon &&
-          Number(item.lat) >= minLat &&
-          Number(item.lat) <= maxLat
-        );
+    try {
+      let collection;
+      if (filters.session_id && filters.date_from) {
+        collection = db.points.where('[sessionId+timestampUtc]').between([filters.session_id, filters.date_from], [filters.session_id, '\uffff']);
+      } else if (filters.session_id) {
+        collection = db.points.where('sessionId').equals(filters.session_id);
+      } else if (filters.date_from) {
+        collection = db.points.where('timestampUtc').aboveOrEqual(filters.date_from);
+      } else {
+        collection = db.points.toCollection();
       }
+
+      let items = await collection.reverse().limit(10000).toArray();
+
+      if (filters.date_to) items = items.filter(item => String(item.timestampUtc || '') <= filters.date_to);
+      if (filters.bbox) {
+        const parts = String(filters.bbox).split(',').map(Number);
+        if (parts.length === 4 && parts.every(Number.isFinite)) {
+          const [minLon, minLat, maxLon, maxLat] = parts;
+          items = items.filter(item =>
+            Number(item.lon) >= minLon &&
+            Number(item.lon) <= maxLon &&
+            Number(item.lat) >= minLat &&
+            Number(item.lat) <= maxLat
+          );
+        }
+      }
+      return items.sort((a, b) => String(b.timestampUtc || '').localeCompare(String(a.timestampUtc || '')));
+    } catch (error) {
+      console.warn('Fehler beim Abrufen lokaler Daten:', error);
+      return [];
     }
-    return items.sort((a, b) => String(b.timestampUtc || '').localeCompare(String(a.timestampUtc || '')));
   }
 
   let POLLING_INTERVAL = parseInt(storageGet('map-polling-interval'), 10) || 30000;
@@ -674,9 +693,58 @@
   let barTickTimer = null;
   let lastRefreshTime = null;
   let nextRefreshTime = null;
+  let lastFetchedBbox = null;
+  let lastFetchedZoom = null;
   let isManualRefresh = false;
   let mapUpdateInFlight = false;
   let pendingMapRefresh = false;
+
+  const layerDataLoaded = {
+    heatmap: false,
+    points: false,
+    polyline: false,
+    accuracy: false,
+    labels: false,
+    speed: false,
+    stops: false,
+    daytrack: false,
+    snap: false
+  };
+
+  function updateLayerVisibility(layerKey, active) {
+    if (!map) return;
+    const layerMappings = {
+      heatmap: ['layer-heatmap'],
+      points: ['layer-points', 'layer-points-clusters', 'layer-points-cluster-count', 'layer-latest'],
+      polyline: ['layer-lines-casing', 'layer-lines', 'layer-line-labels'],
+      accuracy: ['layer-accuracy-fill', 'layer-accuracy'],
+      labels: [], // Labels are part of polyline layer for now or handled elsewhere
+      speed: ['layer-speed'],
+      stops: ['layer-stops', 'layer-stops-labels'],
+      daytrack: ['layer-daytracks'],
+      snap: ['layer-snap']
+    };
+    const ids = layerMappings[layerKey] || [];
+    ids.forEach(id => {
+      if (map.getLayer(id)) {
+        map.setLayoutProperty(id, 'visibility', active ? 'visible' : 'none');
+      }
+    });
+  }
+
+  function isShiftSignificant(newBbox, newZoom) {
+    if (!lastFetchedBbox || lastFetchedZoom === null) return true;
+    if (Math.abs(newZoom - lastFetchedZoom) > 0.7) return true;
+
+    const b1 = lastFetchedBbox.split(',').map(Number);
+    const b2 = newBbox.split(',').map(Number);
+    const w1 = Math.abs(b1[2] - b1[0]);
+    const h1 = Math.abs(b1[3] - b1[1]);
+    const dx = Math.abs(b1[0] - b2[0]);
+    const dy = Math.abs(b1[1] - b2[1]);
+
+    return dx > w1 * 0.25 || dy > h1 * 0.25;
+  }
   let suppressedViewportRefreshes = 0;
   let currentLogItems = [];
   let lastMapPayload = null;
@@ -1421,6 +1489,17 @@
     clearRenderedLayers();
     renderProcessingStatus(data.processing || null);
     const layers = data.layers || {};
+    
+    // Track which layers were actually provided with data
+    layerDataLoaded.heatmap = !!(layers.heatmap && layers.heatmap.length);
+    layerDataLoaded.points = !!(layers.points && layers.points.length);
+    layerDataLoaded.polyline = !!(layers.polylines && layers.polylines.length);
+    layerDataLoaded.accuracy = !!(layers.accuracy && layers.accuracy.length);
+    layerDataLoaded.speed = !!(layers.speed && layers.speed.length);
+    layerDataLoaded.stops = !!(layers.stops && layers.stops.length);
+    layerDataLoaded.daytrack = !!(layers.daytracks && layers.daytracks.length);
+    layerDataLoaded.snap = !!(layers.snap && layers.snap.length);
+
     runLayerStage('Heatmap', () => renderHeatmap(layers.heatmap || []));
     runLayerStage('Punkte', () => renderPoints(layers.points || [], layers.latestPoint || null));
     runLayerStage('Linien', () => renderPolylines(layers.polylines || []));
@@ -1429,6 +1508,17 @@
     runLayerStage('Stops', () => renderStops(layers.stops || []));
     runLayerStage('Tage', () => renderDaytracks(layers.daytracks || []));
     runLayerStage('Snap', () => renderSnap(layers.snap || []));
+    
+    // Ensure visibility matches toggles (in case we did a full refresh)
+    updateLayerVisibility('heatmap', heatmapActive);
+    updateLayerVisibility('points', pointsActive);
+    updateLayerVisibility('polyline', polylineActive);
+    updateLayerVisibility('accuracy', accuracyActive);
+    updateLayerVisibility('speed', speedActive);
+    updateLayerVisibility('stops', stopsActive);
+    updateLayerVisibility('daytrack', daytrackActive);
+    updateLayerVisibility('snap', snapActive);
+
     if (!options.skipFocus) applyMapFocus(layers);
     if (!options.skipTimeline) updateTimeline(layers.points || []);
   }
@@ -2144,6 +2234,14 @@
     const apiStatus = document.getElementById('api-status');
     const params = buildCurrentFilters();
     const baseQuery = params.toString();
+    const currentBbox = getViewportBbox();
+    const currentZoom = map ? map.getZoom() : 0;
+
+    // OPTIMIZATION: Check if shift is significant
+    if (!isManualRefresh && lastMapPayload && !isShiftSignificant(currentBbox, currentZoom) && lastMapBaseQueryKey === baseQuery) {
+        console.log('Skipping map update: shift not significant');
+        return;
+    }
 
     // Lokale Daten abrufen für sofortige Anzeige (nur wenn kein Delta-Mode oder beim ersten Laden)
     if (!lastMapPayload) {
@@ -2236,6 +2334,8 @@
       setLoadingDetail(formatServerTimingDetail(serverTiming));
       lastMapBaseQueryKey = baseQuery;
       lastVisiblePointTsUtc = payload && payload.meta ? payload.meta.latestVisiblePointTsUtc || null : null;
+      lastFetchedBbox = currentBbox;
+      lastFetchedZoom = currentZoom;
       isManualRefresh = false;
       lastRefreshTime = Date.now();
       nextRefreshTime = Date.now() + POLLING_INTERVAL;
@@ -3009,9 +3109,17 @@
     map.on('load', () => {
       // Sources initialisieren
       Object.keys(SOURCE_IDS).map(key => SOURCE_IDS[key]).forEach(id => {
-        map.addSource(id, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        const sourceOptions = { type: 'geojson', data: { type: 'FeatureCollection', features: [] } };
+        // OPTIMIZATION: Enable clustering for the points layer
+        if (id === SOURCE_IDS.POINTS) {
+          Object.assign(sourceOptions, {
+            cluster: true,
+            clusterMaxZoom: 13,
+            clusterRadius: 50
+          });
+        }
+        map.addSource(id, sourceOptions);
       });
-
       // Layer initialisieren (Reihenfolge ist wichtig für Z-Index)
       setupMapLayers();
       forceMapResize();
@@ -3139,7 +3247,30 @@
     // Points
     map.addLayer({
       id: 'layer-points', type: 'circle', source: SOURCE_IDS.POINTS,
+      filter: ['!', ['has', 'point_count']],
       paint: { 'circle-radius': 4, 'circle-color': '#0A84FF', 'circle-stroke-width': 1, 'circle-stroke-color': '#fff', 'circle-opacity': 0.8 }
+    });
+
+    // OPTIMIZATION: Cluster Layer
+    map.addLayer({
+      id: 'layer-points-clusters', type: 'circle', source: SOURCE_IDS.POINTS,
+      filter: ['has', 'point_count'],
+      paint: {
+        'circle-color': ['step', ['get', 'point_count'], '#51bbd6', 100, '#f1f075', 750, '#f28cb1'],
+        'circle-radius': ['step', ['get', 'point_count'], 15, 100, 20, 750, 25],
+        'circle-stroke-width': 1, 'circle-stroke-color': '#fff'
+      }
+    });
+
+    map.addLayer({
+      id: 'layer-points-cluster-count', type: 'symbol', source: SOURCE_IDS.POINTS,
+      filter: ['has', 'point_count'],
+      layout: {
+        'text-field': '{point_count_abbreviated}',
+        'text-font': ['Open Sans Semibold', 'Arial Unicode MS Regular'],
+        'text-size': 12
+      },
+      paint: { 'text-color': '#ffffff' }
     });
 
     // Latest Point
@@ -3323,20 +3454,21 @@
     if (event.target.checked) document.getElementById('fit-bounds-toggle').checked = false;
   };
 
-  document.getElementById('heatmap-toggle').onchange = (event) => { heatmapActive = event.target.checked; updateLegend(); debouncedMapRefresh(); };
-  document.getElementById('points-toggle').onchange = (event) => { pointsActive = event.target.checked; updateLegend(); debouncedMapRefresh(); };
-  document.getElementById('polyline-toggle').onchange = (event) => { polylineActive = event.target.checked; updateLegend(); debouncedMapRefresh(); };
-  document.getElementById('accuracy-toggle').onchange = (event) => { accuracyActive = event.target.checked; updateLegend(); debouncedMapRefresh(); };
-  document.getElementById('labels-toggle').onchange = (event) => { labelsActive = event.target.checked; updateLegend(); debouncedMapRefresh(); };
-  document.getElementById('speed-toggle').onchange = (event) => { speedActive = event.target.checked; updateLegend(); debouncedMapRefresh(); };
+  document.getElementById('heatmap-toggle').onchange = (event) => { heatmapActive = event.target.checked; updateLegend(); if (heatmapActive && !layerDataLoaded.heatmap) debouncedMapRefresh(); else updateLayerVisibility('heatmap', heatmapActive); };
+  document.getElementById('points-toggle').onchange = (event) => { pointsActive = event.target.checked; updateLegend(); if (pointsActive && !layerDataLoaded.points) debouncedMapRefresh(); else updateLayerVisibility('points', pointsActive); };
+  document.getElementById('polyline-toggle').onchange = (event) => { polylineActive = event.target.checked; updateLegend(); if (polylineActive && !layerDataLoaded.polyline) debouncedMapRefresh(); else updateLayerVisibility('polyline', polylineActive); };
+  document.getElementById('accuracy-toggle').onchange = (event) => { accuracyActive = event.target.checked; updateLegend(); if (accuracyActive && !layerDataLoaded.accuracy) debouncedMapRefresh(); else updateLayerVisibility('accuracy', accuracyActive); };
+  document.getElementById('labels-toggle').onchange = (event) => { labelsActive = event.target.checked; updateLegend(); if (labelsActive && !layerDataLoaded.polyline) debouncedMapRefresh(); else updateLayerVisibility('polyline', polylineActive); };
+  document.getElementById('speed-toggle').onchange = (event) => { speedActive = event.target.checked; updateLegend(); if (speedActive && !layerDataLoaded.speed) debouncedMapRefresh(); else updateLayerVisibility('speed', speedActive); };
   document.getElementById('stops-toggle').onchange = (event) => {
     stopsActive = event.target.checked;
     document.getElementById('stops-config').style.display = stopsActive ? '' : 'none';
     updateLegend();
-    debouncedMapRefresh();
+    if (stopsActive && !layerDataLoaded.stops) debouncedMapRefresh();
+    else updateLayerVisibility('stops', stopsActive);
   };
-  document.getElementById('daytrack-toggle').onchange = (event) => { daytrackActive = event.target.checked; updateLegend(); debouncedMapRefresh(); };
-  document.getElementById('snap-toggle').onchange = (event) => { snapActive = event.target.checked; updateLegend(); debouncedMapRefresh(); };
+  document.getElementById('daytrack-toggle').onchange = (event) => { daytrackActive = event.target.checked; updateLegend(); if (daytrackActive && !layerDataLoaded.daytrack) debouncedMapRefresh(); else updateLayerVisibility('daytrack', daytrackActive); };
+  document.getElementById('snap-toggle').onchange = (event) => { snapActive = event.target.checked; updateLegend(); if (snapActive && !layerDataLoaded.snap) debouncedMapRefresh(); else updateLayerVisibility('snap', snapActive); };
 
   document.getElementById('session-filter-toggle').onchange = (event) => {
     setDropdown('session-select-dropdown', event.target.checked);
