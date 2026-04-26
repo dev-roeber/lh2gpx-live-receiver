@@ -1121,33 +1121,54 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             "Server-Timing": f"latest_check;dur={latest_check_duration_ms:.2f}, total;dur={total_duration_ms:.2f}",
                         },
                     )
-                delta_mode = True # It might be delta mode if we have new points
+                delta_mode = True  # It might be delta mode if we have new points
+
+            viewport_items = []
+            visible_points = 0
+            total_points = 0
+            latest_visible_ts = None
+            used_sampled_viewport_items = False
+            loaded_layers = []
+            needs_track_context = include_polyline or include_labels or include_speed or include_stops or include_daytrack or include_snap
+            needs_log_points = bool(log_limit and log_limit > 0) and not include_heatmap and not needs_track_context
+            needs_viewport_points = include_points or include_accuracy or needs_log_points
             
             if viewport_bbox:
                 counts_started_at = time.perf_counter()
                 total_points = storage.count_points(filters)
                 visible_points = storage.count_points(filters, bbox=viewport_bbox, spatial_zoom_hint=effective_zoom)
                 
-                # OPTIMIZATION: Use sampled listing if we are not in delta mode and have many points.
-                if not delta_mode and include_points:
+                if needs_viewport_points:
+                    # OPTIMIZATION: Use sampled listing if we have many points.
+                    # This now also allowed in delta_mode for the BASE points.
                     target_limit = _target_point_limit(effective_zoom, visible_points)
-                    viewport_items = storage.list_points_in_bbox_sampled(
-                        filters, 
-                        bbox=viewport_bbox, 
-                        target_limit=target_limit,
-                        spatial_zoom_hint=effective_zoom
-                    )
-                else:
-                    viewport_items = storage.list_points_in_bbox(filters, bbox=viewport_bbox, spatial_zoom_hint=effective_zoom)
+                    if visible_points > target_limit:
+                        viewport_items = storage.list_points_in_bbox_sampled(
+                            filters, 
+                            bbox=viewport_bbox, 
+                            target_limit=target_limit,
+                            spatial_zoom_hint=effective_zoom
+                        )
+                        used_sampled_viewport_items = True
+                    else:
+                        viewport_items = storage.list_points_in_bbox(filters, bbox=viewport_bbox, spatial_zoom_hint=effective_zoom)
                 
                 counts_duration_ms = round((time.perf_counter() - counts_started_at) * 1000, 2)
             else:
                 counts_started_at = time.perf_counter()
-                listed = storage.list_points(filters)
-                total_points = listed["total"]
-                visible_points = len(listed["items"])
-                viewport_items = listed["items"]
+                if needs_viewport_points:
+                    listed = storage.list_points(filters)
+                    total_points = listed["total"]
+                    visible_points = len(listed["items"])
+                    viewport_items = listed["items"]
+                else:
+                    total_points = storage.count_points(filters)
+                    visible_points = total_points
                 counts_duration_ms = round((time.perf_counter() - counts_started_at) * 1000, 2)
+
+            if include_points: loaded_layers.append("points")
+            if include_accuracy: loaded_layers.append("accuracy")
+
             buffered_items = viewport_items
             delta_viewport_items = []
             delta_polyline_entries: list[dict[str, Any]] = []
@@ -1155,14 +1176,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             delta_stop_entries: list[dict[str, Any]] = []
             delta_daytrack_entries: list[dict[str, Any]] = []
             delta_snap_entries: list[dict[str, Any]] = []
-            # delta_mode = False  <-- Removed this redundant assignment
-            latest_visible_ts = viewport_items[0]["point_timestamp_utc"] if viewport_items else None
+
+            if viewport_items:
+                latest_visible_ts = viewport_items[0]["point_timestamp_utc"]
             if latest_known_ts:
                 latest_known_dt = _parse_iso_timestamp(latest_known_ts)
                 if latest_known_dt:
-                    # delta_mode = True <-- Already handled above
                     map_mode = "delta"
                     normalized_since = latest_known_dt.astimezone(timezone.utc).isoformat()
+                    # Delta items are ALWAYS loaded fully (not sampled)
                     delta_viewport_items = storage.list_points_since(
                         filters,
                         since_utc=normalized_since,
@@ -1173,8 +1195,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if include_heatmap:
                 heatmap_started_at = time.perf_counter()
                 # OPTIMIZATION: Use cached heatmap layer
-                heatmap_entries = _resolve_heatmap_layer(storage, filters, bbox=viewport_bbox, zoom=effective_zoom)
+                # CRITICAL FIX: Ensure bucketed_bbox is defined before calling _resolve_heatmap_layer
+                bucketed_bbox = _bucket_bbox_for_zoom(viewport_bbox, zoom=effective_zoom)
+                heatmap_entries = _resolve_heatmap_layer(storage, filters, bbox=bucketed_bbox or viewport_bbox, zoom=effective_zoom)
                 heatmap_duration_ms = round((time.perf_counter() - heatmap_started_at) * 1000, 2)
+                loaded_layers.append("heatmap")
+
             track_layers = {
                 "polylines": [],
                 "speed": [],
@@ -1184,12 +1210,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "context_points_desc": viewport_items,
                 "segment_count": 0,
             }
-            needs_track_context = include_polyline or include_labels or include_speed or include_stops or include_daytrack or include_snap
             defer_expensive_track_layers = delta_mode and len(delta_viewport_items) <= 24
             if needs_track_context:
+                # CRITICAL FIX: Only use viewport_items as preloaded if they were NOT sampled.
                 preloaded_track_points = None
-                if not viewport_bbox or padded_bbox == viewport_bbox:
-                    preloaded_track_points = viewport_items
+                if not used_sampled_viewport_items:
+                    if not viewport_bbox or padded_bbox == viewport_bbox:
+                        preloaded_track_points = viewport_items
+                
                 track_context_started_at = time.perf_counter()
                 track_context = await asyncio.to_thread(
                     _resolve_track_context,
@@ -1217,6 +1245,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     route_time_gap_min=route_time_gap_min,
                     include_snap=include_snap and not delta_mode,
                 )
+                if include_polyline: loaded_layers.append("polyline")
+                if include_labels: loaded_layers.append("labels")
+                if include_speed and not defer_expensive_track_layers: loaded_layers.append("speed")
+                if include_stops and not defer_expensive_track_layers: loaded_layers.append("stops")
+                if include_daytrack and not defer_expensive_track_layers: loaded_layers.append("daytrack")
+                if include_snap and not delta_mode: loaded_layers.append("snap")
                 if not viewport_bbox and filters.session_id:
                     if include_stops:
                         precomputed_stops = storage.list_precomputed_session_stops(
@@ -1237,7 +1271,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 track_layers_duration_ms = round((time.perf_counter() - track_layers_started_at) * 1000, 2)
                 buffered_items = track_layers["context_points_desc"]
                 if delta_mode and delta_viewport_items:
-                    delta_context_points_asc = _build_delta_context_points_asc(viewport_items, delta_viewport_items)
+                    delta_anchor_points_desc = track_layers["context_points_desc"] if used_sampled_viewport_items else viewport_items
+                    delta_context_points_asc = _build_delta_context_points_asc(delta_anchor_points_desc, delta_viewport_items)
                     if delta_context_points_asc:
                         delta_segments = _segment_track(
                             delta_context_points_asc,
@@ -1295,6 +1330,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     include_stops=include_stops and not defer_expensive_track_layers,
                     include_daytrack=include_daytrack and not defer_expensive_track_layers,
                     include_snap=include_snap,
+                    loaded_layers=loaded_layers,
                 )
                 payload_duration_ms = round((time.perf_counter() - payload_started_at) * 1000, 2)
             else:
@@ -1317,6 +1353,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     include_points=include_points,
                     include_heatmap=include_heatmap,
                     include_accuracy=include_accuracy,
+                    loaded_layers=loaded_layers,
                 )
                 payload_duration_ms = round((time.perf_counter() - payload_started_at) * 1000, 2)
             if viewport_bbox:
@@ -2008,10 +2045,17 @@ def _prepare_map_payload(
     include_points: bool,
     include_heatmap: bool,
     include_accuracy: bool,
+    loaded_layers: list[str] | None = None,
 ) -> dict[str, Any]:
     if not buffered_points_desc:
         return {
-            "meta": {"totalPoints": total_points, "visiblePoints": visible_points, "loadedPoints": 0, "serverPrepared": True},
+            "meta": {
+                "totalPoints": total_points, 
+                "visiblePoints": visible_points, 
+                "loadedPoints": 0, 
+                "serverPrepared": True,
+                "loadedLayers": loaded_layers or [],
+            },
             "stats": {"pointsPerMinute": 0, "avgAccuracyM": None, "sessionDurationSeconds": 0},
             "layers": {
                 "points": [],
@@ -2040,6 +2084,7 @@ def _prepare_map_payload(
             "loadedPoints": len(buffered_points_desc),
             "serverPrepared": True,
             "segmentCount": segment_count,
+            "loadedLayers": loaded_layers or [],
         },
         "stats": {
             "pointsPerMinute": _points_per_minute(stats_points_desc),
@@ -2116,6 +2161,7 @@ def _prepare_map_delta_payload(
     include_stops: bool,
     include_daytrack: bool,
     include_snap: bool,
+    loaded_layers: list[str] | None = None,
 ) -> dict[str, Any]:
     stats_points_desc = current_viewport_points_desc or buffered_points_desc
     latest = stats_points_desc[0] if stats_points_desc else None
@@ -2134,6 +2180,7 @@ def _prepare_map_delta_payload(
             "segmentCount": segment_count,
             "deltaMode": True,
             "latestVisiblePointTsUtc": latest["point_timestamp_utc"] if latest else None,
+            "loadedLayers": loaded_layers or [],
         },
         "stats": {
             "pointsPerMinute": _points_per_minute(stats_points_desc) if stats_points_desc else 0,
@@ -2188,9 +2235,11 @@ def _build_delta_context_points_asc(
 ) -> list[dict[str, Any]]:
     if not new_viewport_points_desc:
         return []
-    old_anchor = None
-    if len(current_viewport_points_desc) > len(new_viewport_points_desc):
-        old_anchor = current_viewport_points_desc[len(new_viewport_points_desc)]
+    new_ids = {int(point["id"]) for point in new_viewport_points_desc}
+    old_anchor = next(
+        (point for point in current_viewport_points_desc if int(point["id"]) not in new_ids),
+        None,
+    )
     points_asc = list(reversed(new_viewport_points_desc))
     if old_anchor is not None:
         points_asc = [old_anchor, *points_asc]
@@ -2603,7 +2652,8 @@ def _resolve_heatmap_layer(
         return cached[1]
 
     now = time.time()
-    rows = storage.list_heatmap_points(filters, bbox=bbox, spatial_zoom_hint=zoom)
+    # CRITICAL FIX: Use bucketed_bbox for querying storage to match cache key precisely
+    rows = storage.list_heatmap_points(filters, bbox=bucketed_bbox or bbox, spatial_zoom_hint=zoom)
     result = _aggregate_heatmap(rows, zoom=zoom)
     _cache_put(_HEATMAP_LAYER_CACHE, cache_key, (now, result), ttl=_HEATMAP_LAYER_CACHE_TTL, max_items=_LAYER_CACHE_MAX)
     return result

@@ -21,6 +21,8 @@ RUN chmod +x /app/scripts/run-local.sh /app/scripts/smoke-test.sh /app/scripts/c
     && mkdir -p /app/logs \
     && chown -R appuser:appuser /app
 
+USER appuser
+
 EXPOSE 8080
 
 CMD ["./scripts/container-entrypoint.sh"]

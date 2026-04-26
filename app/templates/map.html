@@ -716,9 +716,9 @@
     const layerMappings = {
       heatmap: ['layer-heatmap'],
       points: ['layer-points', 'layer-points-clusters', 'layer-points-cluster-count', 'layer-latest'],
-      polyline: ['layer-lines-casing', 'layer-lines', 'layer-line-labels'],
+      polyline: ['layer-lines-casing', 'layer-lines'],
+      labels: ['layer-line-labels'],
       accuracy: ['layer-accuracy-fill', 'layer-accuracy'],
-      labels: [], // Labels are part of polyline layer for now or handled elsewhere
       speed: ['layer-speed'],
       stops: ['layer-stops', 'layer-stops-labels'],
       daytrack: ['layer-daytracks'],
@@ -1489,16 +1489,16 @@
     clearRenderedLayers();
     renderProcessingStatus(data.processing || null);
     const layers = data.layers || {};
+    const meta = data.meta || {};
     
-    // Track which layers were actually provided with data
-    layerDataLoaded.heatmap = !!(layers.heatmap && layers.heatmap.length);
-    layerDataLoaded.points = !!(layers.points && layers.points.length);
-    layerDataLoaded.polyline = !!(layers.polylines && layers.polylines.length);
-    layerDataLoaded.accuracy = !!(layers.accuracy && layers.accuracy.length);
-    layerDataLoaded.speed = !!(layers.speed && layers.speed.length);
-    layerDataLoaded.stops = !!(layers.stops && layers.stops.length);
-    layerDataLoaded.daytrack = !!(layers.daytracks && layers.daytracks.length);
-    layerDataLoaded.snap = !!(layers.snap && layers.snap.length);
+    // Track which layers were actually provided with data from the backend
+    if (meta.loadedLayers) {
+      meta.loadedLayers.forEach(layer => {
+        if (layerDataLoaded.hasOwnProperty(layer)) {
+          layerDataLoaded[layer] = true;
+        }
+      });
+    }
 
     runLayerStage('Heatmap', () => renderHeatmap(layers.heatmap || []));
     runLayerStage('Punkte', () => renderPoints(layers.points || [], layers.latestPoint || null));
@@ -1509,10 +1509,11 @@
     runLayerStage('Tage', () => renderDaytracks(layers.daytracks || []));
     runLayerStage('Snap', () => renderSnap(layers.snap || []));
     
-    // Ensure visibility matches toggles (in case we did a full refresh)
+    // Ensure visibility matches toggles
     updateLayerVisibility('heatmap', heatmapActive);
     updateLayerVisibility('points', pointsActive);
     updateLayerVisibility('polyline', polylineActive);
+    updateLayerVisibility('labels', labelsActive);
     updateLayerVisibility('accuracy', accuracyActive);
     updateLayerVisibility('speed', speedActive);
     updateLayerVisibility('stops', stopsActive);
@@ -3458,7 +3459,7 @@
   document.getElementById('points-toggle').onchange = (event) => { pointsActive = event.target.checked; updateLegend(); if (pointsActive && !layerDataLoaded.points) debouncedMapRefresh(); else updateLayerVisibility('points', pointsActive); };
   document.getElementById('polyline-toggle').onchange = (event) => { polylineActive = event.target.checked; updateLegend(); if (polylineActive && !layerDataLoaded.polyline) debouncedMapRefresh(); else updateLayerVisibility('polyline', polylineActive); };
   document.getElementById('accuracy-toggle').onchange = (event) => { accuracyActive = event.target.checked; updateLegend(); if (accuracyActive && !layerDataLoaded.accuracy) debouncedMapRefresh(); else updateLayerVisibility('accuracy', accuracyActive); };
-  document.getElementById('labels-toggle').onchange = (event) => { labelsActive = event.target.checked; updateLegend(); if (labelsActive && !layerDataLoaded.polyline) debouncedMapRefresh(); else updateLayerVisibility('polyline', polylineActive); };
+  document.getElementById('labels-toggle').onchange = (event) => { labelsActive = event.target.checked; updateLegend(); if (labelsActive && !layerDataLoaded.labels) debouncedMapRefresh(); else updateLayerVisibility('labels', labelsActive); };
   document.getElementById('speed-toggle').onchange = (event) => { speedActive = event.target.checked; updateLegend(); if (speedActive && !layerDataLoaded.speed) debouncedMapRefresh(); else updateLayerVisibility('speed', speedActive); };
   document.getElementById('stops-toggle').onchange = (event) => {
     stopsActive = event.target.checked;

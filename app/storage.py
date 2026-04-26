@@ -1239,7 +1239,7 @@ class ReceiverStorage:
         *,
         bbox: tuple[float, float, float, float] | None = None,
         spatial_zoom_hint: int | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[list[float]]:
         self._require_ready()
         where_clause, parameters = _build_shared_filters(
             date_from=filters.date_from,
@@ -1257,15 +1257,15 @@ class ReceiverStorage:
         where_clause, parameters = _append_bbox_filter(where_clause, parameters, bbox, spatial_zoom_hint=spatial_zoom_hint)
         query = f"""
             SELECT
-                latitude,
-                longitude,
-                horizontal_accuracy_m
+                latitude, longitude, horizontal_accuracy_m
             FROM gps_points
             {where_clause}
+            ORDER BY point_timestamp_utc DESC, id DESC
         """
         with self._connect() as connection:
             rows = connection.execute(query, parameters).fetchall()
-        return [dict(row) for row in rows]
+        return rows
+
 
     def list_points(self, filters: PointFilters) -> dict[str, Any]:
         self._require_ready()
