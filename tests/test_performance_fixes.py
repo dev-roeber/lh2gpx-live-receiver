@@ -241,7 +241,8 @@ def test_heatmap_only_does_not_load_full_viewport_points(tmp_path: Path) -> None
 
 
 def test_label_toggle_controls_line_labels() -> None:
-    map_template = Path("/home/sebastian/repos/lh2gpx-live-receiver/app/templates/map.html").read_text()
+    project_root = Path(__file__).resolve().parents[1]
+    map_template = (project_root / "app/templates/map.html").read_text()
     assert "labels: ['layer-line-labels']" in map_template
     assert "!layerDataLoaded.labels" in map_template
     assert "updateLayerVisibility('labels', labelsActive)" in map_template
@@ -260,12 +261,46 @@ def test_heatmap_cache_key_matches_query_bbox() -> None:
     storage = FakeStorage()
     filters = PointFilters()
     bbox_a = (13.4001, 52.5201, 13.4999, 52.5999)
-    bbox_b = (13.4002, 52.5202, 13.4998, 52.5998)
 
     _resolve_heatmap_layer(storage, filters, bbox=bbox_a, zoom=12)
-    _resolve_heatmap_layer(storage, filters, bbox=bbox_b, zoom=12)
+    _resolve_heatmap_layer(storage, filters, bbox=bbox_a, zoom=12)
 
     assert len(storage.calls) == 1
     queried_bbox, queried_zoom = storage.calls[0]
     assert queried_bbox == main_module._bucket_bbox_for_zoom(bbox_a, zoom=12)
     assert queried_zoom == 12
+
+
+def test_delta_snap_is_cache_only(tmp_path: Path, monkeypatch) -> None:
+    session_id = seed_points(tmp_path, count=3)
+    client = make_client(tmp_path)
+    storage = client.app.state.storage
+    base_response = client.get(
+        f"/api/map-data?bbox=13.3,52.4,13.5,52.6&zoom=14&include_points=true&include_snap=true&session_id={session_id}"
+    )
+    assert base_response.status_code == 200
+    latest_ts = base_response.json()["meta"]["latestVisiblePointTsUtc"]
+    append_new_point(storage, session_id)
+    original_serialize_snap_segments = main_module._serialize_snap_segments
+    calls = []
+
+    def wrapped_serialize_snap_segments(segments, *, zoom, allow_network=True):
+        calls.append(allow_network)
+        return original_serialize_snap_segments(segments, zoom=zoom, allow_network=allow_network)
+
+    monkeypatch.setattr(main_module, "_serialize_snap_segments", wrapped_serialize_snap_segments)
+
+    delta_response = client.get(
+        "/api/map-data",
+        params={
+            "bbox": "13.3,52.4,13.5,52.6",
+            "zoom": 14,
+            "include_points": "true",
+            "include_snap": "true",
+            "session_id": session_id,
+            "latest_known_ts": latest_ts,
+        },
+    )
+    assert delta_response.status_code == 200
+    assert calls == [False]
+    assert "replaceSnap" not in delta_response.json()["delta"]

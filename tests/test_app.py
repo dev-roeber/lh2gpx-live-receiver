@@ -684,7 +684,7 @@ def test_map_data_returns_delta_payload_for_newer_viewport_points(tmp_path: Path
     assert len(payload["delta"]["appendPoints"]) == 1
     assert len(payload["delta"]["appendLogItems"]) == 1
     assert "replaceHeatmap" in payload["delta"]
-    assert "appendSpeed" not in payload["delta"]
+    assert "appendSpeed" in payload["delta"]
 
 
 def test_prepare_map_delta_payload_supports_partial_context_layers() -> None:

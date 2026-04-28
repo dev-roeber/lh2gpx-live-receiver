@@ -1285,22 +1285,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                 zoom=effective_zoom,
                                 include_labels=include_labels,
                             )
-                        if include_speed and not defer_expensive_track_layers:
+                        if include_speed:
                             delta_speed_entries = _serialize_speed_segments(delta_context_points_asc, zoom=effective_zoom)
-                        if include_stops and not defer_expensive_track_layers:
-                            min_delta_ts = min(str(point["point_timestamp_utc"]) for point in delta_viewport_items)
-                            delta_stop_entries = [
-                                item
-                                for item in track_layers["stops"]
-                                if str(item.get("endTimeUtc") or "") >= min_delta_ts or str(item.get("startTimeUtc") or "") >= min_delta_ts
-                            ]
+                        if include_stops:
+                            if defer_expensive_track_layers:
+                                delta_stop_entries = _detect_stops(
+                                    delta_context_points_asc,
+                                    stop_radius_m=stop_radius_m,
+                                    stop_min_duration_min=stop_min_duration_min,
+                                )
+                            else:
+                                min_delta_ts = min(str(point["point_timestamp_utc"]) for point in delta_viewport_items)
+                                delta_stop_entries = [
+                                    item
+                                    for item in track_layers["stops"]
+                                    if str(item.get("endTimeUtc") or "") >= min_delta_ts or str(item.get("startTimeUtc") or "") >= min_delta_ts
+                                ]
                         if include_daytrack and not defer_expensive_track_layers:
                             affected_days = {str(point["point_date_local"]) for point in delta_viewport_items}
                             delta_daytrack_entries = [
                                 item for item in track_layers["daytracks"] if str(item.get("day") or "") in affected_days
                             ]
                         if include_snap and len(delta_context_points_asc) <= 8 and len(delta_segments) <= 2:
-                            delta_snap_entries = _serialize_snap_segments(delta_segments, zoom=effective_zoom)
+                            delta_snap_entries = _serialize_snap_segments(
+                                delta_segments,
+                                zoom=effective_zoom,
+                                allow_network=False,
+                            )
+                        if delta_speed_entries and "speed" not in loaded_layers:
+                            loaded_layers.append("speed")
+                        if delta_stop_entries and "stops" not in loaded_layers:
+                            loaded_layers.append("stops")
+                        if delta_snap_entries and "snap" not in loaded_layers:
+                            loaded_layers.append("snap")
             if delta_mode:
                 payload_started_at = time.perf_counter()
                 payload = await asyncio.to_thread(
@@ -1326,10 +1343,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     include_points=include_points,
                     include_heatmap=include_heatmap,
                     include_accuracy=include_accuracy,
-                    include_speed=include_speed and not defer_expensive_track_layers,
-                    include_stops=include_stops and not defer_expensive_track_layers,
+                    include_speed=include_speed and (not defer_expensive_track_layers or bool(delta_speed_entries)),
+                    include_stops=include_stops and (not defer_expensive_track_layers or bool(delta_stop_entries)),
                     include_daytrack=include_daytrack and not defer_expensive_track_layers,
-                    include_snap=include_snap,
+                    include_snap=include_snap and bool(delta_snap_entries),
                     loaded_layers=loaded_layers,
                 )
                 payload_duration_ms = round((time.perf_counter() - payload_started_at) * 1000, 2)
@@ -2050,9 +2067,9 @@ def _prepare_map_payload(
     if not buffered_points_desc:
         return {
             "meta": {
-                "totalPoints": total_points, 
-                "visiblePoints": visible_points, 
-                "loadedPoints": 0, 
+                "totalPoints": total_points,
+                "visiblePoints": visible_points,
+                "loadedPoints": 0,
                 "serverPrepared": True,
                 "loadedLayers": loaded_layers or [],
             },
@@ -2060,7 +2077,7 @@ def _prepare_map_payload(
             "layers": {
                 "points": [],
                 "latestPoint": None,
-                "heatmap": [],
+                "heatmap": heatmap_entries if include_heatmap else [],
                 "polylines": [],
                 "accuracy": [],
                 "speed": [],
@@ -2615,13 +2632,13 @@ def _bucket_bbox_for_zoom(
 ) -> tuple[float, float, float, float] | None:
     if not bbox:
         return None
-    lat_step = max((_heat_cell_m(zoom) / 111320.0) * 0.5, 1e-5)
+    step = max((_heat_cell_m(zoom) / 111320.0) * 0.5, 1e-5)
     min_lon, min_lat, max_lon, max_lat = bbox
     return (
-        _bucket_float(min_lon, step=lat_step),
-        _bucket_float(min_lat, step=lat_step),
-        _bucket_float(max_lon, step=lat_step),
-        _bucket_float(max_lat, step=lat_step),
+        round(math.floor(min_lon / step) * step, 6),
+        round(math.floor(min_lat / step) * step, 6),
+        round(math.ceil(max_lon / step) * step, 6),
+        round(math.ceil(max_lat / step) * step, 6),
     )
 
 
@@ -2873,10 +2890,15 @@ def _serialize_log_point(point: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _serialize_snap_segments(segments: list[list[dict[str, Any]]], *, zoom: int) -> list[dict[str, Any]]:
+def _serialize_snap_segments(
+    segments: list[list[dict[str, Any]]],
+    *,
+    zoom: int,
+    allow_network: bool = True,
+) -> list[dict[str, Any]]:
     snapped = []
     for segment in segments[:10]:
-        coords = _snap_segment(segment, zoom=zoom)
+        coords = _snap_segment(segment, zoom=zoom, allow_network=allow_network)
         if coords:
             snapped.append({"coords": coords})
     return snapped
@@ -2976,7 +2998,12 @@ def _build_timeline_markers(
     return markers
 
 
-def _snap_segment(segment: list[dict[str, Any]], *, zoom: int) -> list[list[float]] | None:
+def _snap_segment(
+    segment: list[dict[str, Any]],
+    *,
+    zoom: int,
+    allow_network: bool = True,
+) -> list[list[float]] | None:
     sampled = _downsample_points(segment, 80 if zoom <= 14 else 120)
     if len(sampled) < 2:
         return None
@@ -2990,6 +3017,8 @@ def _snap_segment(segment: list[dict[str, Any]], *, zoom: int) -> list[list[floa
     cached = _cache_get(_SNAP_CACHE, key, ttl=_SNAP_CACHE_TTL)
     if cached:
         return cached[1]
+    if not allow_network:
+        return None
     now = time.time()
     coords = ";".join(f"{float(point['longitude']):.6f},{float(point['latitude']):.6f}" for point in sampled)
     timestamps = [int(_point_dt(point).timestamp()) for point in sampled]
