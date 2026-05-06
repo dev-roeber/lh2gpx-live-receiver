@@ -147,42 +147,48 @@
 
     <div class="login-card">
       <h2>Anmelden</h2>
-      <p class="subtitle">Server-URL und Bearer-Token eingeben, um auf das Dashboard zuzugreifen.</p>
+      <p class="subtitle">Mit Benutzername und Passwort am Dashboard anmelden.</p>
 
       {% if error %}
       <div class="error-box">{{ error }}</div>
       {% endif %}
 
+      {% if not admin_auth_enabled %}
+      <div class="readyz-hint" style="margin-bottom:16px;">
+        Dashboard-Login ist noch nicht konfiguriert. Setze <code>ADMIN_USERNAME</code> und <code>ADMIN_PASSWORD</code> oder <code>ADMIN_PASSWORD_HASH</code>.
+      </div>
+      {% endif %}
+
       <form method="post" action="/login" autocomplete="off">
         <div class="field">
-          <label for="server_url">Server-URL</label>
+          <label for="username">Benutzername</label>
           <input
-            type="url"
-            id="server_url"
-            name="server_url"
-            value="{{ server_url }}"
-            placeholder="https://…/live-location"
+            type="text"
+            id="username"
+            name="username"
+            value="{{ admin_username }}"
+            placeholder="Benutzername"
             required
             spellcheck="false"
-            autocomplete="off"
+            autocomplete="username"
           >
         </div>
 
         <div class="field">
-          <label for="bearer_token">Authentifizierungs-Token</label>
+          <label for="password">Passwort</label>
           <div class="token-row">
             <input
               type="password"
-              id="bearer_token"
-              name="bearer_token"
-              placeholder="Token eingeben"
+              id="password"
+              name="password"
+              placeholder="Passwort eingeben"
               required
               spellcheck="false"
               autocomplete="current-password"
             >
-            <button type="button" class="token-eye" onclick="toggleBearerVisibility()" aria-label="Token ein-/ausblenden">👁</button>
+            <button type="button" class="token-eye" onclick="togglePasswordVisibility()" aria-label="Passwort ein-/ausblenden">👁</button>
           </div>
-          <small>Dieser Token schützt die Live-Uploads – du findest ihn in deiner App-Konfiguration.</small>
+          <small>Das Dashboard nutzt eigene Benutzer-Anmeldung. Der Ingest-Bearer bleibt davon getrennt.</small>
         </div>
 
         <button type="submit" class="login-btn">Anmelden</button>
@@ -195,8 +201,8 @@
   </div>
 
   <script>
-    function toggleBearerVisibility() {
-      const input = document.getElementById('bearer_token');
+    function togglePasswordVisibility() {
+      const input = document.getElementById('password');
       input.type = input.type === 'password' ? 'text' : 'password';
     }
   </script>

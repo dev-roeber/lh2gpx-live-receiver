@@ -10,6 +10,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from app.auth import hash_password
 from app.config import Settings
 from app.import_parsers import parse_file_report
 from app.main import (
@@ -295,6 +296,62 @@ def test_request_and_session_detail_endpoints(tmp_path: Path) -> None:
     assert detail_response.json()["request"]["boundingBox"]["minLatitude"] == 52.52
     assert session_detail.status_code == 200
     assert session_detail.json()["session"]["durationSeconds"] == 11
+
+
+def test_dashboard_login_uses_username_password_and_sets_session_cookie(tmp_path: Path) -> None:
+    client = make_client(tmp_path, admin_username="admin", admin_password="secret")
+
+    redirect = client.get("/dashboard/map", follow_redirects=False)
+
+    assert redirect.status_code == 303
+    assert redirect.headers["location"] == "/login"
+
+    response = client.post(
+        "/login",
+        data={"username": "admin", "password": "secret"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/dashboard/map"
+    assert "lh2gpx_session=" in response.headers["set-cookie"]
+
+    dashboard = client.get("/dashboard/map")
+    assert dashboard.status_code == 200
+
+
+def test_dashboard_login_rejects_ingest_bearer_token(tmp_path: Path) -> None:
+    client = make_client(
+        tmp_path,
+        bearer_token="ingest-token",
+        admin_username="admin",
+        admin_password="secret",
+    )
+
+    response = client.post(
+        "/login",
+        data={"username": "admin", "password": "ingest-token"},
+    )
+
+    assert response.status_code == 401
+    assert "Ungültiger Benutzername oder Passwort." in response.text
+
+
+def test_dashboard_login_accepts_scrypt_password_hash(tmp_path: Path) -> None:
+    client = make_client(
+        tmp_path,
+        admin_username="admin",
+        admin_password_hash=hash_password("secret"),
+    )
+
+    response = client.post(
+        "/login",
+        data={"username": "admin", "password": "secret"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/dashboard/map"
 
 
 def test_dashboard_renders_operator_ui(tmp_path: Path) -> None:
@@ -988,6 +1045,7 @@ def make_client(
     bearer_token: str | None = None,
     admin_username: str | None = None,
     admin_password: str | None = None,
+    admin_password_hash: str | None = None,
     raise_server_exceptions: bool = True,
 ) -> TestClient:
     settings = Settings(
@@ -998,6 +1056,7 @@ def make_client(
         bearer_token=bearer_token,
         admin_username=admin_username,
         admin_password=admin_password,
+        admin_password_hash=admin_password_hash,
         data_dir=tmp_path / "data",
         sqlite_path=tmp_path / "data" / "receiver.sqlite3",
         raw_payload_ndjson_path=tmp_path / "data" / "raw-payloads.ndjson",

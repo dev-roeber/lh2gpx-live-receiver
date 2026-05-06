@@ -11,7 +11,6 @@ from collections import defaultdict, deque
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from secrets import compare_digest
 from typing import Any
 from urllib.parse import parse_qs, urlencode
 from uuid import uuid4
@@ -54,9 +53,12 @@ from .auth import (
     build_session_signing_key,
     create_session_token,
     direct_remote_addr,
+    login_redirect_url,
     proxied_ip,
     require_admin_access,
     require_bearer_token,
+    validate_session_token,
+    verify_admin_credentials,
 )
 from .config import Settings
 from .import_parsers import ImportError as GpsImportError, parse_file_report as parse_import_file_report
@@ -915,16 +917,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(LoginRequired)
     async def login_required_handler(request: Request, exc: LoginRequired) -> RedirectResponse:
-        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(url=login_redirect_url(), status_code=status.HTTP_303_SEE_OTHER)
 
     @app.get("/login", response_class=HTMLResponse, include_in_schema=False)
     async def login_page(request: Request, error: str | None = None) -> HTMLResponse:
         settings = _settings(request)
-        server_url = settings.public_base_url.rstrip("/") + "/live-location"
+        if settings.admin_auth_enabled and request.cookies.get(SESSION_COOKIE):
+            if validate_session_token(request.cookies.get(SESSION_COOKIE, ""), request.app):
+                return RedirectResponse(url="/dashboard/map", status_code=status.HTTP_303_SEE_OTHER)
         return templates.TemplateResponse(
             request=request,
             name="login.html",
-            context={"server_url": server_url, "error": error},
+            context={
+                "error": error,
+                "admin_auth_enabled": settings.admin_auth_enabled,
+                "admin_username": settings.admin_username or "",
+            },
         )
 
     @app.post("/login", include_in_schema=False, response_model=None)
@@ -932,38 +940,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings = _settings(request)
         raw_body = await request.body()
         form = {k: v[0] for k, v in parse_qs(raw_body.decode("utf-8", errors="replace")).items()}
-        supplied_url = form.get("server_url", "").strip()
-        supplied_token = form.get("bearer_token", "").strip()
+        username = form.get("username", "").strip()
+        password = form.get("password", "")
 
-        expected_url = settings.public_base_url.rstrip("/") + "/live-location"
-        url_ok = not supplied_url or supplied_url.rstrip("/") == expected_url.rstrip("/")
-        token_ok = settings.bearer_token and compare_digest(supplied_token, settings.bearer_token)
-
-        if not url_ok or not token_ok:
-            server_url = expected_url
+        if not settings.admin_auth_enabled:
             return templates.TemplateResponse(
                 request=request,
                 name="login.html",
-                context={"server_url": server_url, "error": "Ungültige Anmeldedaten."},
+                context={
+                    "error": "Dashboard-Login ist nicht konfiguriert.",
+                    "admin_auth_enabled": False,
+                    "admin_username": "",
+                },
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        if not verify_admin_credentials(settings, username, password):
+            return templates.TemplateResponse(
+                request=request,
+                name="login.html",
+                context={
+                    "error": "Ungültiger Benutzername oder Passwort.",
+                    "admin_auth_enabled": True,
+                    "admin_username": settings.admin_username or "",
+                },
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
 
-        token = create_session_token(request.app)
+        token = create_session_token(request.app, username)
         redirect = RedirectResponse(url="/dashboard/map", status_code=status.HTTP_303_SEE_OTHER)
         redirect.set_cookie(
             key=SESSION_COOKIE,
             value=token,
             max_age=SESSION_MAX_AGE,
             httponly=True,
-            samesite="strict",
-            secure=True,
+            samesite="lax",
+            secure=request.url.scheme == "https" or settings.public_base_url.startswith("https://"),
+            path="/",
         )
         return redirect
 
     @app.get("/logout", include_in_schema=False)
     async def logout(request: Request) -> RedirectResponse:
         redirect = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
-        redirect.delete_cookie(key=SESSION_COOKIE, samesite="strict")
+        redirect.delete_cookie(key=SESSION_COOKIE, samesite="lax", path="/")
         return redirect
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)

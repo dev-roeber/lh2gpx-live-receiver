@@ -64,6 +64,7 @@ class Settings:
     points_page_size_max: int
     rate_limit_requests_per_minute: int
     trust_proxy_headers: bool
+    admin_password_hash: str | None = None
     session_signing_secret: str | None = None
 
     @property
@@ -72,7 +73,7 @@ class Settings:
 
     @property
     def admin_auth_enabled(self) -> bool:
-        return bool(self.admin_username and self.admin_password)
+        return bool(self.admin_username and (self.admin_password or self.admin_password_hash))
 
     @property
     def dashboard_enabled(self) -> bool:
@@ -108,6 +109,7 @@ class Settings:
         raw_bearer_token = os.getenv("LIVE_LOCATION_BEARER_TOKEN", "").strip()
         raw_admin_username = os.getenv("ADMIN_USERNAME", "").strip()
         raw_admin_password = os.getenv("ADMIN_PASSWORD", "").strip()
+        raw_admin_password_hash = os.getenv("ADMIN_PASSWORD_HASH", "").strip()
         raw_session_signing_secret = os.getenv("SESSION_SIGNING_SECRET", "").strip()
 
         return cls(
@@ -118,6 +120,7 @@ class Settings:
             bearer_token=raw_bearer_token or None,
             admin_username=raw_admin_username or None,
             admin_password=raw_admin_password or None,
+            admin_password_hash=raw_admin_password_hash or None,
             session_signing_secret=raw_session_signing_secret or None,
             data_dir=data_dir,
             sqlite_path=sqlite_path,
@@ -244,6 +247,7 @@ class Settings:
             "adminAuthEnabled": self.admin_auth_enabled,
             "adminUsername": self.admin_username or "",
             "adminPassword": _mask_secret(self.admin_password),
+            "adminPasswordHashConfigured": bool(self.admin_password_hash),
             "sessionSigningSecretConfigured": bool(self.session_signing_secret),
             "dataDir": str(self.data_dir),
             "sqlitePath": str(self.sqlite_path),
