@@ -1,0 +1,2978 @@
+const {
+  configSummary: MAP_CONFIG,
+  querySessionId: QUERY_SESSION_ID,
+  queryImportSession: QUERY_IMPORT_SESSION,
+} = window.MAP_BOOTSTRAP || {};
+
+  const FILTER_DEBOUNCE = 300;
+  const CLUSTER_THRESHOLD = 50;
+  const ROUTE_DEFAULTS_VERSION = '2';
+  const RANGE_MINUTES = {
+    '2m': 2, '5m': 5, '10m': 10, '15m': 15, '30m': 30, '45m': 45,
+    '1h': 60, '2h': 120, '4h': 240, '6h': 360, '8h': 480, '12h': 720, '18h': 1080, '24h': 1440,
+    '2d': 2880, '3d': 4320, '5d': 7200, '7d': 10080, '14d': 20160, '30d': 43200
+  };
+
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  const supportsNativeFullscreen = !!document.documentElement.requestFullscreen;
+  const supportsAbortController = typeof window.AbortController === 'function';
+  const supportsResizeObserver = typeof window.ResizeObserver === 'function';
+  const supportsTextDecoder = typeof window.TextDecoder === 'function';
+  const supportsTextEncoder = typeof window.TextEncoder === 'function';
+
+  function storageGet(key, fallback = null) {
+    try {
+      const value = window.localStorage ? window.localStorage.getItem(key) : null;
+      return value === null ? fallback : value;
+    } catch (error) {
+      return fallback;
+    }
+  }
+
+  function storageSet(key, value) {
+    try {
+      if (window.localStorage) window.localStorage.setItem(key, value);
+    } catch (error) {
+      console.warn('localStorage write skipped:', key, error);
+    }
+  }
+
+  function scheduleTask(fn) {
+    if (typeof window.queueMicrotask === 'function') {
+      window.queueMicrotask(fn);
+      return;
+    }
+    setTimeout(fn, 0);
+  }
+
+  if (storageGet('map-route-defaults-version') !== ROUTE_DEFAULTS_VERSION) {
+    if (!storageGet('map-route-time-gap') || storageGet('map-route-time-gap') === '5') {
+      storageSet('map-route-time-gap', '15');
+    }
+    if (!storageGet('map-route-dist-gap') || storageGet('map-route-dist-gap') === '300') {
+      storageSet('map-route-dist-gap', '1200');
+    }
+    storageSet('map-route-defaults-version', ROUTE_DEFAULTS_VERSION);
+  }
+
+  let isInitialLoad = true;
+  
+  let db = null;
+  let localMirrorAvailable = false;
+  try {
+    if (typeof window.Dexie === 'function' && typeof window.indexedDB !== 'undefined') {
+      db = new Dexie('MapReceiverDB');
+      db.version(1).stores({
+        points: 'id, timestampUtc, sessionId'
+      });
+      // Version 2 mit zusammengesetztem Index für schnellere Filterung
+      db.version(2).stores({
+        points: 'id, timestampUtc, sessionId, [sessionId+timestampUtc]'
+      });
+      localMirrorAvailable = true;
+    }
+  } catch (error) {
+    console.warn('Lokaler Browser-Mirror deaktiviert:', error);
+    db = null;
+    localMirrorAvailable = false;
+  }
+
+  async function savePointsLocally(points) {
+    if (!localMirrorAvailable || !db || !points || !points.length) return;
+    try {
+      // Transformation für lokales Speicherformat falls nötig
+      const toSave = points.map(p => ({
+        id: p.id,
+        lat: p.lat,
+        lon: p.lon,
+        timestampUtc: p.timestampUtc || p.point_timestamp_utc,
+        timestampLocal: p.timestampLocal,
+        accuracyM: p.accuracyM,
+        source: p.source,
+        sessionId: p.session_id || p.sessionId
+      }));
+      await db.points.bulkPut(toSave);
+    } catch (error) {
+      console.warn('Fehler beim lokalen Speichern:', error);
+    }
+  }
+
+  async function getLocalPoints(filters) {
+    if (!localMirrorAvailable || !db) return [];
+    try {
+      let collection;
+      if (filters.session_id && filters.date_from) {
+        collection = db.points.where('[sessionId+timestampUtc]').between([filters.session_id, filters.date_from], [filters.session_id, '\uffff']);
+      } else if (filters.session_id) {
+        collection = db.points.where('sessionId').equals(filters.session_id);
+      } else if (filters.date_from) {
+        collection = db.points.where('timestampUtc').aboveOrEqual(filters.date_from);
+      } else {
+        collection = db.points.toCollection();
+      }
+
+      let items = await collection.reverse().limit(10000).toArray();
+
+      if (filters.date_to) items = items.filter(item => String(item.timestampUtc || '') <= filters.date_to);
+      if (filters.bbox) {
+        const parts = String(filters.bbox).split(',').map(Number);
+        if (parts.length === 4 && parts.every(Number.isFinite)) {
+          const [minLon, minLat, maxLon, maxLat] = parts;
+          items = items.filter(item =>
+            Number(item.lon) >= minLon &&
+            Number(item.lon) <= maxLon &&
+            Number(item.lat) >= minLat &&
+            Number(item.lat) <= maxLat
+          );
+        }
+      }
+      return items.sort((a, b) => String(b.timestampUtc || '').localeCompare(String(a.timestampUtc || '')));
+    } catch (error) {
+      console.warn('Fehler beim Abrufen lokaler Daten:', error);
+      return [];
+    }
+  }
+
+  let POLLING_INTERVAL = parseInt(storageGet('map-polling-interval'), 10) || 30000;
+  let TIME_RANGE = storageGet('map-time-range', '1h') || '1h';
+  let FIT_BOUNDS_MODE = storageGet('map-fit-bounds-mode', 'global') || 'global';
+  const MAP_PAGE_SIZE_SAFE_MAX = 20000;
+  let MAP_MAX_POINTS = parseInt(storageGet('map-max-points'), 10) || MAP_CONFIG.pointsPageSizeMax || 2000;
+  let LOG_LIMIT = parseInt(storageGet('map-log-limit'), 10) || 100;
+  let ROUTE_TIME_GAP = parseInt(storageGet('map-route-time-gap'), 10) || 15;
+  let ROUTE_DIST_GAP = parseInt(storageGet('map-route-dist-gap'), 10) || 1200;
+  let STOP_MIN_DUR = parseInt(storageGet('map-stop-min-dur'), 10) || 5;
+  let STOP_RADIUS_M = parseInt(storageGet('map-stop-radius'), 10) || 100;
+
+  let map;
+  let darkMode = storageGet('map-dark-mode') === 'true' || false;
+  let cssFsActive = false;
+  let filtersExpanded = false;
+  let currentFetchController = null;
+  let currentMetaFetchController = null;
+  let lastETag = null;
+  let lastMetaEtag = null;
+  let updateTimer = null;
+  let barTickTimer = null;
+  let lastRefreshTime = null;
+  let nextRefreshTime = null;
+  let lastFetchedBbox = null;
+  let lastFetchedZoom = null;
+  let isManualRefresh = false;
+  let mapUpdateInFlight = false;
+  let pendingMapRefresh = false;
+
+  const layerDataLoaded = {
+    heatmap: false,
+    points: false,
+    polyline: false,
+    accuracy: false,
+    labels: false,
+    speed: false,
+    stops: false,
+    daytrack: false,
+    snap: false
+  };
+
+  function updateLayerVisibility(layerKey, active) {
+    if (!map) return;
+    const layerMappings = {
+      heatmap: ['layer-heatmap'],
+      points: ['layer-points', 'layer-points-clusters', 'layer-points-cluster-count', 'layer-latest'],
+      polyline: ['layer-lines-casing', 'layer-lines'],
+      labels: ['layer-line-labels'],
+      accuracy: ['layer-accuracy-fill', 'layer-accuracy'],
+      speed: ['layer-speed'],
+      stops: ['layer-stops', 'layer-stops-labels'],
+      daytrack: ['layer-daytracks'],
+      snap: ['layer-snap']
+    };
+    const ids = layerMappings[layerKey] || [];
+    ids.forEach(id => {
+      if (map.getLayer(id)) {
+        map.setLayoutProperty(id, 'visibility', active ? 'visible' : 'none');
+      }
+    });
+  }
+
+  function isShiftSignificant(newBbox, newZoom) {
+    if (!lastFetchedBbox || lastFetchedZoom === null) return true;
+    if (Math.abs(newZoom - lastFetchedZoom) > 0.7) return true;
+
+    const b1 = lastFetchedBbox.split(',').map(Number);
+    const b2 = newBbox.split(',').map(Number);
+    const w1 = Math.abs(b1[2] - b1[0]);
+    const h1 = Math.abs(b1[3] - b1[1]);
+    const dx = Math.abs(b1[0] - b2[0]);
+    const dy = Math.abs(b1[1] - b2[1]);
+
+    return dx > w1 * 0.25 || dy > h1 * 0.25;
+  }
+  let suppressedViewportRefreshes = 0;
+  let currentLogItems = [];
+  let lastMapPayload = null;
+  let lastMetaPayload = null;
+  let lastMetaQueryKey = null;
+  let lastMetaFetchedAtMs = 0;
+  let lastMapBaseQueryKey = null;
+  let lastVisiblePointTsUtc = null;
+  let loadingOverlayTimer = null;
+  let loadingOverlayShown = false;
+  let loadingSyncPillTimer = null;
+  let loadingStartedAtMs = 0;
+  const LOADING_OVERLAY_DELAY_MS = 120;
+  const LOADING_OVERLAY_PULSE_MS = 180;
+  const META_REFRESH_MIN_MS = 30000;
+  let persistentRuntimeWarnings = [];
+  let mapRuntimeWarnings = [];
+  let legendVisible = storageGet('map-legend-visible', '1') !== '0';
+  let initialGlobalLatestFocusDone = false;
+  let forceGlobalLatestFocus = false;
+  let suppressMapFocusUntil = 0;
+
+  let heatmapActive = false;
+  let pointsActive = true;
+  let polylineActive = true;
+  let accuracyActive = false;
+  let labelsActive = false;
+  let speedActive = false;
+  let stopsActive = false;
+  let daytrackActive = false;
+  let snapActive = false;
+
+  const SOURCE_IDS = {
+    POINTS: 'src-points',
+    LATEST: 'src-latest',
+    LINES: 'src-lines',
+    ACCURACY: 'src-accuracy',
+    SPEED: 'src-speed',
+    STOPS: 'src-stops',
+    DAYTRACKS: 'src-daytracks',
+    SNAP: 'src-snap',
+    HEATMAP: 'src-heatmap'
+  };
+
+  function toggleLocationMenu(forceState) {
+    const menu = document.getElementById('location-selection-menu');
+    if (!menu) return;
+    const nextState = typeof forceState === 'boolean' ? forceState : (menu.style.display === 'none' || menu.style.display === '');
+    menu.style.display = nextState ? 'flex' : 'none';
+  }
+
+  async function focusLatestPoint() {
+    let latest = (lastMapPayload && lastMapPayload.layers && lastMapPayload.layers.latestPoint)
+      || (lastMapPayload && lastMapPayload.layers && lastMapPayload.layers.points && lastMapPayload.layers.points.find(p => p.isLatest));
+    
+    if (!latest) {
+      try {
+        const response = await fetch('/api/points?page_size=1', { credentials: 'same-origin' });
+        if (response.ok) {
+          const data = await response.json();
+          const point = data && data.points && data.points.items ? data.points.items[0] : null;
+          if (point) latest = { lat: point.latitude, lon: point.longitude };
+        }
+      } catch (error) { console.error('Fokus-Fetch fehlgeschlagen:', error); }
+    }
+
+    if (latest && map) {
+      map.flyTo({ center: [latest.lon, latest.lat], zoom: 17, speed: 1.2, essential: true });
+    } else {
+      alert('Kein aktueller Punkt gefunden.');
+    }
+  }
+
+  async function focusInitialGlobalLatestPoint(fallback = null) {
+    if ((!forceGlobalLatestFocus && initialGlobalLatestFocusDone) || !map) return;
+    initialGlobalLatestFocusDone = true;
+    forceGlobalLatestFocus = false;
+    let latest = fallback;
+    try {
+      const response = await fetch('/api/points?page_size=1', { credentials: 'same-origin' });
+      if (response.ok) {
+        const data = await response.json();
+        const point = data && data.points && data.points.items ? data.points.items[0] : null;
+        if (point) latest = { lat: point.latitude, lon: point.longitude };
+      }
+    } catch (error) {
+      console.warn('Initialer Global-Fokus fehlgeschlagen:', error);
+    }
+    if (latest && map) {
+      suppressedViewportRefreshes += 1;
+      suppressMapFocusUntil = Date.now() + 2500;
+      map.flyTo({ center: [latest.lon, latest.lat], zoom: 16, speed: 1.0, essential: true });
+    }
+  }
+
+  function debounce(fn, ms) {
+    let timer;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), ms);
+    };
+  }
+
+  function clampMapMaxPoints(value) {
+    const serverMax = MAP_CONFIG.pointsPageSizeMax || 2000;
+    const effectiveMax = Math.max(1, Math.min(serverMax, MAP_PAGE_SIZE_SAFE_MAX));
+    return Math.max(1, Math.min(effectiveMax, parseInt(value || effectiveMax, 10) || effectiveMax));
+  }
+
+  function clampLogLimit(value) {
+    const effectiveMax = Math.max(1, MAP_MAX_POINTS);
+    return Math.max(1, Math.min(effectiveMax, parseInt(value || effectiveMax, 10) || effectiveMax));
+  }
+
+  function getRangeBucketMs() {
+    const rangeMinutes = RANGE_MINUTES[TIME_RANGE] || 0;
+    if (rangeMinutes <= 15) return 5000;
+    if (rangeMinutes <= 180) return 15000;
+    return 60000;
+  }
+
+  function buildDateFromIso(nowMs = Date.now()) {
+    const rangeMinutes = RANGE_MINUTES[TIME_RANGE];
+    if (!rangeMinutes) return null;
+    const bucketMs = getRangeBucketMs();
+    const bucketedNowMs = Math.floor(nowMs / bucketMs) * bucketMs;
+    return new Date(bucketedNowMs - rangeMinutes * 60000).toISOString();
+  }
+
+  function scheduleNextMapUpdate(delay = POLLING_INTERVAL) {
+    clearTimeout(updateTimer);
+    if (!Number.isFinite(delay) || delay <= 0) return;
+    nextRefreshTime = Date.now() + delay;
+    updateTimer = setTimeout(() => {
+      updateMap();
+    }, delay);
+  }
+
+  function getViewportBbox() {
+    if (!map) return null;
+    const bounds = map.getBounds();
+    const southWest = bounds.getSouthWest();
+    const northEast = bounds.getNorthEast();
+    return `${southWest.lng.toFixed(6)},${southWest.lat.toFixed(6)},${northEast.lng.toFixed(6)},${northEast.lat.toFixed(6)}`;
+  }
+
+  function normalizeMapZoom() {
+    const currentZoom = map ? map.getZoom() : 10;
+    const roundedZoom = Number.isFinite(currentZoom) ? Math.round(currentZoom) : 10;
+    return Math.max(1, Math.min(22, roundedZoom));
+  }
+
+  function formatDuration(seconds) {
+    if (!seconds || seconds <= 0) return '-';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  }
+
+  function formatEta(seconds) {
+    if (seconds === null || seconds === undefined) return 'wird berechnet';
+    if (seconds <= 0) return '0s';
+    if (seconds < 60) return `${Math.round(seconds)}s`;
+    return formatDuration(seconds);
+  }
+
+  function updateMapOverlayLayout() {
+    const wrap = document.getElementById('map-wrap');
+    const loadingCard = document.getElementById('map-loading-card');
+
+    const timeline = document.getElementById('map-timeline-container');
+    if (!wrap || !loadingCard || !timeline) return;
+    const width = wrap.clientWidth || 0;
+    const height = wrap.clientHeight || 0;
+    const compact = width < 560 || height < 430;
+    const overlayGap = width < 420 ? 8 : width < 768 ? 10 : 12;
+    const loadingWidth = compact ? Math.max(210, Math.min(width - overlayGap * 2, 260)) : Math.max(260, Math.min(width * 0.34, 340));
+    const timelineWidth = compact ? Math.max(220, width - overlayGap * 2) : Math.max(300, Math.min(width * 0.72, 560));
+    const timelineBottom = compact ? 10 : 18;
+    const menuOffset = 0;
+    wrap.style.setProperty('--map-overlay-gap', `${overlayGap}px`);
+    wrap.style.setProperty('--map-loading-width', `${Math.max(180, loadingWidth)}px`);
+    wrap.style.setProperty('--map-timeline-width', `${Math.max(220, timelineWidth)}px`);
+    wrap.style.setProperty('--map-timeline-bottom', `${timelineBottom}px`);
+    wrap.style.setProperty('--map-loading-menu-offset', `${menuOffset}px`);
+    wrap.dataset.overlayCompact = compact ? '1' : '0';
+    wrap.dataset.timelineMini = width < 520 || height < 410 ? '1' : '0';
+  }
+
+  function getRelativeTime(timestamp) {
+    const diffMs = Date.now() - new Date(timestamp).getTime();
+    if (diffMs < 1000) return 'jetzt';
+    if (diffMs < 60000) return `vor ${Math.floor(diffMs / 1000)}s`;
+    if (diffMs < 3600000) return `vor ${Math.floor(diffMs / 60000)}m`;
+    if (diffMs < 86400000) return `vor ${Math.floor(diffMs / 3600000)}h`;
+    return `vor ${Math.floor(diffMs / 86400000)}d`;
+  }
+
+  function updateLegendPlacement() {
+    const legend = document.getElementById('map-legend');
+    const legendAnchor = document.getElementById('map-legend-anchor');
+    const mapWrap = document.getElementById('map-wrap');
+    if (!legend) return;
+    const fullscreenActive = cssFsActive || !!document.fullscreenElement;
+    if (fullscreenActive) {
+      if (mapWrap && legend.parentElement !== mapWrap) {
+        mapWrap.appendChild(legend);
+      }
+      legend.style.position = 'absolute';
+      legend.style.left = '12px';
+      legend.style.right = '12px';
+      legend.style.bottom = '18px';
+      legend.style.zIndex = '690';
+      legend.style.padding = '12px 14px';
+      legend.style.border = '1px solid var(--separator)';
+      legend.style.borderRadius = '12px';
+      legend.style.background = 'color-mix(in srgb, var(--surface-1) 88%, transparent)';
+      legend.style.backdropFilter = 'blur(10px)';
+      legend.style.boxShadow = '0 10px 30px rgba(0,0,0,0.22)';
+      legend.style.marginTop = '0';
+    } else {
+      if (legendAnchor && legendAnchor.parentNode && legend.parentElement !== legendAnchor.parentElement) {
+        legendAnchor.parentNode.insertBefore(legend, legendAnchor.nextSibling);
+      }
+      legend.style.position = 'static';
+      legend.style.left = '';
+      legend.style.right = '';
+      legend.style.bottom = '';
+      legend.style.zIndex = '';
+      legend.style.padding = '';
+      legend.style.border = '';
+      legend.style.borderRadius = '';
+      legend.style.background = '';
+      legend.style.backdropFilter = '';
+      legend.style.boxShadow = '';
+      legend.style.marginTop = '14px';
+    }
+  }
+
+  function renderProcessingStatus(processing) {
+    const statusLabel = document.getElementById('processing-status-label');
+    const detail = document.getElementById('processing-status-detail');
+    const remaining = document.getElementById('processing-remaining');
+    const eta = document.getElementById('processing-eta');
+    if (!processing || processing.allProcessed) {
+      statusLabel.textContent = 'vollständig';
+      statusLabel.style.color = 'var(--mint)';
+      detail.textContent = 'Alle verfügbaren Serverdaten verarbeitet';
+      remaining.textContent = '0 Punkte';
+      eta.textContent = '0s';
+      return;
+    }
+
+    statusLabel.textContent = processing.statusLabel || 'Verarbeitung läuft';
+    statusLabel.style.color = 'var(--orange)';
+    const parts = [];
+    if (processing.activeTasks) parts.push(`${processing.activeTasks} Task${processing.activeTasks !== 1 ? 's' : ''}`);
+    if (processing.knownTotalPoints) {
+      parts.push(`${(processing.processedPoints || 0).toLocaleString('de-DE')} / ${processing.knownTotalPoints.toLocaleString('de-DE')} Punkte`);
+    }
+    if (processing.unknownTasks) {
+      parts.push(`${processing.unknownTasks} Task${processing.unknownTasks !== 1 ? 's' : ''} noch in Analyse`);
+    }
+    detail.textContent = parts.join(' · ') || 'Server analysiert/verarbeitet noch Daten';
+    remaining.textContent = processing.unknownTasks
+      ? `${(processing.remainingPoints || 0).toLocaleString('de-DE')} Punkte + Analyse offen`
+      : `${(processing.remainingPoints || 0).toLocaleString('de-DE')} Punkte`;
+    eta.textContent = processing.unknownTasks && !processing.etaSeconds
+      ? 'nach Analyse verfügbar'
+      : formatEta(processing.etaSeconds);
+  }
+
+  function updateLegendToggleButton() {
+    const button = document.getElementById('legend-toggle-btn');
+    if (!button) return;
+    button.style.opacity = legendVisible ? '1' : '0.72';
+    button.title = legendVisible ? 'Legende ausblenden' : 'Legende einblenden';
+  }
+
+  function updateTimelineToggleButton() {
+    const button = document.getElementById('mtc-btn');
+    if (!button) return;
+    button.style.opacity = timelineVisible ? '1' : '0.72';
+    button.title = timelineVisible ? 'Timeline ausblenden' : 'Timeline einblenden';
+  }
+
+  function applyTimelineVisibilityState() {
+    const container = document.getElementById('map-timeline-container');
+    const button = document.getElementById('mtc-btn');
+    const hasTimelineData = timelinePoints.length > 1 && (timelineMaxTs - timelineMinTs) >= 1000;
+    if (button) {
+      button.disabled = !hasTimelineData;
+      button.style.cursor = hasTimelineData ? 'pointer' : 'default';
+      button.style.opacity = hasTimelineData ? (timelineVisible ? '1' : '0.72') : '0.5';
+    }
+    if (container) {
+      container.style.display = hasTimelineData && timelineVisible ? 'block' : 'none';
+    }
+    if ((!hasTimelineData || !timelineVisible) && timelineIsPlaying) {
+      timelineIsPlaying = false;
+      clearTimeout(timelinePlayTimer);
+      const playButton = document.getElementById('timeline-play-btn');
+      if (playButton) playButton.textContent = '▶';
+    }
+    updateMapOverlayLayout();
+    updateTimelineToggleButton();
+    updateTimelineModeLabel();
+  }
+
+  function updateTimelineModeLabel(labelOverride = null) {
+    const label = document.getElementById('timeline-mode-label');
+    const sourceLabel = document.getElementById('timeline-source-label');
+    if (!label || !sourceLabel) return;
+    let text = labelOverride;
+    let color = '#0A84FF';
+    if (!text) {
+      if (timelineIsPlaying) {
+        text = `Playback ${timelinePlaybackRate}x${timelineReplayLive ? ' Live' : ''}`;
+        color = '#BF5AF2';
+      } else if (timelinePreviewActive) {
+        text = 'Vorschau';
+        color = '#FF9F0A';
+      } else {
+        text = 'Live';
+        color = '#30D158';
+      }
+    }
+    label.textContent = text;
+    label.style.color = color;
+    label.style.background = `color-mix(in srgb, ${color} 14%, transparent)`;
+    label.style.borderColor = `color-mix(in srgb, ${color} 28%, transparent)`;
+    sourceLabel.textContent = timelineSourceSummaryText || (timelineSourceMode === 'filter' ? 'Aktueller Filter' : 'Sichtbarer Bereich');
+  }
+
+  function toggleQuickCtrl(forceState) {
+    const ctrl = document.getElementById('map-quick-ctrl');
+    if (!ctrl) return;
+    const nextState = typeof forceState === 'boolean' ? forceState : !ctrl.classList.contains('mqc-open');
+    ctrl.classList.toggle('mqc-open', nextState);
+  }
+
+  function toggleFilterPanel(show) {
+    const panel = document.querySelector('.map-filter-panel');
+    const button = document.getElementById('fp-show-btn');
+    const backdrop = document.getElementById('fp-backdrop');
+    if (!panel || !button || !backdrop) return;
+    panel.classList.toggle('fp-open', show);
+    backdrop.classList.toggle('fp-open', show);
+    button.dataset.open = show ? '1' : '0';
+    button.textContent = show ? '✕ Filter' : '☰ Filter';
+    storageSet('map-fp-hidden', show ? '0' : '1');
+    if (map) setTimeout(() => map.resize(), 250);
+  }
+
+  function setDropdown(id, active) {
+    const element = document.getElementById(id);
+    element.disabled = !active;
+    element.classList.toggle('fp-inactive', !active);
+  }
+
+  function setupMobileFilterToggle() {
+    const toggleBtn = document.getElementById('map-filter-toggle-btn');
+    const filterPanel = document.querySelector('.map-filter-panel');
+    if (!toggleBtn || !filterPanel) return;
+    const isMobile = window.innerWidth <= 767;
+    if (isMobile) {
+      toggleBtn.style.display = 'block';
+      if (toggleBtn.dataset.init !== '1') {
+        toggleBtn.dataset.init = '1';
+        filterPanel.classList.add('collapsed');
+        filtersExpanded = false;
+      }
+    } else {
+      toggleBtn.style.display = 'none';
+      filterPanel.classList.remove('collapsed');
+      filtersExpanded = true;
+      toggleBtn.dataset.init = '0';
+    }
+  }
+
+  function applyFullscreenLayout(active) {
+    const wrap = document.getElementById('map-wrap');
+    const container = document.getElementById('map-container');
+    if (!wrap || !container) return;
+    if (active) {
+      wrap.style.position = 'fixed';
+      wrap.style.top = '0';
+      wrap.style.left = '0';
+      wrap.style.width = '100vw';
+      wrap.style.height = '100dvh';
+      wrap.style.zIndex = '9999';
+      wrap.style.margin = '0';
+      wrap.style.background = '#000';
+      wrap.style.overflow = 'hidden';
+      container.style.width = '100%';
+      container.style.height = '100%';
+      container.style.borderRadius = '0';
+      container.style.margin = '0';
+      document.getElementById('fullscreen-btn').innerHTML = '✕ <span>Vollbild</span>';
+      document.getElementById('fullscreen-btn').title = 'Vollbild beenden';
+    } else {
+      wrap.style.position = 'relative';
+      wrap.style.top = '';
+      wrap.style.left = '';
+      wrap.style.width = '';
+      wrap.style.height = '';
+      wrap.style.zIndex = '';
+      wrap.style.margin = '';
+      wrap.style.background = '';
+      wrap.style.overflow = '';
+      container.style.width = '';
+      container.style.height = '';
+      container.style.borderRadius = '';
+      container.style.margin = '';
+      document.getElementById('fullscreen-btn').innerHTML = '⛶ <span>Vollbild</span>';
+      document.getElementById('fullscreen-btn').title = 'Vollbild';
+    }
+    if (map) map.resize();
+    updateLegendPlacement();
+  }
+
+  function activateCssFullscreen() {
+    if (!cssFsActive) {
+      cssFsActive = true;
+      applyFullscreenLayout(true);
+      return;
+    }
+    cssFsActive = false;
+    applyFullscreenLayout(false);
+  }
+
+  function toggleFullscreen() {
+    const wrap = document.getElementById('map-wrap');
+    if (!isIOS && supportsNativeFullscreen) {
+      if (!document.fullscreenElement) {
+        wrap.requestFullscreen().catch(() => activateCssFullscreen());
+      } else {
+        document.exitFullscreen();
+      }
+      return;
+    }
+    activateCssFullscreen();
+  }
+
+  function showIOSBanner() {
+    if (!isIOS || window.navigator.standalone || sessionStorage.getItem('ios-banner-dismissed')) return;
+    const banner = document.createElement('div');
+    banner.id = 'ios-home-banner';
+    banner.style.cssText = 'position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:#1C1C1E; border:1px solid rgba(255,255,255,0.12); border-radius:16px; padding:14px 16px; z-index:10000; display:flex; align-items:flex-start; gap:12px; max-width:calc(100vw - 32px); box-shadow:0 8px 32px rgba(0,0,0,0.6); font-family:-apple-system,system-ui,sans-serif;';
+    banner.innerHTML = '<div style="font-size:1.6rem;flex-shrink:0;margin-top:2px;">⊕</div><div style="flex:1;min-width:0;"><div style="font-size:0.85rem;font-weight:700;color:#fff;margin-bottom:3px;">Zum Home-Bildschirm hinzufügen</div><div style="font-size:0.75rem;color:rgba(255,255,255,0.55);line-height:1.4;">Tippe auf <strong style="color:#fff;">Teilen ↑</strong> und dann <strong style="color:#fff;">„Zum Home-Bildschirm"</strong> — danach steht echter Vollbild zur Verfügung.</div></div><button style="background:none;border:none;color:rgba(255,255,255,0.4);font-size:1.1rem;cursor:pointer;flex-shrink:0;padding:0;line-height:1;">✕</button>';
+    banner.querySelector('button').onclick = () => {
+      banner.remove();
+      sessionStorage.setItem('ios-banner-dismissed', '1');
+    };
+    document.body.appendChild(banner);
+  }
+
+  function buildCurrentFilters() {
+    const sessionActive = document.getElementById('session-filter-toggle').checked;
+    const importActive = document.getElementById('import-filter-toggle').checked;
+    const sessionId = sessionActive
+      ? document.getElementById('session-select-dropdown').value
+      : importActive
+        ? document.getElementById('import-select-dropdown').value
+        : '';
+    const params = new URLSearchParams();
+    params.set('log_limit', String(clampLogLimit(document.getElementById('log-limit').value)));
+    params.set('zoom', String(normalizeMapZoom()));
+    params.set('route_time_gap_min', String(ROUTE_TIME_GAP));
+    params.set('route_dist_gap_m', String(ROUTE_DIST_GAP));
+    params.set('stop_min_duration_min', String(STOP_MIN_DUR));
+    params.set('stop_radius_m', String(STOP_RADIUS_M));
+    params.set('include_points', pointsActive ? 'true' : 'false');
+    params.set('include_heatmap', heatmapActive ? 'true' : 'false');
+    params.set('include_polyline', polylineActive ? 'true' : 'false');
+    params.set('include_accuracy', accuracyActive ? 'true' : 'false');
+    params.set('include_labels', labelsActive ? 'true' : 'false');
+    params.set('include_speed', speedActive ? 'true' : 'false');
+    params.set('include_stops', stopsActive ? 'true' : 'false');
+    params.set('include_daytrack', daytrackActive ? 'true' : 'false');
+    params.set('include_snap', snapActive ? 'true' : 'false');
+    const bbox = getViewportBbox();
+    if (bbox) {
+      params.set('bbox', bbox);
+    } else {
+      params.set('page_size', clampMapMaxPoints(document.getElementById('map-max-points').value));
+    }
+    if (sessionId) params.set('session_id', sessionId);
+    if (TIME_RANGE !== 'all') params.set('date_from', buildDateFromIso());
+    return params;
+  }
+
+  function buildCurrentFilterState() {
+    const sessionActive = document.getElementById('session-filter-toggle').checked;
+    const importActive = document.getElementById('import-filter-toggle').checked;
+    const sessionId = sessionActive
+      ? document.getElementById('session-select-dropdown').value
+      : importActive
+        ? document.getElementById('import-select-dropdown').value
+        : '';
+    return {
+      session_id: sessionId || null,
+      date_from: TIME_RANGE !== 'all' ? buildDateFromIso() : null,
+      date_to: null,
+      bbox: getViewportBbox()
+    };
+  }
+
+  function buildGeoJsonExportUrl() {
+    const params = buildCurrentFilters();
+    params.delete('zoom');
+    params.delete('route_time_gap_min');
+    params.delete('route_dist_gap_m');
+    params.delete('stop_min_duration_min');
+    params.delete('stop_radius_m');
+    params.delete('include_points');
+    params.delete('include_heatmap');
+    params.delete('include_polyline');
+    params.delete('include_accuracy');
+    params.delete('include_labels');
+    params.delete('include_speed');
+    params.delete('include_stops');
+    params.delete('include_daytrack');
+    params.delete('include_snap');
+    return `/api/points?${params.toString()}`;
+  }
+
+  function buildMetaFilters() {
+    const sessionActive = document.getElementById('session-filter-toggle').checked;
+    const importActive = document.getElementById('import-filter-toggle').checked;
+    const sessionId = sessionActive
+      ? document.getElementById('session-select-dropdown').value
+      : importActive
+        ? document.getElementById('import-select-dropdown').value
+        : '';
+    const params = new URLSearchParams();
+    if (sessionId) params.set('session_id', sessionId);
+    if (TIME_RANGE !== 'all') params.set('date_from', buildDateFromIso());
+    return params;
+  }
+
+  async function updateMapMeta(options = {}) {
+    const force = !!options.force;
+    const params = buildMetaFilters();
+    const queryKey = params.toString();
+    const now = Date.now();
+    if (
+      !force &&
+      lastMetaPayload &&
+      lastMetaQueryKey === queryKey &&
+      (now - lastMetaFetchedAtMs) < META_REFRESH_MIN_MS
+    ) {
+      renderProcessingStatus(lastMetaPayload.processing || null);
+      return lastMetaPayload;
+    }
+    const url = `/api/map-meta?${params.toString()}`;
+    const headers = lastMetaEtag ? { 'If-None-Match': lastMetaEtag } : {};
+    if (currentMetaFetchController && typeof currentMetaFetchController.abort === 'function') currentMetaFetchController.abort();
+    currentMetaFetchController = supportsAbortController ? new AbortController() : null;
+    const fetchOptions = { credentials: 'same-origin', headers };
+    if (currentMetaFetchController) fetchOptions.signal = currentMetaFetchController.signal;
+    const response = await fetch(url, fetchOptions);
+    if (response.status === 304 && lastMetaPayload) {
+      lastMetaQueryKey = queryKey;
+      lastMetaFetchedAtMs = now;
+      renderProcessingStatus(lastMetaPayload.processing || null);
+      return lastMetaPayload;
+    }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    lastMetaEtag = response.headers.get('etag') || null;
+    const payload = await response.json();
+    lastMetaPayload = payload;
+    lastMetaQueryKey = queryKey;
+    lastMetaFetchedAtMs = now;
+    renderProcessingStatus(payload.processing || null);
+    return payload;
+  }
+
+  async function exportGeoJSON() {
+    const response = await fetch(buildGeoJsonExportUrl(), { credentials: 'same-origin' });
+    if (!response.ok) {
+      alert('GeoJSON-Export fehlgeschlagen.');
+      return;
+    }
+    const payload = await response.json();
+    const exportItems = payload && payload.points && payload.points.items ? payload.points.items : [];
+    const features = exportItems.map(point => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [point.longitude, point.latitude] },
+      properties: {
+        id: point.id,
+        request_id: point.request_id,
+        received_at_utc: point.received_at_utc,
+        sent_at_utc: point.sent_at_utc,
+        point_timestamp_utc: point.point_timestamp_utc,
+        point_timestamp_local: point.point_timestamp_local,
+        point_date_local: point.point_date_local,
+        point_time_local: point.point_time_local,
+        horizontal_accuracy_m: point.horizontal_accuracy_m,
+        session_id: point.session_id,
+        source: point.source,
+        capture_mode: point.capture_mode
+      }
+    }));
+    const blob = new Blob([JSON.stringify({ type: 'FeatureCollection', features }, null, 2)], { type: 'application/geo+json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `lh2gpx-map-${new Date().toISOString().slice(0, 10)}.geojson`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function updateLegend() {
+    document.getElementById('legend-points').style.display = pointsActive ? '' : 'none';
+    document.getElementById('legend-lines').style.display = polylineActive ? '' : 'none';
+    document.getElementById('legend-heatmap').style.display = heatmapActive ? '' : 'none';
+    document.getElementById('legend-accuracy').style.display = accuracyActive ? '' : 'none';
+    document.getElementById('legend-labels').style.display = labelsActive ? '' : 'none';
+    document.getElementById('legend-speed').style.display = speedActive ? '' : 'none';
+    document.getElementById('legend-stops').style.display = stopsActive ? '' : 'none';
+    document.getElementById('legend-daytrack').style.display = daytrackActive ? '' : 'none';
+    document.getElementById('legend-snap').style.display = snapActive ? '' : 'none';
+    const anyActive = heatmapActive || pointsActive || polylineActive || accuracyActive || labelsActive || speedActive || stopsActive || daytrackActive || snapActive;
+    document.getElementById('map-legend').style.display = legendVisible && anyActive ? 'flex' : 'none';
+    updateLegendPlacement();
+    updateLegendToggleButton();
+  }
+
+  function setToggleAvailability(toggleId, available, unavailableTitle = 'Funktion derzeit nicht verfügbar') {
+    const toggle = document.getElementById(toggleId);
+    if (!toggle) return;
+    toggle.disabled = !available;
+    if (!available) {
+      toggle.checked = false;
+      toggle.title = unavailableTitle;
+    } else {
+      toggle.title = '';
+    }
+  }
+
+  function isWebglSupported() {
+    if (!window.WebGLRenderingContext) return false;
+    const canvas = document.createElement('canvas');
+    try {
+      const context = canvas.getContext('webgl2') || canvas.getContext('webgl');
+      return !!(context && typeof context.getParameter === 'function');
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function setLayerToggle(toggleId, active) {
+    const toggle = document.getElementById(toggleId);
+    if (toggle) toggle.checked = active;
+  }
+
+  function rememberLayerWarning(message) {
+    if (mapRuntimeWarnings.indexOf(message) === -1) mapRuntimeWarnings.push(message);
+  }
+
+  function rememberPersistentWarning(message) {
+    if (persistentRuntimeWarnings.indexOf(message) === -1) persistentRuntimeWarnings.push(message);
+  }
+
+  function runLayerStage(name, fn) {
+    try {
+      fn();
+    } catch (error) {
+      console.error(`Layer render failed: ${name}`, error);
+      rememberLayerWarning(`${name} deaktiviert`);
+      if (name === 'Heatmap') {
+        heatmapActive = false;
+        setLayerToggle('heatmap-toggle', false);
+        setToggleAvailability('heatmap-toggle', false, 'Heatmap-Layer fehlgeschlagen');
+        updateLegend();
+      }
+    }
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .split('&').join('&amp;')
+      .split('<').join('&lt;')
+      .split('>').join('&gt;')
+      .split('"').join('&quot;')
+      .split("'").join('&#39;');
+  }
+
+  function collectVisibleBoundsPoints(layers) {
+    const points = [];
+    if (pointsActive) {
+      (layers.points || []).forEach(p => points.push([p.lat, p.lon]));
+      if (layers.latestPoint) points.push([layers.latestPoint.lat, layers.latestPoint.lon]);
+    }
+    if (polylineActive) {
+      (layers.polylines || []).forEach(s => s.coords.forEach(c => points.push(c)));
+    }
+    if (accuracyActive) (layers.accuracy || []).forEach(p => points.push([p.lat, p.lon]));
+    if (speedActive) (layers.speed || []).forEach(s => s.coords.forEach(c => points.push(c)));
+    if (stopsActive) (layers.stops || []).forEach(p => points.push([p.lat, p.lon]));
+    if (daytrackActive) (layers.daytracks || []).forEach(d => d.segments.forEach(seg => seg.forEach(c => points.push(c))));
+    if (snapActive) (layers.snap || []).forEach(s => s.coords.forEach(c => points.push(c)));
+    return points;
+  }
+
+  function applyMapFocus(layers) {
+    if (Date.now() < suppressMapFocusUntil) return;
+    const latest = layers.latestPoint;
+    const autoCenter = document.getElementById('auto-center-toggle').checked;
+    const fitBounds = document.getElementById('fit-bounds-toggle').checked;
+
+    if (fitBounds) {
+      const useGlobalBounds = FIT_BOUNDS_MODE === 'global';
+      const metaBounds = useGlobalBounds && lastMetaPayload && lastMetaPayload.meta ? lastMetaPayload.meta.boundingBox : null;
+      
+      if (metaBounds && useGlobalBounds) {
+        suppressedViewportRefreshes += 1;
+        map.fitBounds([
+          [metaBounds.minLongitude, metaBounds.minLatitude],
+          [metaBounds.maxLongitude, metaBounds.maxLatitude]
+        ], { padding: 50, linear: false });
+      } else {
+        const bounds = new maplibregl.LngLatBounds();
+        const pts = collectVisibleBoundsPoints(layers);
+        if (pts.length) {
+          pts.forEach(p => bounds.extend([p[1], p[0]]));
+          suppressedViewportRefreshes += 1;
+          map.fitBounds(bounds, { padding: 50, linear: false });
+        }
+      }
+    } else if (autoCenter && latest) {
+      suppressedViewportRefreshes += 1;
+      map.panTo([latest.lon, latest.lat]);
+    }
+  }
+
+  function renderMapPayload(data, options = {}) {
+    mapRuntimeWarnings = persistentRuntimeWarnings.slice();
+    clearRenderedLayers();
+    renderProcessingStatus(data.processing || null);
+    const layers = data.layers || {};
+    const meta = data.meta || {};
+    
+    // Track which layers were actually provided with data from the backend
+    if (meta.loadedLayers) {
+      meta.loadedLayers.forEach(layer => {
+        if (layerDataLoaded.hasOwnProperty(layer)) {
+          layerDataLoaded[layer] = true;
+        }
+      });
+    }
+
+    runLayerStage('Heatmap', () => renderHeatmap(layers.heatmap || []));
+    runLayerStage('Punkte', () => renderPoints(layers.points || [], layers.latestPoint || null));
+    runLayerStage('Linien', () => renderPolylines(layers.polylines || []));
+    runLayerStage('Radius', () => renderAccuracy(layers.accuracy || []));
+    runLayerStage('Tempo', () => renderSpeed(layers.speed || []));
+    runLayerStage('Stops', () => renderStops(layers.stops || []));
+    runLayerStage('Tage', () => renderDaytracks(layers.daytracks || []));
+    runLayerStage('Snap', () => renderSnap(layers.snap || []));
+    
+    // Ensure visibility matches toggles
+    updateLayerVisibility('heatmap', heatmapActive);
+    updateLayerVisibility('points', pointsActive);
+    updateLayerVisibility('polyline', polylineActive);
+    updateLayerVisibility('labels', labelsActive);
+    updateLayerVisibility('accuracy', accuracyActive);
+    updateLayerVisibility('speed', speedActive);
+    updateLayerVisibility('stops', stopsActive);
+    updateLayerVisibility('daytrack', daytrackActive);
+    updateLayerVisibility('snap', snapActive);
+
+    if (!options.skipFocus) applyMapFocus(layers);
+    if (!options.skipTimeline) updateTimeline(layers.points || []);
+  }
+
+  function clearRenderedLayers() {
+    Object.keys(SOURCE_IDS).map(key => SOURCE_IDS[key]).forEach(id => {
+      const src = map.getSource(id);
+      if (src) src.setData({ type: 'FeatureCollection', features: [] });
+    });
+  }
+
+  function buildCirclePolygon(lon, lat, radiusMeters, steps = 48) {
+    const safeRadius = Math.max(0, Number(radiusMeters) || 0);
+    if (!safeRadius) return [];
+    const coords = [];
+    const latRad = lat * (Math.PI / 180);
+    const metersPerDegLat = 111320;
+    const metersPerDegLon = Math.max(111320 * Math.cos(latRad), 0.000001);
+    for (let i = 0; i <= steps; i += 1) {
+      const angle = (i / steps) * Math.PI * 2;
+      coords.push([
+        lon + (Math.cos(angle) * safeRadius) / metersPerDegLon,
+        lat + (Math.sin(angle) * safeRadius) / metersPerDegLat,
+      ]);
+    }
+    return coords;
+  }
+
+  function renderPoints(points, latestPoint) {
+    const features = points.map(p => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+      properties: { timestamp: p.timestampLocal || p.timestampUtc, accuracy: p.accuracyM, isLatest: !!p.isLatest }
+    }));
+    map.getSource(SOURCE_IDS.POINTS).setData({ type: 'FeatureCollection', features: features.filter(f => !f.properties.isLatest) });
+    
+    if (latestPoint) {
+      map.getSource(SOURCE_IDS.LATEST).setData({
+        type: 'FeatureCollection',
+        features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [latestPoint.lon, latestPoint.lat] }, properties: { isLatest: true } }]
+      });
+    } else {
+      map.getSource(SOURCE_IDS.LATEST).setData({ type: 'FeatureCollection', features: [] });
+    }
+  }
+
+  function renderHeatmap(entries) {
+    const features = entries.map(e => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [e[1], e[0]] },
+      properties: { weight: e[2] || 0.5 }
+    }));
+    map.getSource(SOURCE_IDS.HEATMAP).setData({ type: 'FeatureCollection', features });
+  }
+
+  function renderPolylines(segments) {
+    const features = segments.map(s => ({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: s.coords.map(c => [c[1], c[0]]) },
+      properties: { color: s.color, label: `${s.startLabel} - ${s.endLabel}` }
+    }));
+    map.getSource(SOURCE_IDS.LINES).setData({ type: 'FeatureCollection', features });
+  }
+
+  function renderAccuracy(entries) {
+    const features = entries.map(e => ({
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [buildCirclePolygon(e.lon, e.lat, e.radius)] },
+      properties: { radius_m: e.radius }
+    }));
+    map.getSource(SOURCE_IDS.ACCURACY).setData({ type: 'FeatureCollection', features });
+  }
+
+  function renderSpeed(entries) {
+    const features = entries.map(e => ({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: e.coords.map(c => [c[1], c[0]]) },
+      properties: { color: e.color, kmh: e.kmh }
+    }));
+    map.getSource(SOURCE_IDS.SPEED).setData({ type: 'FeatureCollection', features });
+  }
+
+  function renderStops(entries) {
+    const features = entries.map(e => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [e.lon, e.lat] },
+      properties: { label: `⏱ ${e.durationMin}min`, duration: e.durationMin }
+    }));
+    map.getSource(SOURCE_IDS.STOPS).setData({ type: 'FeatureCollection', features });
+  }
+
+  function renderDaytracks(entries) {
+    const features = [];
+    entries.forEach(d => {
+       d.segments.forEach(coords => {
+         features.push({
+           type: 'Feature',
+           geometry: { type: 'LineString', coordinates: coords.map(c => [c[1], c[0]]) },
+           properties: { color: d.color, day: d.day }
+         });
+       });
+    });
+    map.getSource(SOURCE_IDS.DAYTRACKS).setData({ type: 'FeatureCollection', features });
+  }
+
+  function renderSnap(entries) {
+    const features = entries.map(e => ({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: e.coords.map(c => [c[1], c[0]]) },
+      properties: { }
+    }));
+    map.getSource(SOURCE_IDS.SNAP).setData({ type: 'FeatureCollection', features });
+  }
+
+  function mergePointItems(existing, appended, latestPoint) {
+    const merged = new Map((existing || []).map(item => [item.id, Object.assign({}, item, { isLatest: false })]));
+    (appended || []).forEach(item => merged.set(item.id, Object.assign({}, item, { isLatest: false })));
+    const latestId = latestPoint && latestPoint.id != null ? latestPoint.id : null;
+    const result = Array.from(merged.values()).sort((a, b) => String(b.timestampUtc || '').localeCompare(String(a.timestampUtc || '')));
+    if (latestId !== null) result.forEach(item => { item.isLatest = item.id === latestId; });
+    return result;
+  }
+
+  function mergeLogItems(existing, appended) {
+    const merged = new Map((existing || []).map(item => [item.id, item]));
+    (appended || []).forEach(item => merged.set(item.id, item));
+    return Array.from(merged.values()).sort((a, b) => String(b.timestampLocal || '').localeCompare(String(a.timestampLocal || '')));
+  }
+
+  function mergeLayerEntries(existing, appended, keyBuilder) {
+    const merged = new Map();
+    (existing || []).forEach(item => merged.set(keyBuilder(item), item));
+    (appended || []).forEach(item => merged.set(keyBuilder(item), item));
+    return Array.from(merged.values());
+  }
+
+  function updateStatistics(stats, meta) {
+    document.getElementById('stat-points-per-min').innerText = (stats.pointsPerMinute || 0).toFixed(1);
+    document.getElementById('stat-avg-accuracy').innerText = stats.avgAccuracyM ? `${Math.round(stats.avgAccuracyM)}m` : '-';
+    document.getElementById('stat-visible-points').innerText = (meta.visiblePoints || 0).toLocaleString('de-DE');
+    document.getElementById('stat-total-points').innerText = (meta.totalPoints || 0).toLocaleString('de-DE');
+    document.getElementById('stat-session-duration').innerText = formatDuration(stats.sessionDurationSeconds || 0);
+    document.getElementById('stat-zoom-level').innerText = map ? Math.round(map.getZoom()) : '-';
+  }
+
+  function renderLog(items) {
+    currentLogItems = items || [];
+    const body = document.getElementById('live-log-body');
+    body.innerHTML = '';
+    const limit = clampLogLimit(document.getElementById('log-limit').value);
+    const query = document.getElementById('log-search').value.toLowerCase().trim();
+    const filtered = currentLogItems.filter(item => {
+      if (!query) return true;
+      const haystack = `${item.lat.toFixed(5)} ${item.lon.toFixed(5)} ${item.timestampLocal} ${item.requestId}`.toLowerCase();
+      return haystack.indexOf(query) !== -1;
+    }).slice(0, limit);
+
+    if (!filtered.length) {
+      body.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 60px; color: var(--text-3); font-size: 0.95rem;">Keine Punkte im aktuellen Filter.</td></tr>';
+      return;
+    }
+
+    filtered.forEach(item => {
+      const row = document.createElement('tr');
+      row.style.borderBottom = '1px solid var(--surface-2)';
+      const coordText = `${item.lat.toFixed(5)}, ${item.lon.toFixed(5)}`;
+      const timeText = new Date(item.timestampLocal).toLocaleTimeString('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const timeCell = document.createElement('td');
+      timeCell.style.cssText = 'padding: 14px 10px; color: var(--text-2); font-size: 0.9rem;';
+      const relativeSpan = document.createElement('span');
+      relativeSpan.style.color = 'var(--text-3)';
+      relativeSpan.textContent = getRelativeTime(item.timestampLocal);
+      timeCell.append(relativeSpan, ` • ${timeText}`);
+
+      const coordCell = document.createElement('td');
+      coordCell.style.cssText = 'padding: 14px 10px; color: var(--blue); cursor: pointer; user-select: none; border-radius: 4px; font-weight: 500;';
+      coordCell.title = 'Klicken zum Kopieren';
+      coordCell.textContent = coordText;
+
+      const accuracyCell = document.createElement('td');
+      accuracyCell.className = 'log-col-accuracy';
+      accuracyCell.style.cssText = 'padding: 14px 10px; color: var(--mint); font-weight: 500;';
+      accuracyCell.textContent = `${item.accuracyM}m`;
+
+      const sourceCell = document.createElement('td');
+      sourceCell.style.cssText = 'padding: 14px 10px; color: var(--orange); font-size: 0.9rem;';
+      sourceCell.textContent = item.source || 'N/A';
+
+      const modeCell = document.createElement('td');
+      modeCell.className = 'log-col-mode';
+      modeCell.style.cssText = 'padding: 14px 10px; color: var(--teal); font-size: 0.85rem;';
+      modeCell.textContent = item.captureMode || 'N/A';
+
+      const requestCell = document.createElement('td');
+      requestCell.className = 'log-col-request-id';
+      requestCell.style.cssText = 'padding: 14px 10px; color: var(--text-3); font-size: 0.8rem; font-family: monospace;';
+      requestCell.title = item.requestId || 'N/A';
+      requestCell.textContent = (item.requestId || 'N/A').substring(0, 12);
+
+      row.append(timeCell, coordCell, accuracyCell, sourceCell, modeCell, requestCell);
+      coordCell.onclick = async (event) => {
+        event.stopPropagation();
+        try {
+          await navigator.clipboard.writeText(coordText);
+          const original = coordCell.style.backgroundColor;
+          coordCell.style.backgroundColor = 'rgba(16, 185, 129, 0.3)';
+          setTimeout(() => { coordCell.style.backgroundColor = original; }, 300);
+        } catch (error) {
+          console.warn('Clipboard write failed', error);
+          window.prompt('Koordinaten kopieren:', coordText);
+        }
+      };
+      body.appendChild(row);
+    });
+  }
+
+  function applyMapDelta(payload) {
+    if (!lastMapPayload || !payload || !payload.delta) {
+      renderMapPayload(payload);
+      return;
+    }
+    mapRuntimeWarnings = persistentRuntimeWarnings.slice();
+    renderProcessingStatus(payload.processing || null);
+    const merged = JSON.parse(JSON.stringify(lastMapPayload));
+    merged.meta = payload.meta || merged.meta;
+    merged.stats = payload.stats || merged.stats;
+    merged.processing = payload.processing || merged.processing;
+    const delta = payload.delta || {};
+    merged.layers.latestPoint = delta.latestPoint || merged.layers.latestPoint || null;
+
+    if (Array.isArray(delta.appendPoints)) {
+      merged.layers.points = mergePointItems(merged.layers.points || [], delta.appendPoints, merged.layers.latestPoint);
+      renderPoints(merged.layers.points, merged.layers.latestPoint);
+    }
+    if ('replaceHeatmap' in delta) {
+      merged.layers.heatmap = delta.replaceHeatmap || [];
+      renderHeatmap(merged.layers.heatmap);
+    }
+    if ('replacePolylines' in delta) {
+      merged.layers.polylines = delta.replacePolylines || [];
+      renderPolylines(merged.layers.polylines);
+    } else if (Array.isArray(delta.appendPolylines)) {
+      merged.layers.polylines = mergeLayerEntries(
+        merged.layers.polylines || [],
+        delta.appendPolylines,
+        item => JSON.stringify(item.coords || [])
+      );
+      renderPolylines(merged.layers.polylines);
+    }
+    if ('replaceAccuracy' in delta) {
+      merged.layers.accuracy = delta.replaceAccuracy || [];
+      renderAccuracy(merged.layers.accuracy);
+    }
+    if ('replaceSpeed' in delta) {
+      merged.layers.speed = delta.replaceSpeed || [];
+      renderSpeed(merged.layers.speed);
+    } else if (Array.isArray(delta.appendSpeed)) {
+      merged.layers.speed = mergeLayerEntries(
+        merged.layers.speed || [],
+        delta.appendSpeed,
+        item => JSON.stringify(item.coords || [])
+      );
+      renderSpeed(merged.layers.speed);
+    }
+    if ('replaceStops' in delta) {
+      merged.layers.stops = delta.replaceStops || [];
+    } else if (Array.isArray(delta.upsertStops)) {
+      merged.layers.stops = mergeLayerEntries(
+        merged.layers.stops || [],
+        delta.upsertStops,
+        item => `${item.startTimeUtc || ''}:${item.endTimeUtc || ''}`
+      );
+    }
+    if ('replaceStops' in delta || Array.isArray(delta.upsertStops)) {
+      renderStops(merged.layers.stops);
+    }
+    if ('replaceDaytracks' in delta) {
+      merged.layers.daytracks = delta.replaceDaytracks || [];
+    } else if (Array.isArray(delta.upsertDaytracks)) {
+      merged.layers.daytracks = mergeLayerEntries(
+        merged.layers.daytracks || [],
+        delta.upsertDaytracks,
+        item => String(item.day || '')
+      );
+    }
+    if ('replaceDaytracks' in delta || Array.isArray(delta.upsertDaytracks)) {
+      renderDaytracks(merged.layers.daytracks);
+    }
+    if ('replaceSnap' in delta) {
+      merged.layers.snap = delta.replaceSnap || [];
+    } else if (Array.isArray(delta.appendSnap)) {
+      merged.layers.snap = mergeLayerEntries(
+        merged.layers.snap || [],
+        delta.appendSnap,
+        item => JSON.stringify(item.coords || [])
+      );
+    }
+    if ('replaceSnap' in delta || Array.isArray(delta.appendSnap)) {
+      renderSnap(merged.layers.snap);
+    }
+    if (Array.isArray(delta.appendLogItems)) {
+      merged.logItems = mergeLogItems(merged.logItems || currentLogItems || [], delta.appendLogItems);
+      renderLog(merged.logItems || []);
+    }
+
+    lastMapPayload = merged;
+    if (timelinePreviewActive) {
+      const slider = document.getElementById('map-timeline-slider');
+      const pct = slider ? (parseInt(slider.value, 10) / parseInt(slider.max, 10)) : 1;
+      const targetTs = timelineMinTs + (timelineMaxTs - timelineMinTs) * (Number.isFinite(pct) ? pct : 1);
+      applyTimelineFilter(targetTs);
+    } else {
+      updateStatistics(merged.stats || {}, merged.meta || {});
+      applyMapFocus(merged.layers || {});
+    }
+  }
+
+  function updateTraffic(bytes, mbps) {
+    document.getElementById('mbar-mbps').textContent = mbps.toFixed(2);
+    const today = new Date().toISOString().slice(0, 10);
+    const storedDate = storageGet('map-traffic-date');
+    let dailyBytes = storedDate === today ? (parseInt(storageGet('map-traffic-bytes'), 10) || 0) : 0;
+    dailyBytes += bytes;
+    storageSet('map-traffic-date', today);
+    storageSet('map-traffic-bytes', String(dailyBytes));
+    const mb = dailyBytes / 1024 / 1024;
+    document.getElementById('mbar-daily').textContent = mb >= 1 ? `${mb.toFixed(1)} MB` : `${(dailyBytes / 1024).toFixed(0)} KB`;
+  }
+
+  function resetBrowserLocationButton() {
+    const button = document.getElementById('browser-location-btn');
+    if (!button) return;
+    button.innerHTML = '◎ <span>Standort</span>';
+    button.disabled = false;
+    button.title = 'Aktuellen Browser-Standort abrufen';
+  }
+
+  function locateBrowserPosition() {
+    const button = document.getElementById('browser-location-btn');
+    if (!button) return;
+    if (!navigator.geolocation) {
+      alert('Der Browser unterstützt keine Standortabfrage.');
+      return;
+    }
+
+    if (!confirm('Darf dein aktueller Standort präzise abgerufen werden? (Dies kann einige Sekunden dauern)')) {
+      return;
+    }
+
+    button.disabled = true;
+    button.innerHTML = '⌛ <span>Standort</span>';
+    button.title = 'Präziser Standort wird abgerufen…';
+    
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        const accuracy = Math.max(0, Math.round(position.coords.accuracy || 0));
+        
+        map.getSource(SOURCE_IDS.LATEST).setData({
+          type: 'FeatureCollection',
+          features: [{ 
+            type: 'Feature', 
+            geometry: { type: 'Point', coordinates: [lon, lat] }, 
+            properties: { isLatest: true, isBrowser: true, accuracy: accuracy } 
+          }]
+        });
+
+        map.flyTo({ center: [lon, lat], zoom: 17, speed: 1.2, essential: true });
+        resetBrowserLocationButton();
+      },
+      (error) => {
+        resetBrowserLocationButton();
+        let msg = 'Standortabfrage fehlgeschlagen.';
+        if (error.code === 1) msg = 'Standortfreigabe im Browser verweigert.';
+        else if (error.code === 3) msg = 'Zeitüberschreitung (bitte erneut versuchen).';
+        alert(msg);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  }
+
+  function tickRefreshBar() {
+    if (!lastRefreshTime) return;
+    const now = Date.now();
+    const agoSec = Math.round((now - lastRefreshTime) / 1000);
+    const remMs = nextRefreshTime ? Math.max(0, nextRefreshTime - now) : null;
+    const remSec = remMs !== null ? Math.ceil(remMs / 1000) : null;
+    document.getElementById('mbar-ago').textContent = agoSec === 0 ? 'gerade eben' : `vor ${agoSec}s`;
+    document.getElementById('mbar-next').textContent = remSec !== null ? (remSec <= 0 ? 'jetzt…' : `in ${remSec}s`) : '—';
+    const pct = (remMs !== null && POLLING_INTERVAL > 0) ? Math.max(0, Math.min(100, 100 - (remMs / POLLING_INTERVAL * 100))) : 0;
+    document.getElementById('mbar-progress').style.width = `${pct}%`;
+  }
+
+  function formatBytes(value) {
+    const bytes = Number(value) || 0;
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 2 : 1)} MB`;
+  }
+
+  function getLoadingUi() {
+    return {
+      overlay: document.getElementById('map-loading-overlay'),
+      card: document.getElementById('map-loading-card'),
+      title: document.getElementById('map-loading-title'),
+      stage: document.getElementById('map-loading-stage'),
+      mode: document.getElementById('map-loading-mode'),
+      subtext: document.getElementById('map-loading-subtext'),
+      detail: document.getElementById('map-loading-detail'),
+      eta: document.getElementById('map-loading-eta'),
+      phases: document.getElementById('map-loading-phases'),
+      retry: document.getElementById('map-loading-retry'),
+      metricLabel: document.getElementById('map-loading-metric-label'),
+      bytes: document.getElementById('map-loading-bytes'),
+      percent: document.getElementById('map-loading-percent'),
+      bar: document.getElementById('map-loading-bar'),
+      syncPill: document.getElementById('map-sync-pill'),
+      syncPillText: document.getElementById('map-sync-pill-text'),
+    };
+  }
+
+  function parseServerTimingHeader(value) {
+    if (!value) return [];
+    return value.split(',').map(part => part.trim()).filter(Boolean).map(entry => {
+      const segments = entry.split(';').map(part => part.trim()).filter(Boolean);
+      const name = segments.shift() || '';
+      const meta = { name, dur: null, desc: null };
+      segments.forEach(segment => {
+        const [key, rawValue = ''] = segment.split('=');
+        const parsedValue = rawValue.replace(/^"|"$/g, '');
+        if (key === 'dur') meta.dur = Number(parsedValue) || 0;
+        if (key === 'desc') meta.desc = parsedValue;
+      });
+      return meta;
+    });
+  }
+
+  function formatServerTimingDetail(entries) {
+    if (!entries || !entries.length) return 'Serverphasen werden vorbereitet…';
+    const detail = [];
+    const total = entries.find(entry => entry.name === 'total');
+    if (total && total.dur) detail.push(`gesamt ${Math.round(total.dur)} ms`);
+    const relevant = [
+      ['latest_check', 'delta'],
+      ['summary', 'meta'],
+      ['counts', 'query'],
+      ['heatmap', 'heatmap'],
+      ['track_context', 'kontext'],
+      ['track_layers', 'layer'],
+      ['payload', 'payload'],
+      ['serialize', 'json'],
+    ];
+    relevant.forEach(([key, label]) => {
+      const match = entries.find(entry => entry.name === key && entry.dur && entry.dur >= 1);
+      if (match) detail.push(`${label} ${Math.round(match.dur)} ms`);
+    });
+    const cache = entries.find(entry => entry.name === 'cache' && entry.desc);
+    if (cache) detail.push(`cache ${cache.desc}`);
+    return detail.join(' · ') || 'Serverphasen werden vorbereitet…';
+  }
+
+  function setLoadingDetail(text) {
+    const ui = getLoadingUi();
+    if (!ui.detail) return;
+    ui.detail.textContent = text || 'Serverphasen werden vorbereitet…';
+  }
+
+  function updateLoadingPhaseChips(stage, entries = []) {
+    const ui = getLoadingUi();
+    if (!ui.phases) return;
+    const phaseStates = {
+      counts: false,
+      track_layers: false,
+      serialize: false,
+      download: stage === 'download' || stage === 'parse' || stage === 'render',
+      render: stage === 'render',
+    };
+    entries.forEach(entry => {
+      if (entry.name in phaseStates && entry.dur !== null) phaseStates[entry.name] = 'done';
+    });
+    if (stage === 'connect') phaseStates.counts = true;
+    if (stage === 'parse') phaseStates.serialize = true;
+    Array.from(ui.phases.querySelectorAll('span')).forEach(chip => {
+      const key = chip.dataset.phase;
+      chip.classList.remove('is-active', 'is-done');
+      if (phaseStates[key] === 'done') chip.classList.add('is-done');
+      else if (phaseStates[key] === true) chip.classList.add('is-active');
+    });
+  }
+
+  function updateLoadingEta(percentValue) {
+    const ui = getLoadingUi();
+    if (!ui.eta) return;
+    const ratio = Math.max(0, Math.min(0.999, (Number(percentValue) || 0) / 100));
+    if (!loadingStartedAtMs || ratio <= 0.05) {
+      ui.eta.textContent = 'ETA wird berechnet…';
+      return;
+    }
+    const elapsedSeconds = Math.max(0.05, (Date.now() - loadingStartedAtMs) / 1000);
+    const etaSeconds = (elapsedSeconds * (1 - ratio)) / ratio;
+    ui.eta.textContent = `noch ca. ${formatEta(etaSeconds)}`;
+  }
+
+  function getServerPhaseDurations(entries) {
+    if (!entries || !entries.length) return { total: 0, completed: 0 };
+    const orderedKeys = ['latest_check', 'counts', 'heatmap', 'track_context', 'track_layers', 'payload', 'serialize'];
+    let completed = 0;
+    orderedKeys.forEach(key => {
+      const match = entries.find(entry => entry.name === key && entry.dur && entry.dur >= 0);
+      if (match) completed += match.dur;
+    });
+    const total = entries.find(entry => entry.name === 'total' && entry.dur && entry.dur >= 0);
+    return { total: total ? total.dur : completed, completed };
+  }
+
+  function computeLoadingPercent(stage, loadedBytes = null, totalBytes = null, serverTiming = []) {
+    const { total, completed } = getServerPhaseDurations(serverTiming);
+    const safeLoaded = Number.isFinite(Number(loadedBytes)) ? Math.max(0, Number(loadedBytes)) : 0;
+    const safeTotal = Number.isFinite(Number(totalBytes)) && Number(totalBytes) > 0 ? Number(totalBytes) : null;
+    const serverBase = total > 0 ? Math.max(6, Math.min(58, 6 + (completed / total) * 52)) : 12;
+    if (stage === 'connect') return Math.round(Math.max(4, Math.min(18, serverBase * 0.35)));
+    if (stage === 'download') {
+      if (!safeTotal) return Math.round(Math.max(16, Math.min(72, serverBase + (safeLoaded > 0 ? 10 : 0))));
+      const ratio = Math.max(0, Math.min(1, safeLoaded / safeTotal));
+      return Math.round(Math.max(18, Math.min(84, serverBase + ratio * (84 - serverBase))));
+    }
+    if (stage === 'parse') return Math.round(Math.max(86, Math.min(93, serverBase + 28)));
+    if (stage === 'render') return Math.round(Math.max(94, Math.min(99, serverBase + 40)));
+    return 0;
+  }
+
+  function setLoadingStage(stage, subtext = null, options = {}) {
+    const ui = getLoadingUi();
+    if (!ui.card || !ui.stage || !ui.title || !ui.subtext || !ui.metricLabel || !ui.bytes || !ui.percent) return;
+    const { loadedBytes = null, totalBytes = null, serverTiming = [] } = options;
+    const stageMap = {
+      connect: { label: 'Verbinden', title: 'Synchronisierung läuft', subtext: 'Verbindung wird aufgebaut…', color: '#0A84FF', metric: 'Gesamt' },
+      download: { label: 'Download', title: 'Kartendaten werden geladen', subtext: 'Antwort wird heruntergeladen…', color: '#30D158', metric: 'Gesamt' },
+      parse: { label: 'Parse', title: 'Antwort wird verarbeitet', subtext: 'JSON wird dekodiert…', color: '#FF9F0A', metric: 'Gesamt' },
+      render: { label: 'Render', title: 'Ansicht wird aktualisiert', subtext: 'Layer und UI werden gerendert…', color: '#BF5AF2', metric: 'Gesamt' },
+      error: { label: 'Fehler', title: 'Aktualisierung fehlgeschlagen', subtext: 'Kartendaten konnten nicht geladen werden.', color: '#FF453A', metric: 'Status', progress: null },
+    };
+    const current = stageMap[stage] || stageMap.connect;
+    ui.card.dataset.stage = stage;
+    ui.title.textContent = current.title;
+    ui.subtext.textContent = subtext || current.subtext;
+    ui.stage.textContent = current.label;
+    ui.metricLabel.textContent = current.metric;
+    ui.stage.style.color = current.color;
+    ui.stage.style.background = `color-mix(in srgb, ${current.color} 14%, transparent)`;
+    ui.stage.style.borderColor = `color-mix(in srgb, ${current.color} 28%, transparent)`;
+    if (stage !== 'error') {
+      const percent = computeLoadingPercent(stage, loadedBytes, totalBytes, serverTiming);
+      ui.percent.textContent = `${percent}%`;
+      updateLoadingEta(percent);
+    }
+    if (ui.retry) ui.retry.style.display = stage === 'error' ? 'inline-flex' : 'none';
+    if (stage === 'parse') {
+      ui.bytes.textContent = 'Download abgeschlossen';
+    } else if (stage === 'render') {
+      ui.bytes.textContent = 'Daten übernommen';
+    } else if (stage === 'error') {
+      ui.bytes.textContent = 'Aktualisierung abgebrochen';
+      ui.percent.textContent = '—';
+      if (ui.eta) ui.eta.textContent = 'ETA nicht verfügbar';
+    }
+    updateLoadingPhaseChips(stage, serverTiming);
+  }
+
+  function setLoadingMode(text, color = '#64D2FF') {
+    const ui = getLoadingUi();
+    if (!ui.mode) return;
+    ui.mode.textContent = text;
+    ui.mode.style.color = color;
+    ui.mode.style.background = `color-mix(in srgb, ${color} 14%, transparent)`;
+    ui.mode.style.borderColor = `color-mix(in srgb, ${color} 28%, transparent)`;
+  }
+
+  function syncLoadingOverlayState() {
+    const wrap = document.getElementById('map-wrap');
+    const ui = getLoadingUi();
+    if (!wrap || !ui.overlay || !ui.card) return;
+    const active = loadingOverlayShown && ui.overlay.style.display !== 'none';
+    wrap.dataset.loadingVisible = active ? '1' : '0';
+    const offset = active ? Math.ceil(ui.card.offsetHeight + 14) : 0;
+    wrap.style.setProperty('--map-loading-control-offset', `${offset}px`);
+  }
+
+  function showSyncPill(text, mode = 'info', durationMs = LOADING_OVERLAY_PULSE_MS) {
+    const ui = getLoadingUi();
+    if (!ui.syncPill || !ui.syncPillText) return;
+    clearTimeout(loadingSyncPillTimer);
+    ui.syncPillText.textContent = text;
+    ui.syncPill.dataset.mode = mode;
+    ui.syncPill.classList.add('is-visible');
+    loadingSyncPillTimer = setTimeout(() => {
+      ui.syncPill.classList.remove('is-visible');
+    }, durationMs);
+  }
+
+  function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  function updateLoadingOverlay(loadedBytes, totalBytes = null, serverTiming = []) {
+    const ui = getLoadingUi();
+    if (!ui.subtext || !ui.bytes || !ui.percent || !ui.bar || !ui.card) return;
+
+    const loaded = Math.max(0, Number(loadedBytes) || 0);
+    const total = totalBytes !== null && Number.isFinite(Number(totalBytes)) && Number(totalBytes) > 0 ? Number(totalBytes) : null;
+
+    ui.bytes.textContent = total ? `${formatBytes(loaded)} / ${formatBytes(total)}` : `${formatBytes(loaded)} geladen`;
+
+    if (total) {
+      ui.card.dataset.indeterminate = '0';
+      const overallPercent = computeLoadingPercent('download', loaded, total, serverTiming);
+      ui.percent.textContent = `${overallPercent}%`;
+      setLoadingStage('download', loaded >= total ? 'Download abgeschlossen, Daten werden übernommen…' : 'Antwort wird heruntergeladen…', { loadedBytes: loaded, totalBytes: total, serverTiming });
+      ui.bar.style.opacity = '1';
+      ui.bar.style.width = `${overallPercent}%`;
+      ui.bar.style.background = 'linear-gradient(90deg,#0A84FF 0%,#30D158 55%,#64D2FF 100%)';
+      ui.bar.style.backgroundPositionX = '0px';
+      ui.bar.style.filter = 'none';
+    } else {
+      ui.card.dataset.indeterminate = loaded > 0 ? '1' : '0';
+      ui.percent.textContent = `${computeLoadingPercent(loaded > 0 ? 'download' : 'connect', loaded, total, serverTiming)}%`;
+      setLoadingStage(loaded > 0 ? 'download' : 'connect', loaded > 0 ? 'Datenstrom aktiv…' : 'Verbindung wird aufgebaut…', { loadedBytes: loaded, totalBytes: total, serverTiming });
+      ui.bar.style.opacity = loaded > 0 ? '0.9' : '1';
+      ui.bar.style.width = `${computeLoadingPercent(loaded > 0 ? 'download' : 'connect', loaded, total, serverTiming)}%`;
+      ui.bar.style.background = 'linear-gradient(90deg,#0A84FF 0%,#30D158 55%,#64D2FF 100%)';
+      ui.bar.style.backgroundPositionX = '0px';
+      ui.bar.style.filter = 'none';
+    }
+    syncLoadingOverlayState();
+  }
+
+  function showLoadingOverlay(immediate = false) {
+    const ui = getLoadingUi();
+    if (!ui.overlay) return;
+    clearTimeout(loadingOverlayTimer);
+    loadingStartedAtMs = Date.now();
+    setLoadingDetail('Serverphasen werden vorbereitet…');
+    if (ui.eta) ui.eta.textContent = 'ETA wird berechnet…';
+    updateLoadingPhaseChips('connect', []);
+    if (immediate) {
+      ui.overlay.style.display = 'flex';
+      loadingOverlayShown = true;
+      syncLoadingOverlayState();
+      return;
+    }
+    loadingOverlayTimer = setTimeout(() => {
+      ui.overlay.style.display = 'flex';
+      loadingOverlayShown = true;
+      syncLoadingOverlayState();
+    }, LOADING_OVERLAY_DELAY_MS);
+  }
+
+  function hideLoadingOverlay() {
+    const ui = getLoadingUi();
+    clearTimeout(loadingOverlayTimer);
+    loadingOverlayShown = false;
+    loadingStartedAtMs = 0;
+    if (ui.overlay) ui.overlay.style.display = 'none';
+    syncLoadingOverlayState();
+  }
+
+  async function readResponseTextWithProgress(response) {
+    const totalBytes = parseInt(response.headers.get('content-length') || '', 10);
+    const serverTiming = parseServerTimingHeader(response.headers.get('server-timing'));
+    if (!response.body || !response.body.getReader) {
+      const text = await response.text();
+      const fallbackBytes = supportsTextEncoder ? new TextEncoder().encode(text).length : text.length;
+      updateLoadingOverlay(fallbackBytes, Number.isFinite(totalBytes) ? totalBytes : fallbackBytes, serverTiming);
+      return text;
+    }
+    const reader = response.body.getReader();
+    const chunks = [];
+    let loadedBytes = 0;
+    updateLoadingOverlay(0, Number.isFinite(totalBytes) ? totalBytes : null, serverTiming);
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) {
+        chunks.push(value);
+        loadedBytes += value.byteLength;
+        updateLoadingOverlay(loadedBytes, Number.isFinite(totalBytes) ? totalBytes : null, serverTiming);
+      }
+    }
+    const merged = new Uint8Array(loadedBytes);
+    let offset = 0;
+    chunks.forEach(chunk => {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
+    });
+    if (supportsTextDecoder) return new TextDecoder().decode(merged);
+    let fallbackText = '';
+    for (let i = 0; i < merged.length; i += 1) fallbackText += String.fromCharCode(merged[i]);
+    try {
+      return decodeURIComponent(escape(fallbackText));
+    } catch (error) {
+      return fallbackText;
+    }
+  }
+
+  async function updateMap() {
+    if (mapUpdateInFlight) {
+      pendingMapRefresh = true;
+      return;
+    }
+    const statsText = document.getElementById('map-stats-text');
+    const badge = document.getElementById('map-points-badge');
+    const apiStatus = document.getElementById('api-status');
+    const params = buildCurrentFilters();
+    const baseQuery = params.toString();
+    const currentBbox = getViewportBbox();
+    const currentZoom = map ? map.getZoom() : 0;
+
+    // OPTIMIZATION: Check if shift is significant
+    if (!isManualRefresh && lastMapPayload && !isShiftSignificant(currentBbox, currentZoom) && lastMapBaseQueryKey === baseQuery) {
+        console.log('Skipping map update: shift not significant');
+        return;
+    }
+
+    // Lokale Daten abrufen für sofortige Anzeige (nur wenn kein Delta-Mode oder beim ersten Laden)
+    if (!lastMapPayload) {
+      const localPoints = await getLocalPoints(buildCurrentFilterState());
+      if (localPoints.length > 0) {
+        const fakePayload = { 
+          layers: { points: localPoints, latestPoint: localPoints[0] },
+          meta: { visiblePoints: localPoints.length, totalPoints: localPoints.length },
+          stats: {} 
+        };
+        renderMapPayload(fakePayload);
+        statsText.innerText = 'Lade lokale Daten…';
+      }
+    }
+
+    if (!isManualRefresh && lastMapBaseQueryKey === baseQuery && lastVisiblePointTsUtc) {
+      params.set('latest_known_ts', lastVisiblePointTsUtc);
+    }
+    const url = `/api/map-data?${params.toString()}`;
+    const isInitialLoadRequest = !lastMapPayload;
+
+    try {
+      mapUpdateInFlight = true;
+      pendingMapRefresh = false;
+      const metaQueryKey = buildMetaFilters().toString();
+      const shouldRefreshMeta =
+        isInitialLoadRequest ||
+        isManualRefresh ||
+        !lastMetaPayload ||
+        lastMetaQueryKey !== metaQueryKey ||
+        (Date.now() - lastMetaFetchedAtMs) >= META_REFRESH_MIN_MS;
+      if (shouldRefreshMeta) {
+        updateMapMeta({ force: isInitialLoadRequest || isManualRefresh || lastMetaQueryKey !== metaQueryKey }).catch(error => {
+          if (error.name !== 'AbortError') console.warn('Map meta update failed', error);
+        });
+      }
+      apiStatus.textContent = '● LADEN';
+      apiStatus.style.color = 'var(--orange)';
+      setLoadingMode((!isManualRefresh && lastMapBaseQueryKey === baseQuery && lastVisiblePointTsUtc) ? 'Delta-Check' : 'Vollupdate');
+      setLoadingStage('connect', 'Server prüft aktuelle Ansicht…');
+      showLoadingOverlay(isManualRefresh || isInitialLoadRequest);
+      updateLoadingOverlay(0, null);
+      currentFetchController = supportsAbortController ? new AbortController() : null;
+      const fetchStart = Date.now();
+      const headers = lastETag && !isManualRefresh ? { 'If-None-Match': lastETag } : {};
+      const fetchOptions = { credentials: 'same-origin', headers };
+      if (currentFetchController) fetchOptions.signal = currentFetchController.signal;
+      const response = await fetch(url, fetchOptions);
+      const fetchMs = Date.now() - fetchStart;
+      const serverTiming = parseServerTimingHeader(response.headers.get('server-timing'));
+      setLoadingDetail(formatServerTimingDetail(serverTiming));
+
+      if (response.status === 304 && lastMapPayload) {
+        if (loadingOverlayShown || isManualRefresh) {
+          showLoadingOverlay(true);
+          setLoadingMode('Delta-Noop', '#30D158');
+          setLoadingStage('render', 'Keine Änderungen in der aktuellen Ansicht', { serverTiming });
+          setLoadingDetail(`${formatServerTimingDetail(serverTiming)} · nichts neu im Viewport`);
+          await wait(LOADING_OVERLAY_PULSE_MS);
+        } else {
+          showSyncPill('Keine Änderungen im Viewport', 'noop');
+        }
+        hideLoadingOverlay();
+        apiStatus.textContent = '● ONLINE';
+        apiStatus.style.color = 'var(--mint)';
+        const deltaMode = response.headers.get('x-map-delta') === 'noop';
+        document.getElementById('api-info-ms').textContent = deltaMode ? `${fetchMs} ms (delta)` : `${fetchMs} ms (cached)`;
+        lastRefreshTime = Date.now();
+        nextRefreshTime = Date.now() + POLLING_INTERVAL;
+        isManualRefresh = false;
+        renderProcessingStatus((lastMapPayload && lastMapPayload.processing) || (lastMetaPayload && lastMetaPayload.processing) || null);
+        return;
+      }
+
+      if (!response.ok) {
+        let errorDetail = '';
+        try {
+          const errorPayload = await response.json();
+          if (errorPayload && errorPayload.detail) errorDetail = `: ${JSON.stringify(errorPayload.detail)}`;
+        } catch (parseError) { errorDetail = ''; }
+        throw new Error(`HTTP ${response.status}${errorDetail}`);
+      }
+      setLoadingMode(response.headers.get('x-map-delta') === 'noop' ? 'Delta-Noop' : 'Download');
+      lastETag = response.headers.get('etag') || null;
+      const text = await readResponseTextWithProgress(response);
+      if (loadingOverlayShown) setLoadingStage('parse', null, { serverTiming });
+      const payload = JSON.parse(text);
+      setLoadingMode(payload.meta && payload.meta.deltaMode ? 'Delta-Update' : 'Vollupdate', payload.meta && payload.meta.deltaMode ? '#64D2FF' : '#64D2FF');
+      if (loadingOverlayShown) setLoadingStage('render', null, { serverTiming });
+      setLoadingDetail(formatServerTimingDetail(serverTiming));
+      lastMapBaseQueryKey = baseQuery;
+      lastVisiblePointTsUtc = payload && payload.meta ? payload.meta.latestVisiblePointTsUtc || null : null;
+      lastFetchedBbox = currentBbox;
+      lastFetchedZoom = currentZoom;
+      isManualRefresh = false;
+      lastRefreshTime = Date.now();
+      nextRefreshTime = Date.now() + POLLING_INTERVAL;
+      updateTraffic(text.length, fetchMs > 0 ? (text.length / 1024 / 1024) / (fetchMs / 1000) : 0);
+      tickRefreshBar();
+
+      // Neu empfangene Punkte lokal speichern
+      if (payload.layers && payload.layers.points) await savePointsLocally(payload.layers.points);
+      if (payload.delta && payload.delta.appendPoints) await savePointsLocally(payload.delta.appendPoints);
+
+      if (payload.meta && payload.meta.deltaMode) applyMapDelta(payload);
+      else {
+        lastMapPayload = payload;
+        renderMapPayload(payload);
+      }
+      updateStatistics(payload.stats || {}, payload.meta || {});
+      if (!(payload.meta && payload.meta.deltaMode)) renderLog(payload.logItems || []);
+
+      const visible = payload && payload.meta ? payload.meta.visiblePoints || 0 : 0;
+      const total = lastMetaPayload && lastMetaPayload.meta && lastMetaPayload.meta.totalPoints != null
+        ? lastMetaPayload.meta.totalPoints
+        : payload && payload.meta && payload.meta.totalPoints != null
+          ? payload.meta.totalPoints
+          : 0;
+      const viewportMode = !!(payload && payload.meta && payload.meta.bbox);
+      const baseText = visible
+        ? `${total.toLocaleString('de-DE')} Punkte gesamt · ${visible.toLocaleString('de-DE')} in der aktuellen Ansicht${viewportMode ? ' (viewport-basiert)' : ''}`
+        : 'Keine Punkte im gewählten Zeitraum.';
+      statsText.innerText = mapRuntimeWarnings.length ? `${baseText} · Hinweise: ${mapRuntimeWarnings.join(', ')}` : baseText;
+      statsText.style.color = mapRuntimeWarnings.length ? 'var(--orange)' : 'var(--text-muted)';
+      badge.textContent = `${visible.toLocaleString('de-DE')} geladen`;
+      badge.style.display = visible ? 'inline' : 'none';
+      document.getElementById('api-info-points').textContent = viewportMode
+        ? `${visible.toLocaleString('de-DE')} / ${total.toLocaleString('de-DE')} sichtbar/gesamt · viewport`
+        : `${visible.toLocaleString('de-DE')} / ${total.toLocaleString('de-DE')} sichtbar/gesamt · fallback`;
+      document.getElementById('api-info-ms').textContent = `${fetchMs} ms`;
+      document.getElementById('api-info-url').textContent = url.length > 48 ? `${url.slice(0, 48)}…` : url;
+      apiStatus.textContent = '● ONLINE';
+      apiStatus.style.color = 'var(--mint)';
+      if (payload.meta && payload.meta.deltaMode && !loadingOverlayShown) showSyncPill('Delta aktualisiert', 'delta');
+      hideLoadingOverlay();
+
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+      console.error('Map update error:', error);
+      showLoadingOverlay(true);
+      setLoadingMode('Fehler', '#FF453A');
+      setLoadingStage('error', error.message ? `Kartendaten: ${error.message}` : 'Kartendaten konnten nicht geladen werden.');
+      setLoadingDetail('Prüfe Netzwerk, Filter oder Serverantwort und versuche es erneut.');
+      showSyncPill('Aktualisierung fehlgeschlagen', 'error', 1200);
+      await wait(700);
+      hideLoadingOverlay();
+
+      statsText.innerText = `Fehler beim Laden der Kartendaten${error.message ? ` (${error.message})` : ''}.`;
+      statsText.style.color = 'var(--c-crit)';
+      apiStatus.textContent = '● FEHLER';
+      apiStatus.style.color = '#ef4444';
+    } finally {
+      mapUpdateInFlight = false;
+      currentFetchController = null;
+      document.getElementById('btn-text').style.display = 'inline';
+      document.getElementById('btn-spinner').style.display = 'none';
+      if (pendingMapRefresh) {
+        pendingMapRefresh = false;
+        scheduleTask(() => updateMap());
+      } else {
+        scheduleNextMapUpdate(POLLING_INTERVAL);
+      }
+    }
+  }
+
+  const debouncedMapRefresh = debounce(() => {
+    lastETag = null;
+    updateMap();
+  }, FILTER_DEBOUNCE);
+
+  let pitch3DActive = storageGet('map-pitch-3d') === '1';
+
+  // Phase 5: Timeline State
+  let timelinePoints = [];
+  let timelineMinTs = 0;
+  let timelineMaxTs = 0;
+  let timelineIsPlaying = false;
+  let timelinePlayTimer = null;
+  let timelinePreviewActive = false;
+  let timelineVisible = storageGet('map-timeline-visible', '1') !== '0';
+  let timelinePlaybackRate = parseFloat(storageGet('map-timeline-speed', '1')) || 1;
+  let timelineStepMode = storageGet('map-timeline-step', 'points:1') || 'points:1';
+  let timelineReplayLive = storageGet('map-timeline-replay-live', '1') !== '0';
+  let timelineAutoFollow = storageGet('map-timeline-autofollow', '1') !== '0';
+  let timelineSourceMode = storageGet('map-timeline-source', 'viewport') || 'viewport';
+  let timelineSelectedTs = parseInt(storageGet('map-timeline-selected-ts', ''), 10) || null;
+  let timelineLoadedQueryKey = null;
+  let timelineSourcePoints = [];
+  let timelineMarkers = [];
+  let timelineSourceSummaryText = null;
+  let timelineFetchToken = 0;
+  let timelinePreviewToken = 0;
+  let timelinePreviewController = null;
+  const timelinePreviewCache = new Map();
+  let timelineActivityNodes = [];
+  let timelineActivityBucketCount = 0;
+
+  function cancelTimelinePreviewRequests() {
+    timelinePreviewToken += 1;
+    if (timelinePreviewController && typeof timelinePreviewController.abort === 'function') {
+      timelinePreviewController.abort();
+    }
+    timelinePreviewController = null;
+  }
+
+  function normalizeTimelinePoint(point) {
+    return {
+      id: point.id,
+      lat: point.lat != null ? point.lat : point.latitude,
+      lon: point.lon != null ? point.lon : point.longitude,
+      timestampUtc: point.timestampUtc || point.point_timestamp_utc,
+      point_timestamp_utc: point.point_timestamp_utc || point.timestampUtc,
+      timestampLocal: point.timestampLocal || point.point_timestamp_local || point.point_timestamp_utc,
+      accuracyM: point.accuracyM != null ? point.accuracyM : point.horizontal_accuracy_m,
+      source: point.source,
+      session_id: point.session_id || point.sessionId,
+      captureMode: point.captureMode || point.capture_mode,
+      isLatest: !!point.isLatest
+    };
+  }
+
+  function haversineMeters(a, b) {
+    const toRad = deg => deg * (Math.PI / 180);
+    const radius = 6371000;
+    const dLat = toRad(b.lat - a.lat);
+    const dLon = toRad(b.lon - a.lon);
+    const lat1 = toRad(a.lat);
+    const lat2 = toRad(b.lat);
+    const root = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+    return 2 * radius * Math.asin(Math.sqrt(root));
+  }
+
+  function buildClientTimelineMarkers(points) {
+    const markers = [];
+    let previousDay = null;
+    for (let index = 0; index < points.length; index += 1) {
+      const point = points[index];
+      const day = String(point.timestampLocal || point.timestampUtc || '').slice(0, 10);
+      if (day && day !== previousDay) {
+        markers.push({ type: 'day', timestampUtc: point.timestampUtc, label: day });
+      }
+      previousDay = day;
+    }
+    let anchorIndex = 0;
+    while (anchorIndex < points.length) {
+      const anchor = points[anchorIndex];
+      let cursor = anchorIndex + 1;
+      while (cursor < points.length && haversineMeters(anchor, points[cursor]) <= STOP_RADIUS_M) cursor += 1;
+      if (cursor - anchorIndex > 1) {
+        const startTs = new Date(anchor.timestampUtc).getTime();
+        const endTs = new Date(points[cursor - 1].timestampUtc).getTime();
+        const durationMin = Math.round((endTs - startTs) / 60000);
+        if (durationMin >= STOP_MIN_DUR) {
+          markers.push({ type: 'stop', timestampUtc: anchor.timestampUtc, label: `Stop ${durationMin} min`, durationMin });
+        }
+      }
+      anchorIndex = Math.max(cursor, anchorIndex + 1);
+    }
+    return markers;
+  }
+
+  function buildTimelineQueryKey() {
+    const params = buildCurrentFilters();
+    params.delete('zoom');
+    params.delete('log_limit');
+    params.delete('route_time_gap_min');
+    params.delete('route_dist_gap_m');
+    params.delete('stop_min_duration_min');
+    params.delete('stop_radius_m');
+    params.delete('include_points');
+    params.delete('include_heatmap');
+    params.delete('include_polyline');
+    params.delete('include_accuracy');
+    params.delete('include_labels');
+    params.delete('include_speed');
+    params.delete('include_stops');
+    params.delete('include_daytrack');
+    params.delete('include_snap');
+    params.delete('latest_known_ts');
+    if (timelineSourceMode !== 'viewport') params.delete('bbox');
+    return JSON.stringify({
+      mode: timelineSourceMode,
+      query: params.toString(),
+    });
+  }
+
+  function buildTimelineFetchUrl() {
+    const params = buildCurrentFilters();
+    params.delete('zoom');
+    params.delete('log_limit');
+    params.delete('route_time_gap_min');
+    params.delete('route_dist_gap_m');
+    params.delete('stop_min_duration_min');
+    params.delete('stop_radius_m');
+    params.delete('include_points');
+    params.delete('include_heatmap');
+    params.delete('include_polyline');
+    params.delete('include_accuracy');
+    params.delete('include_labels');
+    params.delete('include_speed');
+    params.delete('include_stops');
+    params.delete('include_daytrack');
+    params.delete('include_snap');
+    params.delete('latest_known_ts');
+    if (timelineSourceMode !== 'viewport') params.delete('bbox');
+    params.set('limit', String(Math.max(2000, MAP_MAX_POINTS)));
+    return `/api/timeline?${params.toString()}`;
+  }
+
+  function buildTimelinePreviewUrl(selectedTs) {
+    const params = buildCurrentFilters();
+    params.delete('latest_known_ts');
+    params.set('include_heatmap', 'false');
+    params.set('include_speed', 'false');
+    params.set('include_stops', 'false');
+    params.set('include_daytrack', 'false');
+    params.set('include_snap', 'false');
+    if (timelineSourceMode === 'filter') params.delete('bbox');
+    params.set('date_to', new Date(selectedTs).toISOString());
+    return `/api/timeline-preview?${params.toString()}`;
+  }
+
+  function buildTimelineMarkerStrip() {
+    const strip = document.getElementById('timeline-marker-strip');
+    if (!strip) return;
+    if (!timelineMarkers.length || timelineMaxTs <= timelineMinTs) {
+      strip.innerHTML = '';
+      return;
+    }
+    strip.innerHTML = timelineMarkers.map(marker => {
+      const ts = new Date(marker.timestampUtc).getTime();
+      const ratio = Math.max(0, Math.min(1, (ts - timelineMinTs) / Math.max(1, (timelineMaxTs - timelineMinTs))));
+      const color = marker.type === 'stop' ? 'rgba(191,90,242,0.95)' : 'rgba(255,214,10,0.95)';
+      const title = `${marker.type === 'stop' ? 'Stop' : 'Tag'} · ${marker.label}`;
+      return `<span title="${escapeHtml(title)}" style="position:absolute;left:calc(${(ratio * 100).toFixed(3)}% - 1px);top:0;width:2px;height:10px;border-radius:999px;background:${color};opacity:0.92;"></span>`;
+    }).join('');
+  }
+
+  function buildTimelineActivityStrip() {
+    const strip = document.getElementById('timeline-activity-strip');
+    if (!strip) return;
+    if (timelinePoints.length < 2 || timelineMaxTs <= timelineMinTs) {
+      strip.innerHTML = '';
+      timelineActivityNodes = [];
+      timelineActivityBucketCount = 0;
+      return;
+    }
+    const bucketCount = Math.max(24, Math.min(60, Math.round((document.getElementById('map-timeline-card')?.clientWidth || 320) / 8)));
+    if (timelineActivityBucketCount !== bucketCount || timelineActivityNodes.length !== bucketCount) {
+      strip.innerHTML = '';
+      timelineActivityNodes = [];
+      timelineActivityBucketCount = bucketCount;
+      for (let index = 0; index < bucketCount; index += 1) {
+        const node = document.createElement('span');
+        node.style.flex = '1';
+        node.style.borderRadius = '999px';
+        strip.appendChild(node);
+        timelineActivityNodes.push(node);
+      }
+    }
+    const buckets = new Array(bucketCount).fill(0);
+    timelinePoints.forEach(point => {
+      const ts = new Date(point.timestampUtc || point.point_timestamp_utc).getTime();
+      const ratio = Math.max(0, Math.min(0.9999, (ts - timelineMinTs) / Math.max(1, (timelineMaxTs - timelineMinTs))));
+      buckets[Math.min(bucketCount - 1, Math.floor(ratio * bucketCount))] += 1;
+    });
+    const maxBucket = Math.max(...buckets, 1);
+    buckets.forEach((count, index) => {
+      const height = Math.max(3, Math.round((count / maxBucket) * 18));
+      const ts = timelineMinTs + ((index + 0.5) / bucketCount) * (timelineMaxTs - timelineMinTs);
+      const active = timelineSelectedTs && ts <= timelineSelectedTs;
+      const node = timelineActivityNodes[index];
+      if (!node) return;
+      node.style.height = `${height}px`;
+      node.style.background = active ? 'rgba(48,209,88,0.95)' : 'rgba(255,255,255,0.16)';
+    });
+  }
+
+  function findTimelineIndexAtOrBefore(targetTs) {
+    if (!timelinePoints.length) return -1;
+    let low = 0;
+    let high = timelinePoints.length - 1;
+    let best = -1;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const ts = new Date(timelinePoints[mid].timestampUtc || timelinePoints[mid].point_timestamp_utc).getTime();
+      if (ts <= targetTs) {
+        best = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return best < 0 ? 0 : best;
+  }
+
+  function getTimelinePointTs(index) {
+    if (index < 0 || index >= timelinePoints.length) return null;
+    return new Date(timelinePoints[index].timestampUtc || timelinePoints[index].point_timestamp_utc).getTime();
+  }
+
+  function getNextTimelineTimestamp(currentTs, direction = 1) {
+    if (!timelinePoints.length) return null;
+    const mode = String(timelineStepMode || 'points:1');
+    if (mode.startsWith('points:')) {
+      const stepPoints = Math.max(1, parseInt(mode.split(':')[1], 10) || 1);
+      const currentIndex = findTimelineIndexAtOrBefore(currentTs);
+      const nextIndex = Math.max(0, Math.min(timelinePoints.length - 1, currentIndex + (stepPoints * direction)));
+      return getTimelinePointTs(nextIndex);
+    }
+    if (mode.startsWith('seconds:')) {
+      const seconds = Math.max(1, parseInt(mode.split(':')[1], 10) || 30);
+      const targetTs = currentTs + (seconds * 1000 * direction);
+      return Math.max(timelineMinTs, Math.min(timelineMaxTs, targetTs));
+    }
+    return null;
+  }
+
+  function applyTimelineAutoFollow(latestPoint) {
+    if (!timelineAutoFollow || !latestPoint || !map) return;
+    suppressedViewportRefreshes += 1;
+    map.easeTo({ center: [latestPoint.lon, latestPoint.lat], duration: 280, essential: true });
+  }
+
+  function buildLocalTimelinePreviewPayload(selectedTs) {
+    if (!lastMapPayload) return null;
+    const cutoff = Number.isFinite(selectedTs) ? selectedTs : timelineMaxTs;
+    const sourcePoints = (timelinePoints || []).filter(point => new Date(point.timestampUtc || point.point_timestamp_utc || 0).getTime() <= cutoff);
+    const previewPoints = sourcePoints
+      .slice()
+      .sort((a, b) => String(b.timestampUtc || b.point_timestamp_utc || '').localeCompare(String(a.timestampUtc || a.point_timestamp_utc || '')))
+      .map(point => Object.assign({}, point, { isLatest: false }));
+    const latestPoint = previewPoints.length ? Object.assign({}, previewPoints[0], { isLatest: true }) : null;
+    const filteredLog = (lastMapPayload.logItems || [])
+      .filter(item => new Date(item.timestampUtc || item.timestampLocal || 0).getTime() <= cutoff)
+      .sort((a, b) => String(b.timestampUtc || b.timestampLocal || '').localeCompare(String(a.timestampUtc || a.timestampLocal || '')));
+    const avgAccuracy = previewPoints.length
+      ? previewPoints.reduce((sum, point) => sum + (Number(point.accuracyM) || 0), 0) / previewPoints.length
+      : 0;
+    const firstTs = previewPoints.length ? new Date(previewPoints[previewPoints.length - 1].timestampUtc || previewPoints[previewPoints.length - 1].point_timestamp_utc || 0).getTime() : 0;
+    const lastTs = previewPoints.length ? new Date(previewPoints[0].timestampUtc || previewPoints[0].point_timestamp_utc || 0).getTime() : 0;
+    const durationSeconds = previewPoints.length > 1 ? Math.max(0, Math.round((lastTs - firstTs) / 1000)) : 0;
+    const pointsPerMinute = durationSeconds > 0 ? (previewPoints.length / (durationSeconds / 60)) : previewPoints.length;
+    return {
+      processing: lastMapPayload.processing || null,
+      meta: Object.assign({}, lastMapPayload.meta || {}, { visiblePoints: previewPoints.length }),
+      stats: Object.assign({}, lastMapPayload.stats || {}, {
+        avgAccuracyM: avgAccuracy,
+        pointsPerMinute,
+        sessionDurationSeconds: durationSeconds
+      }),
+      layers: Object.assign({}, lastMapPayload.layers || {}, {
+        points: previewPoints,
+        latestPoint,
+        heatmap: [],
+        polylines: [],
+        accuracy: [],
+        speed: [],
+        stops: [],
+        daytracks: [],
+        snap: []
+      }),
+      logItems: filteredLog
+    };
+  }
+
+  async function loadTimelinePreview(selectedTs) {
+    if (!timelinePreviewActive || !lastMapPayload) return;
+    const cacheKey = `${buildCurrentFilters().toString()}::${Math.floor(selectedTs / 1000)}`;
+    if (timelinePreviewCache.has(cacheKey)) {
+      const cached = timelinePreviewCache.get(cacheKey);
+      renderMapPayload(cached, { skipFocus: true, skipTimeline: true });
+      renderLog(cached.logItems || []);
+      updateStatistics(cached.stats || {}, cached.meta || {});
+      applyTimelineAutoFollow(cached.layers && cached.layers.latestPoint ? cached.layers.latestPoint : null);
+      return;
+    }
+    const token = ++timelinePreviewToken;
+    if (timelinePreviewController && typeof timelinePreviewController.abort === 'function') timelinePreviewController.abort();
+    timelinePreviewController = supportsAbortController ? new AbortController() : null;
+    try {
+      const response = await fetch(buildTimelinePreviewUrl(selectedTs), {
+        credentials: 'same-origin',
+        signal: timelinePreviewController ? timelinePreviewController.signal : undefined,
+      });
+      if (!response.ok) throw new Error(`Timeline preview HTTP ${response.status}`);
+      const payload = await response.json();
+      if (token !== timelinePreviewToken) return;
+      timelinePreviewCache.set(cacheKey, payload);
+      if (timelinePreviewCache.size > 24) timelinePreviewCache.delete(timelinePreviewCache.keys().next().value);
+      renderMapPayload(payload, { skipFocus: true, skipTimeline: true });
+      renderLog(payload.logItems || []);
+      updateStatistics(payload.stats || {}, payload.meta || {});
+      applyTimelineAutoFollow(payload.layers && payload.layers.latestPoint ? payload.layers.latestPoint : null);
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+      console.warn('Timeline-Vorschau nutzt lokalen Fallback:', error);
+      const fallback = buildLocalTimelinePreviewPayload(selectedTs);
+      if (fallback) {
+        renderMapPayload(fallback, { skipFocus: true, skipTimeline: true });
+        renderLog(fallback.logItems || []);
+        updateStatistics(fallback.stats || {}, fallback.meta || {});
+        applyTimelineAutoFollow(fallback.layers && fallback.layers.latestPoint ? fallback.layers.latestPoint : null);
+      }
+    }
+  }
+
+  async function ensureTimelineDataset(viewportPoints) {
+    if (timelineSourceMode !== 'filter') {
+      timelineSourcePoints = (viewportPoints || []).map(normalizeTimelinePoint);
+      timelineMarkers = buildClientTimelineMarkers(timelineSourcePoints);
+      timelineSourceSummaryText = 'Sichtbarer Bereich';
+      timelineLoadedQueryKey = null;
+      return timelineSourcePoints;
+    }
+    const queryKey = buildTimelineQueryKey();
+    if (timelineLoadedQueryKey === queryKey && timelineSourcePoints.length) return timelineSourcePoints;
+    updateTimelineModeLabel('Laden');
+    const token = ++timelineFetchToken;
+    const response = await fetch(buildTimelineFetchUrl(), { credentials: 'same-origin' });
+    if (!response.ok) throw new Error(`Timeline HTTP ${response.status}`);
+    const payload = await response.json();
+    if (token !== timelineFetchToken) return timelineSourcePoints;
+    const items = payload && payload.timeline && payload.timeline.items ? payload.timeline.items : [];
+    timelineMarkers = payload && payload.timeline && Array.isArray(payload.timeline.markers) ? payload.timeline.markers : [];
+    timelineSourcePoints = items.map(normalizeTimelinePoint);
+    if (payload && payload.timeline && payload.timeline.meta) {
+      const meta = payload.timeline.meta;
+      if (meta.minTimestampUtc) timelineMinTs = new Date(meta.minTimestampUtc).getTime();
+      if (meta.maxTimestampUtc) timelineMaxTs = new Date(meta.maxTimestampUtc).getTime();
+      timelineSourceSummaryText = meta.truncated
+        ? `Aktueller Filter · ${meta.sampledCount}/${meta.rawCount}`
+        : 'Aktueller Filter';
+    }
+    timelineLoadedQueryKey = queryKey;
+    return timelineSourcePoints;
+  }
+
+  function resetTimelineToLive() {
+    const slider = document.getElementById('map-timeline-slider');
+    if (!slider) return;
+    cancelTimelinePreviewRequests();
+    slider.value = slider.max;
+    timelineSelectedTs = timelineMaxTs || null;
+    storageSet('map-timeline-selected-ts', timelineSelectedTs ? String(timelineSelectedTs) : '');
+    applyTimelineFilter(timelineMaxTs || 0);
+  }
+
+  function applyTimelineDataset(points) {
+    if (!points || points.length < 2) {
+      cancelTimelinePreviewRequests();
+      timelinePreviewActive = false;
+      timelinePoints = [];
+      timelineMinTs = 0;
+      timelineMaxTs = 0;
+      timelineMarkers = [];
+      timelineSourceSummaryText = null;
+      applyTimelineVisibilityState();
+      return;
+    }
+    
+    // Zeitlich sortieren für den Slider
+    timelinePoints = (points || []).slice().sort((a, b) => new Date(a.timestampUtc || a.point_timestamp_utc).getTime() - new Date(b.timestampUtc || b.point_timestamp_utc).getTime());
+    timelineMinTs = new Date(timelinePoints[0].timestampUtc || timelinePoints[0].point_timestamp_utc).getTime();
+    timelineMaxTs = new Date(timelinePoints[timelinePoints.length - 1].timestampUtc || timelinePoints[timelinePoints.length - 1].point_timestamp_utc).getTime();
+    
+    if (timelineMaxTs - timelineMinTs < 1000) { // Zu kurzer Zeitraum
+      cancelTimelinePreviewRequests();
+      timelinePreviewActive = false;
+      timelinePoints = [];
+      timelineMinTs = 0;
+      timelineMaxTs = 0;
+      timelineMarkers = [];
+      timelineSourceSummaryText = null;
+      applyTimelineVisibilityState();
+      return;
+    }
+
+    applyTimelineVisibilityState();
+    buildTimelineMarkerStrip();
+    buildTimelineActivityStrip();
+    document.getElementById('timeline-start-label').textContent = new Date(timelineMinTs).toLocaleString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('timeline-end-label').textContent = new Date(timelineMaxTs).toLocaleString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    
+    const slider = document.getElementById('map-timeline-slider');
+    if (timelineSelectedTs && timelineSelectedTs >= timelineMinTs && timelineSelectedTs <= timelineMaxTs) {
+      const pctFromTs = (timelineSelectedTs - timelineMinTs) / Math.max(1, (timelineMaxTs - timelineMinTs));
+      slider.value = String(Math.max(0, Math.min(parseInt(slider.max, 10), Math.round(pctFromTs * parseInt(slider.max, 10)))));
+    } else {
+      slider.value = slider.max;
+      timelineSelectedTs = timelineMaxTs;
+    }
+    const pct = parseInt(slider.value, 10) / parseInt(slider.max, 10);
+    const targetTs = timelineMinTs + (timelineMaxTs - timelineMinTs) * (Number.isFinite(pct) ? pct : 1);
+    applyTimelineFilter(targetTs);
+  }
+
+  function updateTimeline(points) {
+    ensureTimelineDataset(points)
+      .then(applyTimelineDataset)
+      .catch(error => {
+        console.warn('Timeline-Daten konnten nicht geladen werden:', error);
+        timelineSourceMode = 'viewport';
+        storageSet('map-timeline-source', 'viewport');
+        timelineSourcePoints = (points || []).map(normalizeTimelinePoint);
+        timelineMarkers = buildClientTimelineMarkers(timelineSourcePoints);
+        timelineSourceSummaryText = 'Sichtbarer Bereich';
+        applyTimelineDataset(timelineSourcePoints);
+      });
+  }
+
+  function applyTimelineFilter(selectedTs) {
+    if (!map || !map.isStyleLoaded()) return;
+    
+    const date = new Date(selectedTs);
+    timelineSelectedTs = Number.isFinite(selectedTs) ? Math.round(selectedTs) : null;
+    storageSet('map-timeline-selected-ts', timelineSelectedTs ? String(timelineSelectedTs) : '');
+    document.getElementById('timeline-current-time').textContent = date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    document.getElementById('timeline-current-date').textContent = date.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: '2-digit' });
+
+    const count = timelinePoints.filter(p => new Date(p.timestampUtc || p.point_timestamp_utc).getTime() <= selectedTs).length;
+    document.getElementById('timeline-info-points').textContent = `${count.toLocaleString('de-DE')} Punkte`;
+    buildTimelineActivityStrip();
+    timelinePreviewActive = selectedTs < timelineMaxTs;
+    if (!lastMapPayload || !timelinePreviewActive) {
+      cancelTimelinePreviewRequests();
+      if (lastMapPayload) {
+        renderMapPayload(lastMapPayload, { skipTimeline: true });
+        renderLog(lastMapPayload.logItems || []);
+        updateStatistics(lastMapPayload.stats || {}, lastMapPayload.meta || {});
+      }
+      applyTimelineVisibilityState();
+      return;
+    }
+    loadTimelinePreview(selectedTs);
+    applyTimelineVisibilityState();
+  }
+
+  function toggleTimelinePlay() {
+    timelineIsPlaying = !timelineIsPlaying;
+    const btn = document.getElementById('timeline-play-btn');
+    btn.textContent = timelineIsPlaying ? '⏸' : '▶';
+    
+    if (timelineIsPlaying) {
+      if (!timelineVisible) {
+        timelineVisible = true;
+        storageSet('map-timeline-visible', '1');
+        applyTimelineVisibilityState();
+      }
+      const slider = document.getElementById('map-timeline-slider');
+      if (parseInt(slider.value) >= parseInt(slider.max)) slider.value = 0;
+      
+      const step = () => {
+        if (!timelineIsPlaying) return;
+        const currentPct = parseInt(slider.value, 10) / parseInt(slider.max, 10);
+        const currentTs = timelineMinTs + (timelineMaxTs - timelineMinTs) * currentPct;
+        const nextTs = getNextTimelineTimestamp(currentTs, 1);
+        if (nextTs !== null && nextTs < timelineMaxTs) {
+          const nextPct = (nextTs - timelineMinTs) / Math.max(1, (timelineMaxTs - timelineMinTs));
+          slider.value = String(Math.max(0, Math.min(parseInt(slider.max, 10), Math.round(nextPct * parseInt(slider.max, 10)))));
+          slider.dispatchEvent(new Event('input'));
+          timelinePlayTimer = setTimeout(step, Math.max(40, Math.round(140 / Math.max(0.5, timelinePlaybackRate))));
+        } else if (timelineReplayLive) {
+          slider.value = slider.max;
+          slider.dispatchEvent(new Event('input'));
+          timelinePlayTimer = setTimeout(step, Math.max(120, Math.round(400 / Math.max(0.5, timelinePlaybackRate))));
+        } else {
+          toggleTimelinePlay();
+        }
+      };
+      step();
+    } else {
+      clearTimeout(timelinePlayTimer);
+    }
+    updateTimelineModeLabel();
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const slider = document.getElementById('map-timeline-slider');
+    slider.oninput = (e) => {
+      const pct = e.target.value / e.target.max;
+      const targetTs = timelineMinTs + (timelineMaxTs - timelineMinTs) * pct;
+      applyTimelineFilter(targetTs);
+    };
+    document.getElementById('timeline-play-btn').onclick = toggleTimelinePlay;
+    document.getElementById('timeline-start-btn').onclick = () => {
+      if (!timelinePoints.length) return;
+      slider.value = '0';
+      slider.dispatchEvent(new Event('input'));
+    };
+    document.getElementById('timeline-end-btn').onclick = resetTimelineToLive;
+    document.getElementById('timeline-prev-btn').onclick = () => {
+      if (!timelinePoints.length) return;
+      slider.value = String(Math.max(0, parseInt(slider.value, 10) - Math.max(1, Math.round(8 * timelinePlaybackRate))));
+      slider.dispatchEvent(new Event('input'));
+    };
+    document.getElementById('timeline-next-btn').onclick = () => {
+      if (!timelinePoints.length) return;
+      slider.value = String(Math.min(parseInt(slider.max, 10), parseInt(slider.value, 10) + Math.max(1, Math.round(8 * timelinePlaybackRate))));
+      slider.dispatchEvent(new Event('input'));
+    };
+    document.getElementById('timeline-live-btn').onclick = resetTimelineToLive;
+    const speedSelect = document.getElementById('timeline-speed-select');
+    speedSelect.value = String(timelinePlaybackRate);
+    speedSelect.onchange = (event) => {
+      timelinePlaybackRate = parseFloat(event.target.value) || 1;
+      storageSet('map-timeline-speed', String(timelinePlaybackRate));
+      updateTimelineModeLabel();
+    };
+    const stepSelect = document.getElementById('timeline-step-select');
+    stepSelect.value = timelineStepMode;
+    stepSelect.onchange = (event) => {
+      timelineStepMode = String(event.target.value || 'points:1');
+      storageSet('map-timeline-step', timelineStepMode);
+    };
+    const replayToggle = document.getElementById('timeline-replay-live-toggle');
+    replayToggle.checked = timelineReplayLive;
+    replayToggle.onchange = (event) => {
+      timelineReplayLive = !!event.target.checked;
+      storageSet('map-timeline-replay-live', timelineReplayLive ? '1' : '0');
+    };
+    const autoFollowToggle = document.getElementById('timeline-autofollow-toggle');
+    autoFollowToggle.checked = timelineAutoFollow;
+    autoFollowToggle.onchange = (event) => {
+      timelineAutoFollow = !!event.target.checked;
+      storageSet('map-timeline-autofollow', timelineAutoFollow ? '1' : '0');
+    };
+    const sourceSelect = document.getElementById('timeline-source-select');
+    sourceSelect.value = timelineSourceMode;
+    sourceSelect.onchange = (event) => {
+      cancelTimelinePreviewRequests();
+      timelineSourceMode = event.target.value === 'filter' ? 'filter' : 'viewport';
+      storageSet('map-timeline-source', timelineSourceMode);
+      timelineLoadedQueryKey = null;
+      timelineSourcePoints = [];
+      timelineMarkers = [];
+      timelineSourceSummaryText = null;
+      if (lastMapPayload && lastMapPayload.layers) updateTimeline(lastMapPayload.layers.points || []);
+      else applyTimelineVisibilityState();
+    };
+    const retryButton = document.getElementById('map-loading-retry');
+    if (retryButton) {
+      retryButton.onclick = () => {
+        isManualRefresh = true;
+        lastETag = null;
+        updateMap();
+      };
+    }
+    updateTimelineModeLabel();
+    updateTimelineToggleButton();
+  });
+
+  let socket = null;
+  let socketReconnectTimer = null;
+
+  function invalidateMapClientCacheForStructuralChange() {
+    console.log('Strukturelle Änderung erkannt: Client-Caches werden invalidiert.');
+    lastETag = null;
+    lastMapBaseQueryKey = '';
+    lastVisiblePointTsUtc = null;
+    lastMetaEtag = null;
+    lastMetaQueryKey = '';
+    lastMetaFetchedAtMs = 0;
+  }
+
+  function initWebSocket() {
+    if (!('WebSocket' in window)) {
+      console.warn('WebSocket im Browser nicht verfügbar.');
+      return;
+    }
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/map`;
+    
+    if (socket) socket.close();
+    socket = new WebSocket(wsUrl);
+
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'new_location' || data.type === 'import_completed' || data.type === 'session_deleted') {
+        console.log(`Echtzeit-Update empfangen (${data.type})...`);
+        
+        if (data.type === 'import_completed' || data.type === 'session_deleted') {
+          // Strukturelle Änderung -> Full Refresh erzwingen (kein Delta-Refresh)
+          invalidateMapClientCacheForStructuralChange();
+          updateMapMeta({ force: true }).catch(() => {});
+        }
+        
+        debouncedMapRefresh();
+      }
+    };
+
+    socket.onclose = () => {
+      console.warn('WebSocket geschlossen. Reconnect in 5s...');
+      clearTimeout(socketReconnectTimer);
+      socketReconnectTimer = setTimeout(initWebSocket, 5000);
+    };
+
+    socket.onerror = (err) => {
+      console.error('WebSocket Fehler:', err);
+      socket.close();
+    };
+  }
+
+  function initMap() {
+    initWebSocket();
+    
+    MAP_MAX_POINTS = clampMapMaxPoints(MAP_MAX_POINTS);
+    
+    const style = {
+      version: 8,
+      sources: {
+        'osm': {
+          type: 'raster',
+          tiles: [
+            darkMode 
+              ? 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
+              : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+          ],
+          tileSize: 256,
+          attribution: '&copy; OpenStreetMap Contributors'
+        }
+      },
+      layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
+    };
+
+    if (typeof window.maplibregl === 'undefined' || typeof window.maplibregl.Map !== 'function') {
+      throw new Error('MapLibre konnte nicht geladen werden.');
+    }
+    if (!isWebglSupported()) {
+      throw new Error('WebGL wird auf diesem Browser/Gerät nicht unterstützt.');
+    }
+
+    const mapOptions = {
+      container: 'map-container',
+      style: style,
+      center: [13.405, 52.52],
+      zoom: 10,
+      pitch: pitch3DActive ? 45 : 0,
+      hash: false,
+      antialias: !isIOS
+    };
+
+    try {
+      map = new maplibregl.Map(mapOptions);
+    } catch (error) {
+      if (!isIOS) throw error;
+      console.warn('MapLibre iOS-Fallback aktiv:', error);
+      map = new maplibregl.Map(Object.assign({}, mapOptions, { pitch: 0, antialias: false }));
+      pitch3DActive = false;
+      storageSet('map-pitch-3d', '0');
+    }
+
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-left');
+    map.addControl(new maplibregl.ScaleControl({ maxWidth: 80, unit: 'metric' }));
+
+    function forceMapResize() {
+      if (!map || typeof map.resize !== 'function') return;
+      requestAnimationFrame(() => {
+        map.resize();
+        updateMapOverlayLayout();
+        setTimeout(() => map.resize(), 250);
+      });
+    }
+
+    map.on('load', () => {
+      // Sources initialisieren
+      Object.keys(SOURCE_IDS).map(key => SOURCE_IDS[key]).forEach(id => {
+        const sourceOptions = { type: 'geojson', data: { type: 'FeatureCollection', features: [] } };
+        // OPTIMIZATION: Enable clustering for the points layer
+        if (id === SOURCE_IDS.POINTS) {
+          Object.assign(sourceOptions, {
+            cluster: true,
+            clusterMaxZoom: 13,
+            clusterRadius: 50
+          });
+        }
+        map.addSource(id, sourceOptions);
+      });
+      // Layer initialisieren (Reihenfolge ist wichtig für Z-Index)
+      setupMapLayers();
+      forceMapResize();
+      
+      updateLegend();
+      updateLegendPlacement();
+      updateLegendToggleButton();
+      updateTimelineToggleButton();
+      updateTimelineModeLabel();
+      applyTimelineVisibilityState();
+      updateMapOverlayLayout();
+      if (isInitialLoad) {
+        isInitialLoad = false;
+        scheduleTask(() => focusInitialGlobalLatestPoint());
+      }
+      updateMap();
+    });
+
+    document.getElementById('map-max-points').max = String(Math.max(1, Math.min(MAP_CONFIG.pointsPageSizeMax || 2000, MAP_PAGE_SIZE_SAFE_MAX)));
+    document.getElementById('map-max-points').value = MAP_MAX_POINTS;
+    document.getElementById('log-limit').value = clampLogLimit(LOG_LIMIT);
+    document.getElementById('route-time-gap').value = ROUTE_TIME_GAP;
+    document.getElementById('route-dist-gap').value = ROUTE_DIST_GAP;
+    document.getElementById('stop-min-duration').value = STOP_MIN_DUR;
+    document.getElementById('stop-radius').value = STOP_RADIUS_M;
+    document.getElementById('polling-interval').value = String(POLLING_INTERVAL);
+    document.getElementById('fit-bounds-mode').value = FIT_BOUNDS_MODE;
+    document.getElementById('time-range-select').value = TIME_RANGE;
+
+    // Apply Deep-Link Filters from Query Params
+    if (QUERY_SESSION_ID) {
+      document.getElementById('session-filter-toggle').checked = true;
+      const select = document.getElementById('session-select-dropdown');
+      select.disabled = false;
+      select.value = QUERY_SESSION_ID;
+      // Ensure import filter is off
+      document.getElementById('import-filter-toggle').checked = false;
+      document.getElementById('import-select-dropdown').disabled = true;
+      document.getElementById('import-select-dropdown').value = '';
+    } else if (QUERY_IMPORT_SESSION) {
+      document.getElementById('import-filter-toggle').checked = true;
+      const select = document.getElementById('import-select-dropdown');
+      select.disabled = false;
+      select.value = QUERY_IMPORT_SESSION;
+      // Ensure session filter is off
+      document.getElementById('session-filter-toggle').checked = false;
+      document.getElementById('session-select-dropdown').disabled = true;
+      document.getElementById('session-select-dropdown').value = '';
+    }
+
+    if (supportsResizeObserver) {
+      const resizeObserver = new ResizeObserver(() => forceMapResize());
+      resizeObserver.observe(document.getElementById('map-container'));
+    } else {
+      window.addEventListener('resize', forceMapResize);
+    }
+    window.addEventListener('orientationchange', () => setTimeout(forceMapResize, 350));
+    if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') {
+      window.visualViewport.addEventListener('resize', forceMapResize);
+    }
+
+    map.on('moveend', () => {
+      if (suppressedViewportRefreshes > 0) {
+        suppressedViewportRefreshes -= 1;
+        return;
+      }
+      debouncedMapRefresh();
+    });
+
+    barTickTimer = setInterval(tickRefreshBar, 1000);
+  }
+
+  function setupMapLayers() {
+    // Heatmap Layer (Ganz unten)
+    map.addLayer({
+      id: 'layer-heatmap', type: 'heatmap', source: SOURCE_IDS.HEATMAP,
+      paint: {
+        'heatmap-weight': ['interpolate', ['linear'], ['get', 'weight'], 0, 0, 1, 1],
+        'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 1, 19, 3],
+        'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(0,100,255,0)', 0.2, '#0A84FF', 0.4, '#30D158', 0.6, '#FF9F0A', 0.8, '#FF453A', 1, '#FFD60A'],
+        'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 2, 19, 20],
+        'heatmap-opacity': 0.8
+      }
+    });
+
+    // Polylines
+    map.addLayer({
+      id: 'layer-lines-casing', type: 'line', source: SOURCE_IDS.LINES,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': ['get', 'color'], 'line-width': 8, 'line-opacity': 0.15 }
+    });
+    map.addLayer({
+      id: 'layer-lines', type: 'line', source: SOURCE_IDS.LINES,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-opacity': 0.9 }
+    });
+    map.addLayer({
+      id: 'layer-line-labels', type: 'symbol', source: SOURCE_IDS.LINES,
+      filter: ['!=', ['get', 'label'], ' - '],
+      layout: {
+        'symbol-placement': 'line-center',
+        'text-field': ['get', 'label'],
+        'text-size': 11,
+        'text-font': ['Open Sans Semibold', 'Arial Unicode MS Regular'],
+        'text-offset': [0, -1.1],
+        'text-allow-overlap': false,
+      },
+      paint: {
+        'text-color': '#FFFFFF',
+        'text-halo-color': 'rgba(0,0,0,0.65)',
+        'text-halo-width': 1.2,
+      }
+    });
+
+    // Accuracy Areas
+    map.addLayer({
+      id: 'layer-accuracy-fill', type: 'fill', source: SOURCE_IDS.ACCURACY,
+      paint: { 'fill-color': '#0A84FF', 'fill-opacity': 0.08 }
+    });
+    map.addLayer({
+      id: 'layer-accuracy', type: 'line', source: SOURCE_IDS.ACCURACY,
+      paint: { 'line-color': '#0A84FF', 'line-opacity': 0.32, 'line-width': 1.5 }
+    });
+
+    // Points
+    map.addLayer({
+      id: 'layer-points', type: 'circle', source: SOURCE_IDS.POINTS,
+      filter: ['!', ['has', 'point_count']],
+      paint: { 'circle-radius': 4, 'circle-color': '#0A84FF', 'circle-stroke-width': 1, 'circle-stroke-color': '#fff', 'circle-opacity': 0.8 }
+    });
+
+    // OPTIMIZATION: Cluster Layer
+    map.addLayer({
+      id: 'layer-points-clusters', type: 'circle', source: SOURCE_IDS.POINTS,
+      filter: ['has', 'point_count'],
+      paint: {
+        'circle-color': ['step', ['get', 'point_count'], '#51bbd6', 100, '#f1f075', 750, '#f28cb1'],
+        'circle-radius': ['step', ['get', 'point_count'], 15, 100, 20, 750, 25],
+        'circle-stroke-width': 1, 'circle-stroke-color': '#fff'
+      }
+    });
+
+    map.addLayer({
+      id: 'layer-points-cluster-count', type: 'symbol', source: SOURCE_IDS.POINTS,
+      filter: ['has', 'point_count'],
+      layout: {
+        'text-field': '{point_count_abbreviated}',
+        'text-font': ['Open Sans Semibold', 'Arial Unicode MS Regular'],
+        'text-size': 12
+      },
+      paint: { 'text-color': '#ffffff' }
+    });
+
+    // Latest Point
+    map.addLayer({
+      id: 'layer-latest', type: 'circle', source: SOURCE_IDS.LATEST,
+      paint: { 'circle-radius': 8, 'circle-color': '#30D158', 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' }
+    });
+    map.addLayer({
+      id: 'layer-speed', type: 'line', source: SOURCE_IDS.SPEED,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': ['get', 'color'], 'line-width': 4, 'line-opacity': 0.95 }
+    });
+    map.addLayer({
+      id: 'layer-daytracks', type: 'line', source: SOURCE_IDS.DAYTRACKS,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': ['get', 'color'], 'line-width': 3.5, 'line-opacity': 0.9 }
+    });
+    map.addLayer({
+      id: 'layer-snap', type: 'line', source: SOURCE_IDS.SNAP,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#30D158', 'line-width': 3, 'line-opacity': 0.9, 'line-dasharray': [1.2, 1.2] }
+    });
+    map.addLayer({
+      id: 'layer-stops', type: 'circle', source: SOURCE_IDS.STOPS,
+      paint: {
+        'circle-radius': 7,
+        'circle-color': '#BF5AF2',
+        'circle-opacity': 0.2,
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#BF5AF2',
+        'circle-stroke-opacity': 0.95
+      }
+    });
+    map.addLayer({
+      id: 'layer-stops-labels', type: 'symbol', source: SOURCE_IDS.STOPS,
+      layout: {
+        'text-field': ['get', 'label'],
+        'text-size': 11,
+        'text-font': ['Open Sans Semibold', 'Arial Unicode MS Regular'],
+        'text-offset': [0, 1.4],
+        'text-anchor': 'top',
+      },
+      paint: {
+        'text-color': '#FFFFFF',
+        'text-halo-color': 'rgba(0,0,0,0.65)',
+        'text-halo-width': 1.2,
+      }
+    });
+    
+    // Popups
+    map.on('click', 'layer-points', (e) => {
+      const p = e.features[0].properties;
+      new maplibregl.Popup().setLngLat(e.lngLat).setHTML(`<b>GPS-Punkt</b><br>${p.timestamp}<br>±${Math.round(p.accuracy)}m`).addTo(map);
+    });
+    map.on('mouseenter', 'layer-points', () => map.getCanvas().style.cursor = 'pointer');
+    map.on('mouseleave', 'layer-points', () => map.getCanvas().style.cursor = '');
+  }
+
+  document.addEventListener('click', (event) => {
+    const locMenu = document.getElementById('location-selection-menu');
+    if (locMenu && !locMenu.contains(event.target)) toggleLocationMenu(false);
+
+    const ctrl = document.getElementById('map-layer-ctrl');
+    if (ctrl && !ctrl.contains(event.target)) ctrl.classList.remove('mlc-open');
+    const quickCtrl = document.getElementById('map-quick-ctrl');
+    if (quickCtrl && !quickCtrl.contains(event.target)) quickCtrl.classList.remove('mqc-open');
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && cssFsActive) activateCssFullscreen();
+  });
+
+  document.addEventListener('fullscreenchange', () => {
+    if (cssFsActive) return;
+    const active = !!document.fullscreenElement;
+    applyFullscreenLayout(active);
+  });
+
+  document.getElementById('mqc-btn').onclick = () => toggleQuickCtrl();
+  document.getElementById('mtc-btn').onclick = () => {
+    timelineVisible = !timelineVisible;
+    storageSet('map-timeline-visible', timelineVisible ? '1' : '0');
+    applyTimelineVisibilityState();
+  };
+  document.getElementById('refresh-map-btn').onclick = () => {
+    isManualRefresh = true;
+    forceGlobalLatestFocus = true;
+    lastETag = null;
+    clearTimeout(updateTimer);
+    document.getElementById('btn-text').style.display = 'none';
+    document.getElementById('btn-spinner').style.display = 'inline';
+    if (currentFetchController) currentFetchController.abort();
+    updateMap();
+  };
+  document.getElementById('time-range-select').onchange = (event) => {
+    TIME_RANGE = event.target.value;
+    storageSet('map-time-range', TIME_RANGE);
+    debouncedMapRefresh();
+  };
+  document.getElementById('polling-interval').onchange = (event) => {
+    POLLING_INTERVAL = parseInt(event.target.value, 10) || 5000;
+    storageSet('map-polling-interval', String(POLLING_INTERVAL));
+    scheduleNextMapUpdate(POLLING_INTERVAL);
+    tickRefreshBar();
+  };
+  document.getElementById('fit-bounds-mode').onchange = (event) => {
+    FIT_BOUNDS_MODE = event.target.value === 'visible' ? 'visible' : 'global';
+    storageSet('map-fit-bounds-mode', FIT_BOUNDS_MODE);
+    if (document.getElementById('fit-bounds-toggle').checked) debouncedMapRefresh();
+  };
+  document.getElementById('map-max-points').onchange = (event) => {
+    MAP_MAX_POINTS = clampMapMaxPoints(event.target.value);
+    event.target.value = MAP_MAX_POINTS;
+    document.getElementById('log-limit').value = clampLogLimit(document.getElementById('log-limit').value);
+    storageSet('map-max-points', String(MAP_MAX_POINTS));
+    debouncedMapRefresh();
+  };
+  document.getElementById('route-time-gap').onchange = (event) => {
+    ROUTE_TIME_GAP = parseInt(event.target.value, 10) || 5;
+    storageSet('map-route-time-gap', String(ROUTE_TIME_GAP));
+    debouncedMapRefresh();
+  };
+  document.getElementById('route-dist-gap').onchange = (event) => {
+    ROUTE_DIST_GAP = parseInt(event.target.value, 10) || 300;
+    storageSet('map-route-dist-gap', String(ROUTE_DIST_GAP));
+    debouncedMapRefresh();
+  };
+  document.getElementById('stop-min-duration').onchange = (event) => {
+    STOP_MIN_DUR = parseInt(event.target.value, 10) || 5;
+    storageSet('map-stop-min-dur', String(STOP_MIN_DUR));
+    if (stopsActive) debouncedMapRefresh();
+  };
+  document.getElementById('stop-radius').onchange = (event) => {
+    STOP_RADIUS_M = parseInt(event.target.value, 10) || 100;
+    storageSet('map-stop-radius', String(STOP_RADIUS_M));
+    if (stopsActive) debouncedMapRefresh();
+  };
+  document.getElementById('log-limit').onchange = (event) => {
+    LOG_LIMIT = clampLogLimit(event.target.value);
+    event.target.value = LOG_LIMIT;
+    storageSet('map-log-limit', String(LOG_LIMIT));
+    debouncedMapRefresh();
+  };
+  document.getElementById('log-search').oninput = () => renderLog(currentLogItems);
+  document.getElementById('dark-mode-btn').onclick = () => {
+    darkMode = !darkMode;
+    storageSet('map-dark-mode', String(darkMode));
+    document.getElementById('dark-mode-btn').innerHTML = `${darkMode ? '☀️' : '🌙'} <span>Dark</span>`;
+    document.getElementById('dark-mode-btn').title = darkMode ? 'Helle Karte' : 'Dunkle Karte';
+    
+    const nextTileUrl = darkMode
+      ? 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
+      : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+      
+    const osmSource = map.getSource('osm');
+    if (osmSource) {
+      osmSource.setTiles([nextTileUrl]);
+    }
+  };
+  document.getElementById('legend-toggle-btn').onclick = () => {
+    legendVisible = !legendVisible;
+    storageSet('map-legend-visible', legendVisible ? '1' : '0');
+    updateLegend();
+  };
+  document.getElementById('browser-location-btn').onclick = (event) => {
+    event.stopPropagation();
+    toggleLocationMenu();
+  };
+  document.getElementById('pitch-toggle-btn').onclick = () => {
+    pitch3DActive = !pitch3DActive;
+    storageSet('map-pitch-3d', pitch3DActive ? '1' : '0');
+    map.easeTo({ pitch: pitch3DActive ? 45 : 0, duration: 800 });
+  };
+  document.getElementById('fullscreen-btn').onclick = toggleFullscreen;
+  document.getElementById('export-geojson-btn').onclick = exportGeoJSON;
+  document.getElementById('fit-bounds-toggle').onchange = (event) => {
+    if (event.target.checked) document.getElementById('auto-center-toggle').checked = false;
+    updateMap();
+  };
+  document.getElementById('auto-center-toggle').onchange = (event) => {
+    if (event.target.checked) document.getElementById('fit-bounds-toggle').checked = false;
+  };
+
+  document.getElementById('heatmap-toggle').onchange = (event) => { heatmapActive = event.target.checked; updateLegend(); if (heatmapActive && !layerDataLoaded.heatmap) debouncedMapRefresh(); else updateLayerVisibility('heatmap', heatmapActive); };
+  document.getElementById('points-toggle').onchange = (event) => { pointsActive = event.target.checked; updateLegend(); if (pointsActive && !layerDataLoaded.points) debouncedMapRefresh(); else updateLayerVisibility('points', pointsActive); };
+  document.getElementById('polyline-toggle').onchange = (event) => { polylineActive = event.target.checked; updateLegend(); if (polylineActive && !layerDataLoaded.polyline) debouncedMapRefresh(); else updateLayerVisibility('polyline', polylineActive); };
+  document.getElementById('accuracy-toggle').onchange = (event) => { accuracyActive = event.target.checked; updateLegend(); if (accuracyActive && !layerDataLoaded.accuracy) debouncedMapRefresh(); else updateLayerVisibility('accuracy', accuracyActive); };
+  document.getElementById('labels-toggle').onchange = (event) => { labelsActive = event.target.checked; updateLegend(); if (labelsActive && !layerDataLoaded.labels) debouncedMapRefresh(); else updateLayerVisibility('labels', labelsActive); };
+  document.getElementById('speed-toggle').onchange = (event) => { speedActive = event.target.checked; updateLegend(); if (speedActive && !layerDataLoaded.speed) debouncedMapRefresh(); else updateLayerVisibility('speed', speedActive); };
+  document.getElementById('stops-toggle').onchange = (event) => {
+    stopsActive = event.target.checked;
+    document.getElementById('stops-config').style.display = stopsActive ? '' : 'none';
+    updateLegend();
+    if (stopsActive && !layerDataLoaded.stops) debouncedMapRefresh();
+    else updateLayerVisibility('stops', stopsActive);
+  };
+  document.getElementById('daytrack-toggle').onchange = (event) => { daytrackActive = event.target.checked; updateLegend(); if (daytrackActive && !layerDataLoaded.daytrack) debouncedMapRefresh(); else updateLayerVisibility('daytrack', daytrackActive); };
+  document.getElementById('snap-toggle').onchange = (event) => { snapActive = event.target.checked; updateLegend(); if (snapActive && !layerDataLoaded.snap) debouncedMapRefresh(); else updateLayerVisibility('snap', snapActive); };
+
+  document.getElementById('session-filter-toggle').onchange = (event) => {
+    setDropdown('session-select-dropdown', event.target.checked);
+    if (event.target.checked) {
+      document.getElementById('import-filter-toggle').checked = false;
+      setDropdown('import-select-dropdown', false);
+      document.getElementById('import-select-dropdown').value = '';
+    } else {
+      document.getElementById('session-select-dropdown').value = '';
+    }
+    debouncedMapRefresh();
+  };
+  document.getElementById('session-select-dropdown').onchange = debouncedMapRefresh;
+  document.getElementById('import-filter-toggle').onchange = (event) => {
+    setDropdown('import-select-dropdown', event.target.checked);
+    if (event.target.checked) {
+      document.getElementById('session-filter-toggle').checked = false;
+      setDropdown('session-select-dropdown', false);
+      document.getElementById('session-select-dropdown').value = '';
+    } else {
+      document.getElementById('import-select-dropdown').value = '';
+    }
+    debouncedMapRefresh();
+  };
+  document.getElementById('import-select-dropdown').onchange = debouncedMapRefresh;
+
+  (() => {
+    const toggleBtn = document.getElementById('map-filter-toggle-btn');
+    const filterPanel = document.querySelector('.map-filter-panel');
+    toggleBtn.onclick = () => {
+      filtersExpanded = !filtersExpanded;
+      filterPanel.classList.toggle('collapsed', !filtersExpanded);
+      toggleBtn.textContent = filtersExpanded ? 'Filteroptionen ▲' : 'Filteroptionen ▼';
+    };
+  })();
+
+  document.addEventListener('DOMContentLoaded', () => {
+    toggleFilterPanel(storageGet('map-fp-hidden', '0') !== '1');
+    setupMobileFilterToggle();
+    showIOSBanner();
+    initMap();
+  });
+  window.addEventListener('resize', setupMobileFilterToggle);

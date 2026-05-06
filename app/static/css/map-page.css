@@ -1,0 +1,21 @@
+#map-timeline-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  background: var(--mint);
+  border: 4px solid #1c1c1e;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+#map-timeline-slider::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  background: var(--mint);
+  border: 4px solid #1c1c1e;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+}

@@ -2,23 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import hmac
 import json
 import logging
 import math
 import platform
-import secrets
 import time
-from base64 import b64decode
 from collections import defaultdict, deque
 from dataclasses import asdict
 from datetime import datetime, timezone
-from ipaddress import ip_address
 from pathlib import Path
 from secrets import compare_digest
 from typing import Any
 from urllib.parse import parse_qs, urlencode
-from urllib.request import urlopen
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, WebSocket, WebSocketDisconnect, status
@@ -51,21 +46,61 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from .auth import (
+    SESSION_COOKIE,
+    SESSION_MAX_AGE,
+    LoginRequired,
+    apply_rate_limit,
+    build_session_signing_key,
+    create_session_token,
+    direct_remote_addr,
+    proxied_ip,
+    require_admin_access,
+    require_bearer_token,
+)
 from .config import Settings
 from .import_parsers import ImportError as GpsImportError, parse_file_report as parse_import_file_report
+from .map_layers import (
+    resolve_heatmap_layer as _resolve_heatmap_layer_impl,
+    resolve_track_context as _resolve_track_context_impl,
+    resolve_track_layers as _resolve_track_layers_impl,
+    serialize_polyline_segments as _serialize_polyline_segments_impl,
+    serialize_snap_segments as _serialize_snap_segments_impl,
+    snap_segment as _snap_segment_impl,
+)
+from .map_payloads import (
+    _adaptive_timeline_sample,
+    _aggregate_heatmap,
+    _build_delta_context_points_asc,
+    _build_timeline_markers,
+    _bucket_bbox_for_zoom,
+    _detect_stops,
+    _downsample_points,
+    _parse_iso_timestamp,
+    _palette_color,
+    _point_dt,
+    _points_per_minute,
+    _prepare_map_delta_payload,
+    _prepare_map_payload,
+    _prepare_timeline_preview_payload as _prepare_timeline_preview_payload_base,
+    _segment_track,
+    _serialize_accuracy_entries,
+    _serialize_daytracks,
+    _serialize_latest_point,
+    _serialize_log_point,
+    _serialize_map_point,
+    _serialize_speed_segments,
+    _simplify_segment,
+    _target_point_limit,
+    _track_duration_seconds,
+)
 from .models import LiveLocationRequest, PointFilters, RequestFilters, RequestMetadata
+from .routers.map_api import MapApiDependencies, register_map_api_routes
 from .storage import ReceiverStorage, StorageError, isoformat_utc
 
 
 LOGGER = logging.getLogger("lh2gpx_live_receiver")
 APP_VERSION = "0.4.0"
-
-_SESSION_COOKIE = "lh2gpx_session"
-_SESSION_MAX_AGE = 7 * 24 * 3600  # 7 Tage
-
-
-class _LoginRequired(Exception):
-    """Raised by _require_admin_access for HTML dashboard routes that need a login redirect."""
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DOCS_DIR = ROOT_DIR / "docs"
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
@@ -421,7 +456,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.storage = ReceiverStorage(resolved_settings)
     app.state.storage.startup()
     app.state.rate_limiter = SimpleRateLimiter(resolved_settings.rate_limit_requests_per_minute)
-    app.state.session_signing_key = _build_session_signing_key(resolved_settings)
+    app.state.session_signing_key = build_session_signing_key(resolved_settings)
     app.state.inline_import_tasks = False
     app.state.started_at_utc = datetime.now(timezone.utc)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -432,8 +467,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request.state.request_id = request_id
         request.state.request_started_at = time.perf_counter()
         request.state.received_at_utc = datetime.now(timezone.utc)
-        request.state.remote_addr = _direct_remote_addr(request)
-        request.state.proxied_ip = _proxied_ip(request, _settings(request).trust_proxy_headers)
+        request.state.remote_addr = direct_remote_addr(request)
+        request.state.proxied_ip = proxied_ip(request, _settings(request).trust_proxy_headers)
         request.state.user_agent = request.headers.get("user-agent", "")
         request.state.log_fields = {}
         request.state.raw_body_text = ""
@@ -612,7 +647,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/live-location",
         status_code=status.HTTP_202_ACCEPTED,
-        dependencies=[Depends(_require_bearer_token), Depends(_apply_rate_limit)],
+        dependencies=[Depends(require_bearer_token), Depends(apply_rate_limit)],
     )
     async def receive_live_location(payload: LiveLocationRequest, request: Request, response: Response) -> dict[str, Any]:
         metadata = _request_metadata(request)
@@ -648,11 +683,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception:
             manager.disconnect(websocket)
 
-    @app.get("/api/stats", dependencies=[Depends(_require_admin_access)])
+    @app.get("/api/stats", dependencies=[Depends(require_admin_access)])
     async def api_stats(request: Request) -> dict[str, Any]:
         return {"requestId": request.state.request_id, "stats": _storage(request).get_stats()}
 
-    @app.get("/api/live-summary", dependencies=[Depends(_require_admin_access)])
+    @app.get("/api/live-summary", dependencies=[Depends(require_admin_access)])
     async def api_live_summary(
         request: Request,
         limit: int = Query(default=100, ge=1, le=10000),
@@ -660,7 +695,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         summary = _storage(request).get_live_summary(limit=limit)
         return {"requestId": request.state.request_id, **summary}
 
-    @app.get("/api/config-summary", dependencies=[Depends(_require_admin_access)])
+    @app.get("/api/config-summary", dependencies=[Depends(require_admin_access)])
     async def api_config_summary(request: Request) -> dict[str, Any]:
         return {
             "requestId": request.state.request_id,
@@ -669,7 +704,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "explanations": _config_explanations(),
         }
 
-    @app.post("/api/settings", dependencies=[Depends(_require_admin_access)])
+    @app.post("/api/settings", dependencies=[Depends(require_admin_access)])
     async def api_save_settings(request: Request) -> dict[str, Any]:
         try:
             updates = await request.json()
@@ -692,7 +727,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             new_storage.startup()
             request.app.state.storage = new_storage
             request.app.state.rate_limiter = SimpleRateLimiter(new_settings.rate_limit_requests_per_minute)
-            request.app.state.session_signing_key = _build_session_signing_key(
+            request.app.state.session_signing_key = build_session_signing_key(
                 new_settings,
                 existing_key=getattr(request.app.state, "session_signing_key", None),
             )
@@ -716,7 +751,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             LOGGER.error(f"Failed to apply settings: {exc}")
             raise HTTPException(status_code=500, detail="Internal server error during hot-reload")
 
-    @app.get("/api/points", dependencies=[Depends(_require_admin_access)])
+    @app.get("/api/points", dependencies=[Depends(require_admin_access)])
     async def api_points(
         request: Request,
         date_from: str | None = Query(default=None),
@@ -781,647 +816,55 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             media_type="application/json",
             headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"},
         )
+    register_map_api_routes(
+        app,
+        MapApiDependencies(
+            settings=_settings,
+            storage=_storage,
+            cache_get=_cache_get,
+            cache_put=_cache_put,
+            parse_bbox=_parse_bbox,
+            expand_bbox=_expand_bbox,
+            summarize_import_tasks=_summarize_import_tasks,
+            adaptive_timeline_sample=lambda *args, **kwargs: _adaptive_timeline_sample(*args, **kwargs),
+            build_timeline_markers=lambda *args, **kwargs: _build_timeline_markers(*args, **kwargs),
+            prepare_timeline_preview_payload=lambda *args, **kwargs: _prepare_timeline_preview_payload(*args, **kwargs),
+            prepare_map_payload=lambda *args, **kwargs: _prepare_map_payload(*args, **kwargs),
+            prepare_map_delta_payload=lambda *args, **kwargs: _prepare_map_delta_payload(*args, **kwargs),
+            resolve_heatmap_layer=lambda *args, **kwargs: _resolve_heatmap_layer(*args, **kwargs),
+            resolve_track_context=lambda *args, **kwargs: _resolve_track_context(*args, **kwargs),
+            resolve_track_layers=lambda *args, **kwargs: _resolve_track_layers(*args, **kwargs),
+            parse_iso_timestamp=lambda *args, **kwargs: _parse_iso_timestamp(*args, **kwargs),
+            target_point_limit=lambda *args, **kwargs: _target_point_limit(*args, **kwargs),
+            serialize_polyline_segments=lambda *args, **kwargs: _serialize_polyline_segments(*args, **kwargs),
+            serialize_speed_segments=lambda *args, **kwargs: _serialize_speed_segments(*args, **kwargs),
+            detect_stops=lambda *args, **kwargs: _detect_stops(*args, **kwargs),
+            serialize_snap_segments=lambda *args, **kwargs: _serialize_snap_segments(*args, **kwargs),
+            build_delta_context_points_asc=lambda *args, **kwargs: _build_delta_context_points_asc(*args, **kwargs),
+            segment_track=lambda *args, **kwargs: _segment_track(*args, **kwargs),
+            bucket_bbox_for_zoom=lambda *args, **kwargs: _bucket_bbox_for_zoom(*args, **kwargs),
+            points_cache=_POINTS_CACHE,
+            points_cache_ttl=_POINTS_CACHE_TTL,
+            points_cache_max=_POINTS_CACHE_MAX,
+            timeline_preview_cache=_TIMELINE_PREVIEW_CACHE,
+            timeline_preview_cache_ttl=_TIMELINE_PREVIEW_CACHE_TTL,
+            map_meta_cache=_MAP_META_CACHE,
+            map_meta_cache_ttl=_MAP_META_CACHE_TTL,
+            map_data_cache=_MAP_DATA_CACHE,
+            map_data_cache_ttl=_MAP_DATA_CACHE_TTL,
+            body_cache_max=_BODY_CACHE_MAX,
+            map_data_page_size_max=_MAP_DATA_PAGE_SIZE_MAX,
+        ),
+    )
 
-    @app.get("/api/timeline", dependencies=[Depends(_require_admin_access)])
-    async def api_timeline(
-        request: Request,
-        date_from: str | None = Query(default=None),
-        date_to: str | None = Query(default=None),
-        time_from: str | None = Query(default=None),
-        time_to: str | None = Query(default=None),
-        session_id: str | None = Query(default=None),
-        capture_mode: str | None = Query(default=None),
-        source: str | None = Query(default=None),
-        search: str | None = Query(default=None),
-        bbox: str | None = Query(default=None),
-        stop_min_duration_min: int = Query(default=5, ge=1, le=240),
-        stop_radius_m: int = Query(default=100, ge=10, le=5000),
-        limit: int = Query(default=50000, ge=1, le=50000),
-    ) -> Response:
-        viewport_bbox = _parse_bbox(bbox)
-        filters = PointFilters(
-            date_from=date_from,
-            date_to=date_to,
-            time_from=time_from,
-            time_to=time_to,
-            session_id=session_id,
-            capture_mode=capture_mode,
-            source=source,
-            search=search,
-            page=1,
-            page_size=1,
-        )
-        cache_key = f"timeline:{request.url.query}"
-        cached = _cache_get(_POINTS_CACHE, cache_key, ttl=_POINTS_CACHE_TTL)
-        if cached:
-            _, etag, body = cached
-        else:
-            now = time.time()
-            raw_items = _storage(request).list_timeline_points(filters, bbox=viewport_bbox, limit=50000)
-            items = _adaptive_timeline_sample(raw_items, limit=limit)
-            precomputed_day_markers = None
-            if viewport_bbox is None:
-                precomputed_day_markers = _storage(request).list_precomputed_timeline_day_markers(filters)
-            markers = _build_timeline_markers(
-                raw_items,
-                stop_min_duration_min=stop_min_duration_min,
-                stop_radius_m=stop_radius_m,
-                precomputed_day_markers=precomputed_day_markers,
-            )
-            result = {
-                "requestId": request.state.request_id,
-                "timeline": {
-                    "items": [
-                        {
-                            "id": item["id"],
-                            "timestampUtc": item["point_timestamp_utc"],
-                            "timestampLocal": item["point_timestamp_local"],
-                            "latitude": item["latitude"],
-                            "longitude": item["longitude"],
-                            "horizontal_accuracy_m": item["horizontal_accuracy_m"],
-                            "session_id": item["session_id"],
-                            "source": item["source"],
-                            "capture_mode": item["capture_mode"],
-                        }
-                        for item in items
-                    ],
-                    "count": len(items),
-                    "meta": {
-                        "minTimestampUtc": items[0]["point_timestamp_utc"] if items else None,
-                        "maxTimestampUtc": items[-1]["point_timestamp_utc"] if items else None,
-                        "truncated": len(raw_items) > len(items),
-                        "bboxFiltered": viewport_bbox is not None,
-                        "rawCount": len(raw_items),
-                        "sampledCount": len(items),
-                    },
-                    "markers": markers,
-                },
-            }
-            body = json.dumps(result, separators=(",", ":")).encode()
-            etag = hashlib.md5(body, usedforsecurity=False).hexdigest()
-            _cache_put(_POINTS_CACHE, cache_key, (now, etag, body), ttl=_POINTS_CACHE_TTL, max_items=_POINTS_CACHE_MAX)
-        if request.headers.get("if-none-match") == f'"{etag}"':
-            return Response(status_code=304, headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"})
-        return Response(content=body, media_type="application/json", headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache"})
-
-    @app.get("/api/timeline-preview", dependencies=[Depends(_require_admin_access)])
-    async def api_timeline_preview(
-        request: Request,
-        date_from: str | None = Query(default=None),
-        date_to: str | None = Query(default=None),
-        session_id: str | None = Query(default=None),
-        bbox: str | None = Query(default=None),
-        page_size: int | None = Query(default=None, ge=1),
-        log_limit: int | None = Query(default=None, ge=1),
-        zoom: float = Query(default=12, ge=1, le=22),
-        route_time_gap_min: int = Query(default=15, ge=1, le=1440),
-        route_dist_gap_m: int = Query(default=1200, ge=10, le=50000),
-        stop_min_duration_min: int = Query(default=5, ge=1, le=240),
-        stop_radius_m: int = Query(default=100, ge=10, le=5000),
-        include_points: bool = Query(default=True),
-        include_heatmap: bool = Query(default=False),
-        include_polyline: bool = Query(default=True),
-        include_accuracy: bool = Query(default=False),
-        include_labels: bool = Query(default=False),
-        include_speed: bool = Query(default=False),
-        include_stops: bool = Query(default=False),
-        include_daytrack: bool = Query(default=False),
-        include_snap: bool = Query(default=False),
-    ) -> Response:
-        request_started_at = time.perf_counter()
-        configured_max = max(1, _settings(request).points_page_size_max)
-        effective_page_size = min(page_size or configured_max, configured_max, _MAP_DATA_PAGE_SIZE_MAX)
-        effective_log_limit = min(log_limit or effective_page_size, effective_page_size)
-        effective_zoom = max(1, min(22, round(zoom)))
-        viewport_bbox = _parse_bbox(bbox)
-        filters = PointFilters(
-            date_from=date_from,
-            date_to=date_to,
-            session_id=session_id,
-            page=1,
-            page_size=effective_page_size,
-        )
-        cache_key = f"timeline-preview:{request.url.query}"
-        cached = _cache_get(_TIMELINE_PREVIEW_CACHE, cache_key, ttl=_TIMELINE_PREVIEW_CACHE_TTL)
-        cache_state = "miss"
-        counts_duration_ms = 0.0
-        preview_duration_ms = 0.0
-        serialize_duration_ms = 0.0
-        if cached:
-            _, etag, body = cached
-            cache_state = "hit"
-        else:
-            now = time.time()
-            storage = _storage(request)
-            counts_started_at = time.perf_counter()
-            if viewport_bbox:
-                viewport_items = storage.list_points_in_bbox(filters, bbox=viewport_bbox, spatial_zoom_hint=effective_zoom)
-                visible_points = len(viewport_items)
-                total_points = storage.count_points(filters)
-            else:
-                listed = storage.list_points(filters)
-                viewport_items = listed["items"]
-                visible_points = len(viewport_items)
-                total_points = listed["total"]
-            counts_duration_ms = round((time.perf_counter() - counts_started_at) * 1000, 2)
-            preview_started_at = time.perf_counter()
-            payload = await asyncio.to_thread(
-                _prepare_timeline_preview_payload,
-                viewport_items,
-                total_points=total_points,
-                visible_points=visible_points,
-                log_limit=effective_log_limit,
-                zoom=effective_zoom,
-                include_points=include_points,
-                include_accuracy=include_accuracy,
-                include_polyline=include_polyline or include_labels,
-                include_labels=include_labels,
-                route_time_gap_min=route_time_gap_min,
-                route_dist_gap_m=route_dist_gap_m,
-            )
-            preview_duration_ms = round((time.perf_counter() - preview_started_at) * 1000, 2)
-            if viewport_bbox:
-                payload["meta"]["bbox"] = {
-                    "minLon": viewport_bbox[0],
-                    "minLat": viewport_bbox[1],
-                    "maxLon": viewport_bbox[2],
-                    "maxLat": viewport_bbox[3],
-                }
-            result = {"requestId": request.state.request_id, **payload, "processing": _summarize_import_tasks()}
-            serialize_started_at = time.perf_counter()
-            body = json.dumps(result, separators=(",", ":")).encode()
-            serialize_duration_ms = round((time.perf_counter() - serialize_started_at) * 1000, 2)
-            etag = hashlib.md5(body, usedforsecurity=False).hexdigest()
-            _cache_put(
-                _TIMELINE_PREVIEW_CACHE,
-                cache_key,
-                (now, etag, body),
-                ttl=_TIMELINE_PREVIEW_CACHE_TTL,
-                max_items=_BODY_CACHE_MAX,
-            )
-        total_duration_ms = round((time.perf_counter() - request_started_at) * 1000, 2)
-        headers = {
-            "ETag": f'"{etag}"',
-            "Cache-Control": "no-cache",
-            "X-Map-Cache": cache_state,
-            "X-Map-Mode": "timeline-preview",
-            "Server-Timing": ", ".join(
-                [
-                    f'cache;desc="{cache_state}"',
-                    f"counts;dur={counts_duration_ms:.2f}",
-                    f"preview;dur={preview_duration_ms:.2f}",
-                    f"serialize;dur={serialize_duration_ms:.2f}",
-                    f"total;dur={total_duration_ms:.2f}",
-                ]
-            ),
-        }
-        if request.headers.get("if-none-match") == f'"{etag}"':
-            return Response(status_code=304, headers=headers)
-        return Response(content=body, media_type="application/json", headers=headers)
-
-    @app.get("/api/map-meta", dependencies=[Depends(_require_admin_access)])
-    async def api_map_meta(
-        request: Request,
-        date_from: str | None = Query(default=None),
-        date_to: str | None = Query(default=None),
-        session_id: str | None = Query(default=None),
-    ) -> Response:
-        request_started_at = time.perf_counter()
-        filters = PointFilters(
-            date_from=date_from,
-            date_to=date_to,
-            session_id=session_id,
-            page=1,
-            page_size=1,
-        )
-        cache_key = str(request.url.query)
-        now = time.time()
-        cached = _cache_get(_MAP_META_CACHE, cache_key, ttl=_MAP_META_CACHE_TTL)
-        cache_state = "miss"
-        summary_duration_ms = 0.0
-        serialize_duration_ms = 0.0
-        if cached:
-            _, etag, body = cached
-            cache_state = "hit"
-        else:
-            summary_started_at = time.perf_counter()
-            summary = _storage(request).summarize_points(filters)
-            summary_duration_ms = round((time.perf_counter() - summary_started_at) * 1000, 2)
-            result = {
-                "requestId": request.state.request_id,
-                "meta": summary,
-                "processing": _summarize_import_tasks(),
-            }
-            serialize_started_at = time.perf_counter()
-            body = json.dumps(result, separators=(",", ":")).encode()
-            serialize_duration_ms = round((time.perf_counter() - serialize_started_at) * 1000, 2)
-            etag = hashlib.md5(body, usedforsecurity=False).hexdigest()
-            _cache_put(_MAP_META_CACHE, cache_key, (now, etag, body), ttl=_MAP_META_CACHE_TTL, max_items=_BODY_CACHE_MAX)
-        total_duration_ms = round((time.perf_counter() - request_started_at) * 1000, 2)
-        headers = {
-            "ETag": f'"{etag}"',
-            "Cache-Control": "no-cache",
-            "X-Map-Cache": cache_state,
-            "X-Map-Mode": "meta",
-            "Server-Timing": ", ".join(
-                [
-                    f'cache;desc="{cache_state}"',
-                    f"summary;dur={summary_duration_ms:.2f}",
-                    f"serialize;dur={serialize_duration_ms:.2f}",
-                    f"total;dur={total_duration_ms:.2f}",
-                ]
-            ),
-        }
-
-        if request.headers.get("if-none-match") == f'"{etag}"':
-            return Response(status_code=304, headers=headers)
-
-        return Response(content=body, media_type="application/json", headers=headers)
-
-    @app.get("/api/map-data", dependencies=[Depends(_require_admin_access)])
-    async def api_map_data(
-        request: Request,
-        date_from: str | None = Query(default=None),
-        date_to: str | None = Query(default=None),
-        session_id: str | None = Query(default=None),
-        bbox: str | None = Query(default=None),
-        page_size: int | None = Query(default=None, ge=1),
-        log_limit: int | None = Query(default=None, ge=1),
-        latest_known_ts: str | None = Query(default=None),
-        zoom: float = Query(default=12, ge=1, le=22),
-        route_time_gap_min: int = Query(default=15, ge=1, le=1440),
-        route_dist_gap_m: int = Query(default=1200, ge=10, le=50000),
-        stop_min_duration_min: int = Query(default=5, ge=1, le=240),
-        stop_radius_m: int = Query(default=100, ge=10, le=5000),
-        include_points: bool = Query(default=True),
-        include_heatmap: bool = Query(default=False),
-        include_polyline: bool = Query(default=True),
-        include_accuracy: bool = Query(default=False),
-        include_labels: bool = Query(default=False),
-        include_speed: bool = Query(default=False),
-        include_stops: bool = Query(default=False),
-        include_daytrack: bool = Query(default=False),
-        include_snap: bool = Query(default=False),
-    ) -> Response:
-        request_started_at = time.perf_counter()
-        configured_max = max(1, _settings(request).points_page_size_max)
-        viewport_bbox = _parse_bbox(bbox)
-        effective_page_size = min(
-            page_size or configured_max,
-            configured_max,
-            _MAP_DATA_PAGE_SIZE_MAX,
-        )
-        effective_log_limit = min(log_limit or effective_page_size, effective_page_size)
-        effective_zoom = max(1, min(22, round(zoom)))
-        padded_bbox = _expand_bbox(viewport_bbox, zoom=effective_zoom) if viewport_bbox else None
-        filters = PointFilters(
-            date_from=date_from,
-            date_to=date_to,
-            session_id=session_id,
-            page=1,
-            page_size=effective_page_size,
-        )
-
-        cache_key = str(request.url.query)
-        now = time.time()
-        cached = _cache_get(_MAP_DATA_CACHE, cache_key, ttl=_MAP_DATA_CACHE_TTL)
-        cache_state = "miss"
-        latest_check_duration_ms = 0.0
-        counts_duration_ms = 0.0
-        heatmap_duration_ms = 0.0
-        track_context_duration_ms = 0.0
-        track_layers_duration_ms = 0.0
-        payload_duration_ms = 0.0
-        serialize_duration_ms = 0.0
-        map_mode = "full"
-        if cached:
-            _, etag, body = cached
-            cache_state = "hit"
-            if request.headers.get("if-none-match") == f'"{etag}"':
-                return Response(status_code=304, headers={"ETag": f'"{etag}"', "Cache-Control": "no-cache", "X-Map-Cache": "hit"})
-        else:
-            storage = _storage(request)
-            delta_mode = False
-            if latest_known_ts:
-                latest_check_started_at = time.perf_counter()
-                latest_visible_ts = storage.latest_point_timestamp(filters, bbox=viewport_bbox, spatial_zoom_hint=effective_zoom)
-                latest_visible_dt = _parse_iso_timestamp(latest_visible_ts)
-                latest_known_dt = _parse_iso_timestamp(latest_known_ts)
-                latest_check_duration_ms = round((time.perf_counter() - latest_check_started_at) * 1000, 2)
-                if latest_visible_dt and latest_known_dt and latest_visible_dt <= latest_known_dt:
-                    total_duration_ms = round((time.perf_counter() - request_started_at) * 1000, 2)
-                    return Response(
-                        status_code=304,
-                        headers={
-                            "Cache-Control": "no-cache",
-                            "X-Map-Delta": "noop",
-                            "X-Map-Latest-Ts": latest_visible_ts,
-                            "X-Map-Mode": "delta-noop",
-                            "X-Map-Cache": "miss",
-                            "Server-Timing": f"latest_check;dur={latest_check_duration_ms:.2f}, total;dur={total_duration_ms:.2f}",
-                        },
-                    )
-                delta_mode = True  # It might be delta mode if we have new points
-
-            viewport_items = []
-            visible_points = 0
-            total_points = 0
-            latest_visible_ts = None
-            used_sampled_viewport_items = False
-            loaded_layers = []
-            needs_track_context = include_polyline or include_labels or include_speed or include_stops or include_daytrack or include_snap
-            needs_log_points = bool(log_limit and log_limit > 0) and not include_heatmap and not needs_track_context
-            needs_viewport_points = include_points or include_accuracy or needs_log_points
-            
-            if viewport_bbox:
-                counts_started_at = time.perf_counter()
-                total_points = storage.count_points(filters)
-                visible_points = storage.count_points(filters, bbox=viewport_bbox, spatial_zoom_hint=effective_zoom)
-                
-                if needs_viewport_points:
-                    # OPTIMIZATION: Use sampled listing if we have many points.
-                    # This now also allowed in delta_mode for the BASE points.
-                    target_limit = _target_point_limit(effective_zoom, visible_points)
-                    if visible_points > target_limit:
-                        viewport_items = storage.list_points_in_bbox_sampled(
-                            filters, 
-                            bbox=viewport_bbox, 
-                            target_limit=target_limit,
-                            spatial_zoom_hint=effective_zoom
-                        )
-                        used_sampled_viewport_items = True
-                    else:
-                        viewport_items = storage.list_points_in_bbox(filters, bbox=viewport_bbox, spatial_zoom_hint=effective_zoom)
-                
-                counts_duration_ms = round((time.perf_counter() - counts_started_at) * 1000, 2)
-            else:
-                counts_started_at = time.perf_counter()
-                if needs_viewport_points:
-                    listed = storage.list_points(filters)
-                    total_points = listed["total"]
-                    visible_points = len(listed["items"])
-                    viewport_items = listed["items"]
-                else:
-                    total_points = storage.count_points(filters)
-                    visible_points = total_points
-                counts_duration_ms = round((time.perf_counter() - counts_started_at) * 1000, 2)
-
-            if include_points: loaded_layers.append("points")
-            if include_accuracy: loaded_layers.append("accuracy")
-
-            buffered_items = viewport_items
-            delta_viewport_items = []
-            delta_polyline_entries: list[dict[str, Any]] = []
-            delta_speed_entries: list[dict[str, Any]] = []
-            delta_stop_entries: list[dict[str, Any]] = []
-            delta_daytrack_entries: list[dict[str, Any]] = []
-            delta_snap_entries: list[dict[str, Any]] = []
-
-            if viewport_items:
-                latest_visible_ts = viewport_items[0]["point_timestamp_utc"]
-            if latest_known_ts:
-                latest_known_dt = _parse_iso_timestamp(latest_known_ts)
-                if latest_known_dt:
-                    map_mode = "delta"
-                    normalized_since = latest_known_dt.astimezone(timezone.utc).isoformat()
-                    # Delta items are ALWAYS loaded fully (not sampled)
-                    delta_viewport_items = storage.list_points_since(
-                        filters,
-                        since_utc=normalized_since,
-                        bbox=viewport_bbox,
-                        spatial_zoom_hint=effective_zoom,
-                    )
-            heatmap_entries = []
-            if include_heatmap:
-                heatmap_started_at = time.perf_counter()
-                # OPTIMIZATION: Use cached heatmap layer
-                # CRITICAL FIX: Ensure bucketed_bbox is defined before calling _resolve_heatmap_layer
-                bucketed_bbox = _bucket_bbox_for_zoom(viewport_bbox, zoom=effective_zoom)
-                heatmap_entries = _resolve_heatmap_layer(storage, filters, bbox=bucketed_bbox or viewport_bbox, zoom=effective_zoom)
-                heatmap_duration_ms = round((time.perf_counter() - heatmap_started_at) * 1000, 2)
-                loaded_layers.append("heatmap")
-
-            track_layers = {
-                "polylines": [],
-                "speed": [],
-                "stops": [],
-                "daytracks": [],
-                "snap": [],
-                "context_points_desc": viewport_items,
-                "segment_count": 0,
-            }
-            defer_expensive_track_layers = delta_mode and len(delta_viewport_items) <= 24
-            if needs_track_context:
-                # CRITICAL FIX: Only use viewport_items as preloaded if they were NOT sampled.
-                preloaded_track_points = None
-                if not used_sampled_viewport_items:
-                    if not viewport_bbox or padded_bbox == viewport_bbox:
-                        preloaded_track_points = viewport_items
-                
-                track_context_started_at = time.perf_counter()
-                track_context = await asyncio.to_thread(
-                    _resolve_track_context,
-                    storage,
-                    filters,
-                    bbox=padded_bbox or viewport_bbox,
-                    zoom=effective_zoom,
-                    route_time_gap_min=route_time_gap_min,
-                    route_dist_gap_m=route_dist_gap_m,
-                    preloaded_points_desc=preloaded_track_points,
-                )
-                track_context_duration_ms = round((time.perf_counter() - track_context_started_at) * 1000, 2)
-                track_layers_started_at = time.perf_counter()
-                track_layers = await asyncio.to_thread(
-                    _resolve_track_layers,
-                    track_context,
-                    zoom=effective_zoom,
-                    include_polyline=include_polyline,
-                    include_labels=include_labels,
-                    include_speed=include_speed and not defer_expensive_track_layers,
-                    include_stops=include_stops and not defer_expensive_track_layers,
-                    stop_min_duration_min=stop_min_duration_min,
-                    stop_radius_m=stop_radius_m,
-                    include_daytrack=include_daytrack and not defer_expensive_track_layers,
-                    route_time_gap_min=route_time_gap_min,
-                    include_snap=include_snap and not delta_mode,
-                )
-                if include_polyline: loaded_layers.append("polyline")
-                if include_labels: loaded_layers.append("labels")
-                if include_speed and not defer_expensive_track_layers: loaded_layers.append("speed")
-                if include_stops and not defer_expensive_track_layers: loaded_layers.append("stops")
-                if include_daytrack and not defer_expensive_track_layers: loaded_layers.append("daytrack")
-                if include_snap and not delta_mode: loaded_layers.append("snap")
-                if not viewport_bbox and filters.session_id:
-                    if include_stops:
-                        precomputed_stops = storage.list_precomputed_session_stops(
-                            filters,
-                            stop_radius_m=stop_radius_m,
-                            stop_min_duration_min=stop_min_duration_min,
-                        )
-                        if precomputed_stops is not None:
-                            track_layers["stops"] = precomputed_stops
-                    if include_daytrack:
-                        precomputed_daytracks = storage.list_precomputed_session_daytracks(
-                            filters,
-                            zoom=effective_zoom,
-                            route_time_gap_min=route_time_gap_min,
-                        )
-                        if precomputed_daytracks is not None:
-                            track_layers["daytracks"] = precomputed_daytracks
-                track_layers_duration_ms = round((time.perf_counter() - track_layers_started_at) * 1000, 2)
-                buffered_items = track_layers["context_points_desc"]
-                if delta_mode and delta_viewport_items:
-                    delta_anchor_points_desc = track_layers["context_points_desc"] if used_sampled_viewport_items else viewport_items
-                    delta_context_points_asc = _build_delta_context_points_asc(delta_anchor_points_desc, delta_viewport_items)
-                    if delta_context_points_asc:
-                        delta_segments = _segment_track(
-                            delta_context_points_asc,
-                            time_gap_ms=route_time_gap_min * 60000,
-                            dist_gap_m=route_dist_gap_m,
-                        )
-                        if include_polyline or include_labels:
-                            delta_polyline_entries = _serialize_polyline_segments(
-                                delta_segments,
-                                zoom=effective_zoom,
-                                include_labels=include_labels,
-                            )
-                        if include_speed:
-                            delta_speed_entries = _serialize_speed_segments(delta_context_points_asc, zoom=effective_zoom)
-                        if include_stops:
-                            if defer_expensive_track_layers:
-                                delta_stop_entries = _detect_stops(
-                                    delta_context_points_asc,
-                                    stop_radius_m=stop_radius_m,
-                                    stop_min_duration_min=stop_min_duration_min,
-                                )
-                            else:
-                                min_delta_ts = min(str(point["point_timestamp_utc"]) for point in delta_viewport_items)
-                                delta_stop_entries = [
-                                    item
-                                    for item in track_layers["stops"]
-                                    if str(item.get("endTimeUtc") or "") >= min_delta_ts or str(item.get("startTimeUtc") or "") >= min_delta_ts
-                                ]
-                        if include_daytrack and not defer_expensive_track_layers:
-                            affected_days = {str(point["point_date_local"]) for point in delta_viewport_items}
-                            delta_daytrack_entries = [
-                                item for item in track_layers["daytracks"] if str(item.get("day") or "") in affected_days
-                            ]
-                        if include_snap and len(delta_context_points_asc) <= 8 and len(delta_segments) <= 2:
-                            delta_snap_entries = _serialize_snap_segments(
-                                delta_segments,
-                                zoom=effective_zoom,
-                                allow_network=False,
-                            )
-                        if delta_speed_entries and "speed" not in loaded_layers:
-                            loaded_layers.append("speed")
-                        if delta_stop_entries and "stops" not in loaded_layers:
-                            loaded_layers.append("stops")
-                        if delta_snap_entries and "snap" not in loaded_layers:
-                            loaded_layers.append("snap")
-            if delta_mode:
-                payload_started_at = time.perf_counter()
-                payload = await asyncio.to_thread(
-                    _prepare_map_delta_payload,
-                    viewport_items,
-                    delta_viewport_items,
-                    buffered_items,
-                    heatmap_entries=heatmap_entries,
-                    polyline_entries=track_layers["polylines"],
-                    delta_polyline_entries=delta_polyline_entries,
-                    speed_entries=track_layers["speed"],
-                    delta_speed_entries=delta_speed_entries,
-                    stop_entries=track_layers["stops"],
-                    delta_stop_entries=delta_stop_entries,
-                    daytrack_entries=track_layers["daytracks"],
-                    delta_daytrack_entries=delta_daytrack_entries,
-                    snap_entries=track_layers["snap"],
-                    delta_snap_entries=delta_snap_entries,
-                    total_points=total_points,
-                    visible_points=visible_points,
-                    segment_count=int(track_layers["segment_count"]),
-                    log_limit=effective_log_limit,
-                    include_points=include_points,
-                    include_heatmap=include_heatmap,
-                    include_accuracy=include_accuracy,
-                    include_speed=include_speed and (not defer_expensive_track_layers or bool(delta_speed_entries)),
-                    include_stops=include_stops and (not defer_expensive_track_layers or bool(delta_stop_entries)),
-                    include_daytrack=include_daytrack and not defer_expensive_track_layers,
-                    include_snap=include_snap and bool(delta_snap_entries),
-                    loaded_layers=loaded_layers,
-                )
-                payload_duration_ms = round((time.perf_counter() - payload_started_at) * 1000, 2)
-            else:
-                payload_started_at = time.perf_counter()
-                payload = await asyncio.to_thread(
-                    _prepare_map_payload,
-                    viewport_items,
-                    buffered_items,
-                    heatmap_entries=heatmap_entries,
-                    polyline_entries=track_layers["polylines"],
-                    speed_entries=track_layers["speed"],
-                    stop_entries=track_layers["stops"],
-                    daytrack_entries=track_layers["daytracks"],
-                    snap_entries=track_layers["snap"],
-                    total_points=total_points,
-                    visible_points=visible_points,
-                    segment_count=int(track_layers["segment_count"]),
-                    log_limit=effective_log_limit,
-                    zoom=effective_zoom,
-                    include_points=include_points,
-                    include_heatmap=include_heatmap,
-                    include_accuracy=include_accuracy,
-                    loaded_layers=loaded_layers,
-                )
-                payload_duration_ms = round((time.perf_counter() - payload_started_at) * 1000, 2)
-            if viewport_bbox:
-                payload["meta"]["bbox"] = {
-                    "minLon": viewport_bbox[0],
-                    "minLat": viewport_bbox[1],
-                    "maxLon": viewport_bbox[2],
-                    "maxLat": viewport_bbox[3],
-                }
-            payload["meta"]["latestVisiblePointTsUtc"] = latest_visible_ts
-            result = {"requestId": request.state.request_id, **payload}
-            result["processing"] = _summarize_import_tasks()
-            serialize_started_at = time.perf_counter()
-            body = json.dumps(result, separators=(",", ":")).encode()
-            serialize_duration_ms = round((time.perf_counter() - serialize_started_at) * 1000, 2)
-            etag = hashlib.md5(body, usedforsecurity=False).hexdigest()
-            _cache_put(_MAP_DATA_CACHE, cache_key, (now, etag, body), ttl=_MAP_DATA_CACHE_TTL, max_items=_BODY_CACHE_MAX)
-        total_duration_ms = round((time.perf_counter() - request_started_at) * 1000, 2)
-        headers = {
-            "ETag": f'"{etag}"',
-            "Cache-Control": "no-cache",
-            "X-Map-Cache": cache_state,
-            "X-Map-Mode": map_mode,
-            "Server-Timing": ", ".join(
-                [
-                    f'cache;desc="{cache_state}"',
-                    f"latest_check;dur={latest_check_duration_ms:.2f}",
-                    f"counts;dur={counts_duration_ms:.2f}",
-                    f"heatmap;dur={heatmap_duration_ms:.2f}",
-                    f"track_context;dur={track_context_duration_ms:.2f}",
-                    f"track_layers;dur={track_layers_duration_ms:.2f}",
-                    f"payload;dur={payload_duration_ms:.2f}",
-                    f"serialize;dur={serialize_duration_ms:.2f}",
-                    f"total;dur={total_duration_ms:.2f}",
-                ]
-            ),
-        }
-
-        if request.headers.get("if-none-match") == f'"{etag}"':
-            return Response(status_code=304, headers=headers)
-
-        return Response(content=body, media_type="application/json", headers=headers)
-
-    @app.get("/api/points/{point_id}", dependencies=[Depends(_require_admin_access)])
+    @app.get("/api/points/{point_id}", dependencies=[Depends(require_admin_access)])
     async def api_point_detail(request: Request, point_id: int) -> dict[str, Any]:
         item = _storage(request).get_point(point_id)
         if not item:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Point not found.")
         return {"requestId": request.state.request_id, "point": item}
 
-    @app.get("/api/requests", dependencies=[Depends(_require_admin_access)])
+    @app.get("/api/requests", dependencies=[Depends(require_admin_access)])
     async def api_requests(
         request: Request,
         date_from: str | None = Query(default=None),
@@ -1452,26 +895,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return {"requestId": request.state.request_id, "requests": _storage(request).list_requests(filters)}
 
-    @app.get("/api/requests/{request_id}", dependencies=[Depends(_require_admin_access)])
+    @app.get("/api/requests/{request_id}", dependencies=[Depends(require_admin_access)])
     async def api_request_detail(request: Request, request_id: str) -> dict[str, Any]:
         item = _storage(request).get_request(request_id)
         if not item:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found.")
         return {"requestId": request.state.request_id, "request": item}
 
-    @app.get("/api/sessions", dependencies=[Depends(_require_admin_access)])
+    @app.get("/api/sessions", dependencies=[Depends(require_admin_access)])
     async def api_sessions(request: Request) -> dict[str, Any]:
         return {"requestId": request.state.request_id, "sessions": _storage(request).list_sessions()}
 
-    @app.get("/api/sessions/{session_id}", dependencies=[Depends(_require_admin_access)])
+    @app.get("/api/sessions/{session_id}", dependencies=[Depends(require_admin_access)])
     async def api_session_detail(request: Request, session_id: str) -> dict[str, Any]:
         item = _storage(request).get_session(session_id)
         if not item:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found.")
         return {"requestId": request.state.request_id, "session": item}
 
-    @app.exception_handler(_LoginRequired)
-    async def login_required_handler(request: Request, exc: _LoginRequired) -> RedirectResponse:
+    @app.exception_handler(LoginRequired)
+    async def login_required_handler(request: Request, exc: LoginRequired) -> RedirectResponse:
         return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
 
     @app.get("/login", response_class=HTMLResponse, include_in_schema=False)
@@ -1505,12 +948,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
 
-        token = _create_session_token(settings, request.app)
+        token = create_session_token(request.app)
         redirect = RedirectResponse(url="/dashboard/map", status_code=status.HTTP_303_SEE_OTHER)
         redirect.set_cookie(
-            key=_SESSION_COOKIE,
+            key=SESSION_COOKIE,
             value=token,
-            max_age=_SESSION_MAX_AGE,
+            max_age=SESSION_MAX_AGE,
             httponly=True,
             samesite="strict",
             secure=True,
@@ -1520,7 +963,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/logout", include_in_schema=False)
     async def logout(request: Request) -> RedirectResponse:
         redirect = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
-        redirect.delete_cookie(key=_SESSION_COOKIE, samesite="strict")
+        redirect.delete_cookie(key=SESSION_COOKIE, samesite="strict")
         return redirect
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -1539,7 +982,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def admin_redirect() -> RedirectResponse:
         return RedirectResponse(url="/dashboard/map", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
-    @app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    @app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_admin_access)])
     async def dashboard(
         request: Request,
         date_from: str | None = Query(default=None),
@@ -1593,7 +1036,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return templates.TemplateResponse(request=request, name="dashboard.html", context=context)
 
-    @app.get("/dashboard/map", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    @app.get("/dashboard/map", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_admin_access)])
     async def dashboard_map(request: Request, session_id: str | None = None, import_session: str | None = None) -> HTMLResponse:
         snapshot = _dashboard_snapshot(request)
         try:
@@ -1620,7 +1063,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         })
         return templates.TemplateResponse(request=request, name="map.html", context=context)
 
-    @app.get("/dashboard/import", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    @app.get("/dashboard/import", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_admin_access)])
     async def dashboard_import(request: Request) -> HTMLResponse:
         snapshot = _dashboard_snapshot(request)
         try:
@@ -1637,7 +1080,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         context["import_sessions"] = import_sessions
         return templates.TemplateResponse(request=request, name="import.html", context=context)
 
-    @app.delete("/api/sessions/{session_id}", dependencies=[Depends(_require_admin_access)])
+    @app.delete("/api/sessions/{session_id}", dependencies=[Depends(require_admin_access)])
     async def api_delete_session(request: Request, session_id: str) -> JSONResponse:
         try:
             deleted = _storage(request).delete_session(session_id)
@@ -1654,7 +1097,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         })
         return JSONResponse({"ok": True, "deleted": deleted, "session_id": session_id})
 
-    @app.post("/api/import", dependencies=[Depends(_require_admin_access)])
+    @app.post("/api/import", dependencies=[Depends(require_admin_access)])
     async def api_import(request: Request, file: UploadFile = File(...)) -> JSONResponse:
         MAX_BYTES = 100 * 1024 * 1024  # 100 MB
         data = await file.read(MAX_BYTES + 1)
@@ -1677,14 +1120,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             asyncio.create_task(_run_import_task(task_id, filename, data, _storage(request)))
         return JSONResponse({"ok": True, "task_id": task_id, "filename": filename, "file_size_bytes": len(data)})
 
-    @app.get("/api/import/status/{task_id}", dependencies=[Depends(_require_admin_access)])
+    @app.get("/api/import/status/{task_id}", dependencies=[Depends(require_admin_access)])
     async def api_import_status(task_id: str) -> JSONResponse:
         task = _import_tasks.get(task_id)
         if not task:
             raise HTTPException(status_code=404, detail="Task nicht gefunden oder abgelaufen.")
         return JSONResponse(task)
 
-    @app.post("/api/storage/vacuum", dependencies=[Depends(_require_admin_access)])
+    @app.post("/api/storage/vacuum", dependencies=[Depends(require_admin_access)])
     async def api_storage_vacuum(request: Request) -> JSONResponse:
         try:
             result = await asyncio.to_thread(_storage(request).vacuum)
@@ -1692,7 +1135,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=503, detail=str(e))
         return JSONResponse({"ok": True, **result})
 
-    @app.get("/dashboard/live-status", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    @app.get("/dashboard/live-status", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_admin_access)])
     async def dashboard_live_status(request: Request) -> HTMLResponse:
         snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
@@ -1705,7 +1148,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return templates.TemplateResponse(request=request, name="live_status.html", context=context)
 
-    @app.get("/dashboard/activity", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    @app.get("/dashboard/activity", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_admin_access)])
     async def dashboard_activity(request: Request) -> HTMLResponse:
         snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
@@ -1718,7 +1161,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return templates.TemplateResponse(request=request, name="activity.html", context=context)
 
-    @app.get("/dashboard/points", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    @app.get("/dashboard/points", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_admin_access)])
     async def dashboard_points(
         request: Request,
         date_from: str | None = Query(default=None),
@@ -1761,7 +1204,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         context.update({"filters": point_filters, "points": points, "point_filter_exports": _point_export_links(point_filters)})
         return templates.TemplateResponse(request=request, name="points.html", context=context)
 
-    @app.get("/dashboard/points/{point_id}", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    @app.get("/dashboard/points/{point_id}", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_admin_access)])
     async def dashboard_point_detail(request: Request, point_id: int) -> HTMLResponse:
         item = _storage(request).get_point(point_id)
         if not item:
@@ -1778,7 +1221,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         context.update({"point_item": item})
         return templates.TemplateResponse(request=request, name="point_detail.html", context=context)
 
-    @app.get("/dashboard/requests", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    @app.get("/dashboard/requests", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_admin_access)])
     async def dashboard_requests(
         request: Request,
         date_from: str | None = Query(default=None),
@@ -1823,7 +1266,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         context.update({"filters": request_filters, "requests_payload": requests_payload})
         return templates.TemplateResponse(request=request, name="requests.html", context=context)
 
-    @app.get("/dashboard/requests/{request_id}", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    @app.get("/dashboard/requests/{request_id}", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_admin_access)])
     async def dashboard_request_detail(request: Request, request_id: str) -> HTMLResponse:
         item = _storage(request).get_request(request_id)
         if not item:
@@ -1840,7 +1283,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         context.update({"request_item": item})
         return templates.TemplateResponse(request=request, name="request_detail.html", context=context)
 
-    @app.get("/dashboard/sessions", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    @app.get("/dashboard/sessions", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_admin_access)])
     async def dashboard_sessions(request: Request) -> HTMLResponse:
         snapshot = _dashboard_snapshot(request)
         try:
@@ -1858,7 +1301,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         context.update({"sessions": sessions})
         return templates.TemplateResponse(request=request, name="sessions.html", context=context)
 
-    @app.get("/dashboard/sessions/{session_id}", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    @app.get("/dashboard/sessions/{session_id}", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_admin_access)])
     async def dashboard_session_detail(request: Request, session_id: str) -> HTMLResponse:
         item = _storage(request).get_session(session_id)
         if not item:
@@ -1875,7 +1318,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         context.update({"session_item": item})
         return templates.TemplateResponse(request=request, name="session_detail.html", context=context)
 
-    @app.get("/dashboard/exports", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    @app.get("/dashboard/exports", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_admin_access)])
     async def dashboard_exports(request: Request) -> HTMLResponse:
         snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
@@ -1888,7 +1331,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return templates.TemplateResponse(request=request, name="exports.html", context=context)
 
-    @app.get("/dashboard/config", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    @app.get("/dashboard/config", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_admin_access)])
     async def dashboard_config(request: Request) -> HTMLResponse:
         snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
@@ -1907,7 +1350,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return templates.TemplateResponse(request=request, name="config.html", context=context)
 
-    @app.get("/dashboard/storage", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    @app.get("/dashboard/storage", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_admin_access)])
     async def dashboard_storage(request: Request) -> HTMLResponse:
         snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
@@ -1920,7 +1363,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return templates.TemplateResponse(request=request, name="storage.html", context=context)
 
-    @app.get("/dashboard/security", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    @app.get("/dashboard/security", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_admin_access)])
     async def dashboard_security(request: Request) -> HTMLResponse:
         snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
@@ -1940,7 +1383,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return templates.TemplateResponse(request=request, name="security.html", context=context)
 
-    @app.get("/dashboard/system", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    @app.get("/dashboard/system", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_admin_access)])
     async def dashboard_system(request: Request) -> HTMLResponse:
         snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
@@ -1965,7 +1408,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return templates.TemplateResponse(request=request, name="system.html", context=context)
 
-    @app.get("/dashboard/troubleshooting", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    @app.get("/dashboard/troubleshooting", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_admin_access)])
     async def dashboard_troubleshooting(request: Request) -> HTMLResponse:
         snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
@@ -1979,7 +1422,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         context.update({"doc_sections": _load_markdown_outline(DOCS_DIR / "TROUBLESHOOTING.md")})
         return templates.TemplateResponse(request=request, name="doc_page.html", context=context)
 
-    @app.get("/dashboard/open-items", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(_require_admin_access)])
+    @app.get("/dashboard/open-items", response_class=HTMLResponse, include_in_schema=False, dependencies=[Depends(require_admin_access)])
     async def dashboard_open_items(request: Request) -> HTMLResponse:
         snapshot = _dashboard_snapshot(request)
         context = _base_template_context(
@@ -2044,225 +1487,6 @@ def _expand_bbox(bbox: tuple[float, float, float, float], *, zoom: int) -> tuple
     )
 
 
-def _prepare_map_payload(
-    viewport_points_desc: list[dict[str, Any]],
-    buffered_points_desc: list[dict[str, Any]],
-    *,
-    heatmap_entries: list[list[float]],
-    polyline_entries: list[dict[str, Any]],
-    speed_entries: list[dict[str, Any]],
-    stop_entries: list[dict[str, Any]],
-    daytrack_entries: list[dict[str, Any]],
-    snap_entries: list[dict[str, Any]],
-    total_points: int,
-    visible_points: int,
-    segment_count: int,
-    log_limit: int,
-    zoom: int,
-    include_points: bool,
-    include_heatmap: bool,
-    include_accuracy: bool,
-    loaded_layers: list[str] | None = None,
-) -> dict[str, Any]:
-    if not buffered_points_desc:
-        return {
-            "meta": {
-                "totalPoints": total_points,
-                "visiblePoints": visible_points,
-                "loadedPoints": 0,
-                "serverPrepared": True,
-                "loadedLayers": loaded_layers or [],
-            },
-            "stats": {"pointsPerMinute": 0, "avgAccuracyM": None, "sessionDurationSeconds": 0},
-            "layers": {
-                "points": [],
-                "latestPoint": None,
-                "heatmap": heatmap_entries if include_heatmap else [],
-                "polylines": [],
-                "accuracy": [],
-                "speed": [],
-                "stops": [],
-                "daytracks": [],
-                "snap": [],
-            },
-            "logItems": [],
-        }
-
-    visible_points_desc = viewport_points_desc
-    stats_points_desc = visible_points_desc or buffered_points_desc
-    sorted_points = list(reversed(buffered_points_desc))
-    latest = stats_points_desc[0]
-    avg_accuracy = sum(float(point["horizontal_accuracy_m"]) for point in stats_points_desc) / len(stats_points_desc)
-
-    payload = {
-        "meta": {
-            "totalPoints": total_points,
-            "visiblePoints": visible_points,
-            "loadedPoints": len(buffered_points_desc),
-            "serverPrepared": True,
-            "segmentCount": segment_count,
-            "loadedLayers": loaded_layers or [],
-        },
-        "stats": {
-            "pointsPerMinute": _points_per_minute(stats_points_desc),
-            "avgAccuracyM": round(avg_accuracy, 2),
-            "sessionDurationSeconds": _track_duration_seconds(sorted_points),
-        },
-        "layers": {
-            "points": [],
-            "latestPoint": _serialize_latest_point(latest) if include_points else None,
-            "heatmap": [],
-            "polylines": [],
-            "accuracy": [],
-            "speed": [],
-            "stops": [],
-            "daytracks": [],
-            "snap": [],
-        },
-        "logItems": [_serialize_log_point(point) for point in stats_points_desc[:max(1, log_limit)]],
-    }
-
-    if include_points:
-        viewport_sorted_points = list(reversed(visible_points_desc))
-        sampled_points = _downsample_points(viewport_sorted_points, _target_point_limit(zoom, len(viewport_sorted_points)))
-        payload["layers"]["points"] = [_serialize_map_point(point, latest["id"]) for point in sampled_points]
-
-    if include_heatmap:
-        payload["layers"]["heatmap"] = heatmap_entries
-
-    payload["layers"]["polylines"] = polyline_entries
-
-    if include_accuracy:
-        payload["layers"]["accuracy"] = _serialize_accuracy_entries(visible_points_desc)
-
-    payload["layers"]["speed"] = speed_entries
-    payload["layers"]["stops"] = stop_entries
-    payload["layers"]["daytracks"] = daytrack_entries
-    payload["layers"]["snap"] = snap_entries
-
-    return payload
-
-
-def _serialize_accuracy_entries(points_desc: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        {"lat": point["latitude"], "lon": point["longitude"], "radius": point["horizontal_accuracy_m"]}
-        for point in _downsample_points(list(reversed(points_desc)), 300)
-        if 0 < float(point["horizontal_accuracy_m"]) < 5000
-    ]
-
-
-def _prepare_map_delta_payload(
-    current_viewport_points_desc: list[dict[str, Any]],
-    new_viewport_points_desc: list[dict[str, Any]],
-    buffered_points_desc: list[dict[str, Any]],
-    *,
-    heatmap_entries: list[list[float]],
-    polyline_entries: list[dict[str, Any]],
-    delta_polyline_entries: list[dict[str, Any]],
-    speed_entries: list[dict[str, Any]],
-    delta_speed_entries: list[dict[str, Any]],
-    stop_entries: list[dict[str, Any]],
-    delta_stop_entries: list[dict[str, Any]],
-    daytrack_entries: list[dict[str, Any]],
-    delta_daytrack_entries: list[dict[str, Any]],
-    snap_entries: list[dict[str, Any]],
-    delta_snap_entries: list[dict[str, Any]],
-    total_points: int,
-    visible_points: int,
-    segment_count: int,
-    log_limit: int,
-    include_points: bool,
-    include_heatmap: bool,
-    include_accuracy: bool,
-    include_speed: bool,
-    include_stops: bool,
-    include_daytrack: bool,
-    include_snap: bool,
-    loaded_layers: list[str] | None = None,
-) -> dict[str, Any]:
-    stats_points_desc = current_viewport_points_desc or buffered_points_desc
-    latest = stats_points_desc[0] if stats_points_desc else None
-    sorted_points = list(reversed(buffered_points_desc))
-    avg_accuracy = (
-        sum(float(point["horizontal_accuracy_m"]) for point in stats_points_desc) / len(stats_points_desc)
-        if stats_points_desc
-        else None
-    )
-    payload = {
-        "meta": {
-            "totalPoints": total_points,
-            "visiblePoints": visible_points,
-            "loadedPoints": len(buffered_points_desc),
-            "serverPrepared": True,
-            "segmentCount": segment_count,
-            "deltaMode": True,
-            "latestVisiblePointTsUtc": latest["point_timestamp_utc"] if latest else None,
-            "loadedLayers": loaded_layers or [],
-        },
-        "stats": {
-            "pointsPerMinute": _points_per_minute(stats_points_desc) if stats_points_desc else 0,
-            "avgAccuracyM": round(avg_accuracy, 2) if avg_accuracy is not None else None,
-            "sessionDurationSeconds": _track_duration_seconds(sorted_points),
-        },
-        "delta": {
-            "appendPoints": [],
-            "latestPoint": _serialize_latest_point(latest) if (latest and include_points) else None,
-            "appendLogItems": [_serialize_log_point(point) for point in new_viewport_points_desc[:max(1, log_limit)]],
-        },
-    }
-    if include_points:
-        latest_id = int(latest["id"]) if latest else -1
-        payload["delta"]["appendPoints"] = [
-            _serialize_map_point(point, latest_id) for point in list(reversed(new_viewport_points_desc))
-        ]
-    if include_heatmap:
-        payload["delta"]["replaceHeatmap"] = heatmap_entries
-    if delta_polyline_entries:
-        payload["delta"]["appendPolylines"] = delta_polyline_entries
-    else:
-        payload["delta"]["replacePolylines"] = polyline_entries
-    if include_accuracy:
-        payload["delta"]["replaceAccuracy"] = _serialize_accuracy_entries(current_viewport_points_desc)
-    if include_speed:
-        if delta_speed_entries:
-            payload["delta"]["appendSpeed"] = delta_speed_entries
-        else:
-            payload["delta"]["replaceSpeed"] = speed_entries
-    if include_stops:
-        if delta_stop_entries:
-            payload["delta"]["upsertStops"] = delta_stop_entries
-        else:
-            payload["delta"]["replaceStops"] = stop_entries
-    if include_daytrack:
-        if delta_daytrack_entries:
-            payload["delta"]["upsertDaytracks"] = delta_daytrack_entries
-        else:
-            payload["delta"]["replaceDaytracks"] = daytrack_entries
-    if include_snap:
-        if delta_snap_entries:
-            payload["delta"]["appendSnap"] = delta_snap_entries
-        elif snap_entries:
-            payload["delta"]["replaceSnap"] = snap_entries
-    return payload
-
-
-def _build_delta_context_points_asc(
-    current_viewport_points_desc: list[dict[str, Any]],
-    new_viewport_points_desc: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    if not new_viewport_points_desc:
-        return []
-    new_ids = {int(point["id"]) for point in new_viewport_points_desc}
-    old_anchor = next(
-        (point for point in current_viewport_points_desc if int(point["id"]) not in new_ids),
-        None,
-    )
-    points_asc = list(reversed(new_viewport_points_desc))
-    if old_anchor is not None:
-        points_asc = [old_anchor, *points_asc]
-    return points_asc
-
-
 def _prepare_timeline_preview_payload(
     viewport_points_desc: list[dict[str, Any]],
     *,
@@ -2277,258 +1501,20 @@ def _prepare_timeline_preview_payload(
     route_time_gap_min: int,
     route_dist_gap_m: int,
 ) -> dict[str, Any]:
-    if not viewport_points_desc:
-        return {
-            "meta": {
-                "totalPoints": total_points,
-                "visiblePoints": visible_points,
-                "loadedPoints": 0,
-                "serverPrepared": True,
-                "previewMode": "timeline",
-            },
-            "stats": {"pointsPerMinute": 0, "avgAccuracyM": None, "sessionDurationSeconds": 0},
-            "layers": {
-                "points": [],
-                "latestPoint": None,
-                "heatmap": [],
-                "polylines": [],
-                "accuracy": [],
-                "speed": [],
-                "stops": [],
-                "daytracks": [],
-                "snap": [],
-            },
-            "logItems": [],
-        }
-
-    points_asc = list(reversed(viewport_points_desc))
-    latest = viewport_points_desc[0]
-    avg_accuracy = sum(float(point["horizontal_accuracy_m"]) for point in viewport_points_desc) / len(viewport_points_desc)
-    segments = _segment_track(
-        points_asc,
-        time_gap_ms=route_time_gap_min * 60000,
-        dist_gap_m=route_dist_gap_m,
+    return _prepare_timeline_preview_payload_base(
+        viewport_points_desc,
+        total_points=total_points,
+        visible_points=visible_points,
+        log_limit=log_limit,
+        zoom=zoom,
+        include_points=include_points,
+        include_accuracy=include_accuracy,
+        include_polyline=include_polyline,
+        include_labels=include_labels,
+        route_time_gap_min=route_time_gap_min,
+        route_dist_gap_m=route_dist_gap_m,
+        serialize_polyline_segments_fn=_serialize_polyline_segments,
     )
-    payload = {
-        "meta": {
-            "totalPoints": total_points,
-            "visiblePoints": visible_points,
-            "loadedPoints": len(viewport_points_desc),
-            "serverPrepared": True,
-            "segmentCount": len(segments),
-            "previewMode": "timeline",
-            "latestVisiblePointTsUtc": latest["point_timestamp_utc"],
-        },
-        "stats": {
-            "pointsPerMinute": _points_per_minute(viewport_points_desc),
-            "avgAccuracyM": round(avg_accuracy, 2),
-            "sessionDurationSeconds": _track_duration_seconds(points_asc),
-        },
-        "layers": {
-            "points": [],
-            "latestPoint": _serialize_latest_point(latest) if include_points else None,
-            "heatmap": [],
-            "polylines": _serialize_polyline_segments(segments, zoom=zoom, include_labels=include_labels)
-            if include_polyline
-            else [],
-            "accuracy": _serialize_accuracy_entries(viewport_points_desc) if include_accuracy else [],
-            "speed": [],
-            "stops": [],
-            "daytracks": [],
-            "snap": [],
-        },
-        "logItems": [_serialize_log_point(point) for point in viewport_points_desc[:max(1, log_limit)]],
-    }
-    if include_points:
-        sampled_points = _downsample_points(points_asc, _target_point_limit(zoom, len(points_asc)))
-        payload["layers"]["points"] = [_serialize_map_point(point, latest["id"]) for point in sampled_points]
-    return payload
-
-
-def _point_dt(point: dict[str, Any]) -> datetime:
-    return datetime.fromisoformat(str(point["point_timestamp_utc"]))
-
-
-def _parse_iso_timestamp(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    normalized = value.strip().replace(" ", "+")
-    if normalized.endswith("Z"):
-        normalized = f"{normalized[:-1]}+00:00"
-    try:
-        return datetime.fromisoformat(normalized)
-    except ValueError:
-        return None
-
-
-def _track_duration_seconds(points_asc: list[dict[str, Any]]) -> int:
-    if len(points_asc) < 2:
-        return 0
-    return max(0, int((_point_dt(points_asc[-1]) - _point_dt(points_asc[0])).total_seconds()))
-
-
-def _points_per_minute(points_desc: list[dict[str, Any]]) -> float:
-    if len(points_desc) < 2:
-        return 0.0
-    recent = points_desc[: min(100, len(points_desc))]
-    newest = _point_dt(recent[0])
-    oldest = _point_dt(recent[-1])
-    elapsed_minutes = max((newest - oldest).total_seconds() / 60, 0.0001)
-    return round(len(recent) / elapsed_minutes, 2)
-
-
-def _target_point_limit(zoom: int, available: int) -> int:
-    if zoom <= 8:
-        target = 140
-    elif zoom <= 10:
-        target = 220
-    elif zoom <= 12:
-        target = 360
-    elif zoom <= 14:
-        target = 700
-    elif zoom <= 16:
-        target = 1200
-    else:
-        target = 2000
-    return max(2, min(available, target))
-
-
-def _downsample_points(points_asc: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
-    if len(points_asc) <= limit:
-        return points_asc
-    if limit <= 2:
-        return [points_asc[0], points_asc[-1]]
-    stride = (len(points_asc) - 1) / (limit - 1)
-    sampled = []
-    seen: set[int] = set()
-    for index in range(limit):
-        source_index = min(len(points_asc) - 1, round(index * stride))
-        point = points_asc[source_index]
-        point_id = int(point["id"])
-        if point_id in seen:
-            continue
-        sampled.append(point)
-        seen.add(point_id)
-    if sampled[-1]["id"] != points_asc[-1]["id"]:
-        sampled[-1] = points_asc[-1]
-    return sampled
-
-
-def _haversine_m(a: dict[str, Any], b: dict[str, Any]) -> float:
-    radius = 6371000.0
-    lat1 = math.radians(float(a["latitude"]))
-    lon1 = math.radians(float(a["longitude"]))
-    lat2 = math.radians(float(b["latitude"]))
-    lon2 = math.radians(float(b["longitude"]))
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    root = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    return 2 * radius * math.asin(math.sqrt(root))
-
-
-def _segment_track(points_asc: list[dict[str, Any]], *, time_gap_ms: int, dist_gap_m: int) -> list[list[dict[str, Any]]]:
-    if len(points_asc) < 2:
-        return []
-    segments: list[list[dict[str, Any]]] = []
-    segment = [points_asc[0]]
-    hard_jump_dist_m = max(dist_gap_m * 8, 15000)
-    hard_jump_speed_kmh = 220.0
-    for current in points_asc[1:]:
-        previous = segment[-1]
-        time_gap = (_point_dt(current) - _point_dt(previous)).total_seconds() * 1000
-        dist_gap = _haversine_m(previous, current)
-        elapsed_seconds = max(time_gap / 1000, 0.001)
-        implied_speed_kmh = (dist_gap / elapsed_seconds) * 3.6
-        split_for_distance = dist_gap >= hard_jump_dist_m or (dist_gap > dist_gap_m and implied_speed_kmh > hard_jump_speed_kmh)
-        if time_gap > time_gap_ms or split_for_distance:
-            if len(segment) > 1:
-                segments.append(segment)
-            segment = [current]
-            continue
-        segment.append(current)
-    if len(segment) > 1:
-        segments.append(segment)
-    return _compact_track_segments(segments, time_gap_ms=time_gap_ms, dist_gap_m=dist_gap_m)
-
-
-def _segment_duration_ms(segment: list[dict[str, Any]]) -> float:
-    if len(segment) < 2:
-        return 0.0
-    return (_point_dt(segment[-1]) - _point_dt(segment[0])).total_seconds() * 1000
-
-
-def _is_micro_segment(segment: list[dict[str, Any]], *, time_gap_ms: int) -> bool:
-    return len(segment) <= 6 or _segment_duration_ms(segment) <= max(180000, time_gap_ms * 0.6)
-
-
-def _compact_track_segments(
-    segments: list[list[dict[str, Any]]],
-    *,
-    time_gap_ms: int,
-    dist_gap_m: int,
-) -> list[list[dict[str, Any]]]:
-    if len(segments) <= 1:
-        return segments
-    soft_time_gap_ms = max(time_gap_ms * 3, 15 * 60000)
-    soft_dist_gap_m = max(dist_gap_m * 4, 1200)
-    hard_time_gap_ms = max(time_gap_ms * 12, 2 * 3600 * 1000)
-    hard_dist_gap_m = max(dist_gap_m * 10, 10000)
-    compacted = [segments[0]]
-    for segment in segments[1:]:
-        previous = compacted[-1]
-        gap_time_ms = (_point_dt(segment[0]) - _point_dt(previous[-1])).total_seconds() * 1000
-        gap_dist_m = _haversine_m(previous[-1], segment[0])
-        should_merge = (
-            gap_time_ms <= soft_time_gap_ms
-            and gap_dist_m <= soft_dist_gap_m
-            and (gap_time_ms < hard_time_gap_ms and gap_dist_m < hard_dist_gap_m)
-            and (_is_micro_segment(previous, time_gap_ms=time_gap_ms) or _is_micro_segment(segment, time_gap_ms=time_gap_ms))
-        )
-        if should_merge:
-            previous.extend(segment)
-            continue
-        compacted.append(segment)
-    return compacted
-
-
-def _rdp(coords: list[list[float]], epsilon: float) -> list[list[float]]:
-    if len(coords) <= 2 or epsilon <= 0:
-        return coords
-    start = coords[0]
-    end = coords[-1]
-    x1, y1 = start
-    x2, y2 = end
-    denominator = math.hypot(x2 - x1, y2 - y1)
-    max_distance = -1.0
-    split_index = -1
-    for index in range(1, len(coords) - 1):
-        x0, y0 = coords[index]
-        if denominator == 0:
-            distance = math.hypot(x0 - x1, y0 - y1)
-        else:
-            distance = abs((y2 - y1) * x0 - (x2 - x1) * y0 + x2 * y1 - y2 * x1) / denominator
-        if distance > max_distance:
-            max_distance = distance
-            split_index = index
-    if max_distance <= epsilon or split_index < 0:
-        return [start, end]
-    left = _rdp(coords[: split_index + 1], epsilon)
-    right = _rdp(coords[split_index:], epsilon)
-    return left[:-1] + right
-
-
-def _simplify_segment(segment: list[dict[str, Any]], zoom: int) -> list[list[float]]:
-    coords = [[float(point["latitude"]), float(point["longitude"])] for point in segment]
-    if len(coords) <= 2:
-        return coords
-    tolerance_m = 120 if zoom <= 8 else 60 if zoom <= 10 else 25 if zoom <= 12 else 10 if zoom <= 14 else 4 if zoom <= 16 else 1
-    epsilon = tolerance_m / 111320.0
-    return _rdp(coords, epsilon)
-
-
-def _palette_color(index: int) -> str:
-    palette = ["#0A84FF", "#30D158", "#FF9F0A", "#BF5AF2", "#5AC8FA", "#FF453A", "#FFD60A", "#64D2FF"]
-    return palette[index % len(palette)]
 
 
 def _serialize_polyline_segments(
@@ -2537,108 +1523,12 @@ def _serialize_polyline_segments(
     zoom: int,
     include_labels: bool,
 ) -> list[dict[str, Any]]:
-    serialized = []
-    for index, segment in enumerate(segments):
-        coords = _snap_segment(segment, zoom=zoom) or _simplify_segment(segment, zoom)
-        serialized.append(
-            {
-                "color": _palette_color(index),
-                "coords": coords,
-                "pointsCount": len(segment),
-                "startLabel": (segment[0]["point_timestamp_local"] or "")[11:16] if include_labels else "",
-                "endLabel": (segment[-1]["point_timestamp_local"] or "")[11:16] if include_labels else "",
-                "startPoint": coords[0] if coords else [float(segment[0]["latitude"]), float(segment[0]["longitude"])],
-                "endPoint": coords[-1] if coords else [float(segment[-1]["latitude"]), float(segment[-1]["longitude"])],
-            }
-        )
-    return serialized
-
-
-def _speed_color(kmh: float) -> str:
-    normalized_kmh = max(0.0, kmh)
-    if normalized_kmh <= 100.0:
-        normalized_kmh = min(100.0, round(normalized_kmh / 5.0) * 5.0)
-    hue = round(240 - min(300.0, normalized_kmh) / 300.0 * 240)
-    lightness = 55 if kmh < 10 else 50 if kmh > 250 else 52
-    return f"hsl({hue},95%,{lightness}%)"
-
-
-def _serialize_speed_segments(points_asc: list[dict[str, Any]], *, zoom: int) -> list[dict[str, Any]]:
-    sampled = _downsample_points(points_asc, _target_point_limit(zoom, len(points_asc)))
-    segments = []
-    for previous, current in zip(sampled, sampled[1:], strict=False):
-        seconds = max((_point_dt(current) - _point_dt(previous)).total_seconds(), 0.0)
-        if seconds <= 0:
-            continue
-        kmh = (_haversine_m(previous, current) / seconds) * 3.6
-        if kmh > 500:
-            continue
-        segments.append(
-            {
-                "coords": [
-                    [float(previous["latitude"]), float(previous["longitude"])],
-                    [float(current["latitude"]), float(current["longitude"])],
-                ],
-                "kmh": round(kmh, 1),
-                "color": _speed_color(kmh),
-            }
-        )
-    return segments
-
-
-def _heat_cell_m(zoom: int) -> int:
-    return 800 if zoom <= 8 else 350 if zoom <= 10 else 160 if zoom <= 12 else 80 if zoom <= 14 else 40 if zoom <= 16 else 20
-
-
-def _aggregate_heatmap(points_desc: list[dict[str, Any]], *, zoom: int) -> list[list[float]]:
-    cell_m = _heat_cell_m(zoom)
-    lat_step = cell_m / 111320.0
-    buckets: dict[tuple[int, int], dict[str, float]] = {}
-    for point in points_desc:
-        lat = float(point["latitude"])
-        lon = float(point["longitude"])
-        lon_step = max(lat_step / max(math.cos(math.radians(lat)), 0.2), 1e-6)
-        key = (round(lat / lat_step), round(lon / lon_step))
-        weight = min(1.0, 30.0 / max(float(point["horizontal_accuracy_m"]), 1.0))
-        bucket = buckets.setdefault(key, {"lat_sum": 0.0, "lon_sum": 0.0, "weight_sum": 0.0})
-        bucket["lat_sum"] += lat * weight
-        bucket["lon_sum"] += lon * weight
-        bucket["weight_sum"] += weight
-    if not buckets:
-        return []
-    max_weight = max(bucket["weight_sum"] for bucket in buckets.values()) or 1.0
-    aggregated = []
-    for bucket in buckets.values():
-        aggregated.append(
-            [
-                round(bucket["lat_sum"] / bucket["weight_sum"], 6),
-                round(bucket["lon_sum"] / bucket["weight_sum"], 6),
-                round(min(1.0, bucket["weight_sum"] / max_weight), 4),
-            ]
-        )
-    return aggregated
-
-
-def _bucket_float(value: float, *, step: float) -> float:
-    if step <= 0:
-        return value
-    return round(round(value / step) * step, 6)
-
-
-def _bucket_bbox_for_zoom(
-    bbox: tuple[float, float, float, float] | None,
-    *,
-    zoom: int,
-) -> tuple[float, float, float, float] | None:
-    if not bbox:
-        return None
-    step = max((_heat_cell_m(zoom) / 111320.0) * 0.5, 1e-5)
-    min_lon, min_lat, max_lon, max_lat = bbox
-    return (
-        round(math.floor(min_lon / step) * step, 6),
-        round(math.floor(min_lat / step) * step, 6),
-        round(math.ceil(max_lon / step) * step, 6),
-        round(math.ceil(max_lat / step) * step, 6),
+    return _serialize_polyline_segments_impl(
+        segments,
+        zoom=zoom,
+        include_labels=include_labels,
+        snap_segment_fn=_snap_segment,
+        palette_color_fn=_palette_color,
     )
 
 
@@ -2649,31 +1539,17 @@ def _resolve_heatmap_layer(
     bbox: tuple[float, float, float, float] | None,
     zoom: int,
 ) -> list[list[float]]:
-    bucketed_bbox = _bucket_bbox_for_zoom(bbox, zoom=zoom)
-    cache_key = json.dumps(
-        {
-            "date_from": filters.date_from,
-            "date_to": filters.date_to,
-            "session_id": filters.session_id,
-            "capture_mode": filters.capture_mode,
-            "source": filters.source,
-            "search": filters.search,
-            "zoom": zoom,
-            "bbox": bucketed_bbox,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
+    return _resolve_heatmap_layer_impl(
+        storage,
+        filters,
+        bbox=bbox,
+        zoom=zoom,
+        heatmap_cache=_HEATMAP_LAYER_CACHE,
+        heatmap_cache_ttl=_HEATMAP_LAYER_CACHE_TTL,
+        layer_cache_max=_LAYER_CACHE_MAX,
+        cache_get_fn=_cache_get,
+        cache_put_fn=_cache_put,
     )
-    cached = _cache_get(_HEATMAP_LAYER_CACHE, cache_key, ttl=_HEATMAP_LAYER_CACHE_TTL)
-    if cached:
-        return cached[1]
-
-    now = time.time()
-    # CRITICAL FIX: Use bucketed_bbox for querying storage to match cache key precisely
-    rows = storage.list_heatmap_points(filters, bbox=bucketed_bbox or bbox, spatial_zoom_hint=zoom)
-    result = _aggregate_heatmap(rows, zoom=zoom)
-    _cache_put(_HEATMAP_LAYER_CACHE, cache_key, (now, result), ttl=_HEATMAP_LAYER_CACHE_TTL, max_items=_LAYER_CACHE_MAX)
-    return result
 
 
 def _resolve_track_context(
@@ -2686,48 +1562,20 @@ def _resolve_track_context(
     route_dist_gap_m: int,
     preloaded_points_desc: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    bucketed_bbox = _bucket_bbox_for_zoom(bbox, zoom=zoom)
-    cache_key = json.dumps(
-        {
-            "date_from": filters.date_from,
-            "date_to": filters.date_to,
-            "session_id": filters.session_id,
-            "capture_mode": filters.capture_mode,
-            "source": filters.source,
-            "search": filters.search,
-            "zoom": zoom,
-            "bbox": bucketed_bbox,
-            "route_time_gap_min": route_time_gap_min,
-            "route_dist_gap_m": route_dist_gap_m,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
+    return _resolve_track_context_impl(
+        storage,
+        filters,
+        bbox=bbox,
+        zoom=zoom,
+        route_time_gap_min=route_time_gap_min,
+        route_dist_gap_m=route_dist_gap_m,
+        preloaded_points_desc=preloaded_points_desc,
+        track_context_cache=_TRACK_CONTEXT_CACHE,
+        track_context_cache_ttl=_TRACK_CONTEXT_CACHE_TTL,
+        layer_cache_max=_LAYER_CACHE_MAX,
+        cache_get_fn=_cache_get,
+        cache_put_fn=_cache_put,
     )
-    cached = _cache_get(_TRACK_CONTEXT_CACHE, cache_key, ttl=_TRACK_CONTEXT_CACHE_TTL)
-    if cached:
-        return cached[1]
-
-    now = time.time()
-    if preloaded_points_desc is not None:
-        points_desc = preloaded_points_desc
-    elif bbox:
-        points_desc = storage.list_points_in_bbox(filters, bbox=bbox, spatial_zoom_hint=zoom)
-    else:
-        points_desc = storage.list_points(filters)["items"]
-    points_asc = list(reversed(points_desc))
-    segments = _segment_track(
-        points_asc,
-        time_gap_ms=route_time_gap_min * 60000,
-        dist_gap_m=route_dist_gap_m,
-    )
-    context = {
-        "cache_key": cache_key,
-        "points_desc": points_desc,
-        "points_asc": points_asc,
-        "segments": segments,
-    }
-    _cache_put(_TRACK_CONTEXT_CACHE, cache_key, (now, context), ttl=_TRACK_CONTEXT_CACHE_TTL, max_items=_LAYER_CACHE_MAX)
-    return context
 
 
 def _resolve_track_layers(
@@ -2744,150 +1592,26 @@ def _resolve_track_layers(
     route_time_gap_min: int,
     include_snap: bool,
 ) -> dict[str, Any]:
-    cache_key = json.dumps(
-        {
-            "context": track_context["cache_key"],
-            "zoom": zoom,
-            "include_polyline": include_polyline,
-            "include_labels": include_labels,
-            "include_speed": include_speed,
-            "include_stops": include_stops,
-            "stop_min_duration_min": stop_min_duration_min,
-            "stop_radius_m": stop_radius_m,
-            "include_daytrack": include_daytrack,
-            "route_time_gap_min": route_time_gap_min,
-            "include_snap": include_snap,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
+    return _resolve_track_layers_impl(
+        track_context,
+        zoom=zoom,
+        include_polyline=include_polyline,
+        include_labels=include_labels,
+        include_speed=include_speed,
+        include_stops=include_stops,
+        stop_min_duration_min=stop_min_duration_min,
+        stop_radius_m=stop_radius_m,
+        include_daytrack=include_daytrack,
+        route_time_gap_min=route_time_gap_min,
+        include_snap=include_snap,
+        track_layer_cache=_TRACK_LAYER_CACHE,
+        track_layer_cache_ttl=_TRACK_LAYER_CACHE_TTL,
+        layer_cache_max=_LAYER_CACHE_MAX,
+        cache_get_fn=_cache_get,
+        cache_put_fn=_cache_put,
+        serialize_polyline_segments_fn=_serialize_polyline_segments,
+        serialize_snap_segments_fn=_serialize_snap_segments,
     )
-    cached = _cache_get(_TRACK_LAYER_CACHE, cache_key, ttl=_TRACK_LAYER_CACHE_TTL)
-    if cached:
-        return cached[1]
-
-    now = time.time()
-    points_desc = track_context["points_desc"]
-    points_asc = track_context["points_asc"]
-    segments = track_context["segments"]
-    result = {
-        "context_points_desc": points_desc,
-        "segment_count": len(segments),
-        "polylines": _serialize_polyline_segments(segments, zoom=zoom, include_labels=include_labels)
-        if (include_polyline or include_labels)
-        else [],
-        "speed": _serialize_speed_segments(points_asc, zoom=zoom) if include_speed else [],
-        "stops": _detect_stops(
-            points_asc,
-            stop_radius_m=stop_radius_m,
-            stop_min_duration_min=stop_min_duration_min,
-        )
-        if include_stops
-        else [],
-        "daytracks": _serialize_daytracks(
-            points_asc,
-            zoom=zoom,
-            route_time_gap_min=route_time_gap_min,
-        )
-        if include_daytrack
-        else [],
-        "snap": _serialize_snap_segments(segments, zoom=zoom) if include_snap else [],
-    }
-    _cache_put(_TRACK_LAYER_CACHE, cache_key, (now, result), ttl=_TRACK_LAYER_CACHE_TTL, max_items=_LAYER_CACHE_MAX)
-    return result
-
-
-def _detect_stops(
-    points_asc: list[dict[str, Any]],
-    *,
-    stop_radius_m: int,
-    stop_min_duration_min: int,
-) -> list[dict[str, Any]]:
-    minimum_ms = stop_min_duration_min * 60000
-    index = 0
-    stops = []
-    while index < len(points_asc):
-        anchor = points_asc[index]
-        cursor = index + 1
-        while cursor < len(points_asc) and _haversine_m(anchor, points_asc[cursor]) <= stop_radius_m:
-            cursor += 1
-        if cursor > index + 1:
-            duration_ms = (_point_dt(points_asc[cursor - 1]) - _point_dt(anchor)).total_seconds() * 1000
-            if duration_ms >= minimum_ms:
-                midpoint = points_asc[(index + cursor - 1) // 2]
-                stops.append(
-                    {
-                        "lat": float(midpoint["latitude"]),
-                        "lon": float(midpoint["longitude"]),
-                        "radius": stop_radius_m,
-                        "durationMin": round(duration_ms / 60000),
-                        "startTimeUtc": anchor["point_timestamp_utc"],
-                        "endTimeUtc": points_asc[cursor - 1]["point_timestamp_utc"],
-                        "startLabel": (anchor["point_timestamp_local"] or "")[11:16],
-                        "endLabel": (points_asc[cursor - 1]["point_timestamp_local"] or "")[11:16],
-                        "pointsCount": cursor - index,
-                    }
-                )
-                index = cursor
-                continue
-        index += 1
-    return stops
-
-
-def _serialize_daytracks(points_asc: list[dict[str, Any]], *, zoom: int, route_time_gap_min: int) -> list[dict[str, Any]]:
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for point in points_asc:
-        grouped.setdefault(str(point["point_date_local"]), []).append(point)
-    daytracks = []
-    for index, (day, items) in enumerate(sorted(grouped.items())):
-        segments = _segment_track(items, time_gap_ms=route_time_gap_min * 60000, dist_gap_m=200000)
-        daytracks.append(
-            {
-                "day": day,
-                "color": _palette_color(index),
-                "labelPoint": [float(items[0]["latitude"]), float(items[0]["longitude"])],
-                "segments": [_simplify_segment(segment, zoom) for segment in segments],
-                "pointsCount": len(items),
-            }
-        )
-    return daytracks
-
-
-def _serialize_map_point(point: dict[str, Any], latest_point_id: int) -> dict[str, Any]:
-    return {
-        "id": int(point["id"]),
-        "lat": float(point["latitude"]),
-        "lon": float(point["longitude"]),
-        "timestampLocal": point["point_timestamp_local"],
-        "timestampUtc": point["point_timestamp_utc"],
-        "accuracyM": float(point["horizontal_accuracy_m"]),
-        "source": point["source"] or "",
-        "isLatest": int(point["id"]) == int(latest_point_id),
-    }
-
-
-def _serialize_latest_point(point: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": int(point["id"]),
-        "lat": float(point["latitude"]),
-        "lon": float(point["longitude"]),
-        "timestampLocal": point["point_timestamp_local"],
-        "timestampUtc": point["point_timestamp_utc"],
-        "accuracyM": float(point["horizontal_accuracy_m"]),
-        "source": point["source"] or "",
-    }
-
-
-def _serialize_log_point(point: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": int(point["id"]),
-        "lat": float(point["latitude"]),
-        "lon": float(point["longitude"]),
-        "timestampLocal": point["point_timestamp_local"],
-        "accuracyM": float(point["horizontal_accuracy_m"]),
-        "source": point["source"] or "",
-        "captureMode": point["capture_mode"] or "",
-        "requestId": point["request_id"] or "",
-    }
 
 
 def _serialize_snap_segments(
@@ -2896,106 +1620,12 @@ def _serialize_snap_segments(
     zoom: int,
     allow_network: bool = True,
 ) -> list[dict[str, Any]]:
-    snapped = []
-    for segment in segments[:10]:
-        coords = _snap_segment(segment, zoom=zoom, allow_network=allow_network)
-        if coords:
-            snapped.append({"coords": coords})
-    return snapped
-
-
-def _adaptive_timeline_sample(points_asc: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
-    capped_limit = max(2, int(limit))
-    if len(points_asc) <= capped_limit:
-        return points_asc
-    first_ts = _point_dt(points_asc[0]).timestamp()
-    last_ts = _point_dt(points_asc[-1]).timestamp()
-    if last_ts <= first_ts:
-        step = max(1, len(points_asc) // capped_limit)
-        sampled = points_asc[::step][: capped_limit - 1]
-        if sampled[-1]["id"] != points_asc[-1]["id"]:
-            sampled.append(points_asc[-1])
-        return sampled
-    bucket_count = max(2, capped_limit // 3)
-    span = max((last_ts - first_ts) / bucket_count, 1.0)
-    buckets: list[list[dict[str, Any]]] = [[] for _ in range(bucket_count)]
-    for point in points_asc:
-        bucket_index = min(bucket_count - 1, int((_point_dt(point).timestamp() - first_ts) / span))
-        buckets[bucket_index].append(point)
-    sampled: list[dict[str, Any]] = []
-    seen_ids: set[int] = set()
-    for bucket in buckets:
-        if not bucket:
-            continue
-        picks = [bucket[0], bucket[-1]]
-        if len(bucket) > 2:
-            picks.insert(1, bucket[len(bucket) // 2])
-        for point in picks:
-            point_id = int(point["id"])
-            if point_id in seen_ids:
-                continue
-            sampled.append(point)
-            seen_ids.add(point_id)
-    sampled.sort(key=_point_dt)
-    if len(sampled) > capped_limit:
-        step = max(1, len(sampled) // capped_limit)
-        sampled = sampled[::step][: capped_limit - 1] + [sampled[-1]]
-        sampled = sorted({int(point["id"]): point for point in sampled}.values(), key=_point_dt)
-    return sampled
-
-
-def _build_timeline_markers(
-    points_asc: list[dict[str, Any]],
-    *,
-    stop_min_duration_min: int,
-    stop_radius_m: int,
-    precomputed_day_markers: list[dict[str, Any]] | None = None,
-) -> list[dict[str, Any]]:
-    if not points_asc:
-        return list(precomputed_day_markers or [])
-    markers: list[dict[str, Any]] = []
-    seen_keys: set[tuple[str, str]] = set()
-    if precomputed_day_markers:
-        for marker in precomputed_day_markers:
-            day = str(marker.get("label") or "")
-            timestamp_utc = marker.get("timestampUtc")
-            if not day or not timestamp_utc:
-                continue
-            key = ("day", day)
-            if key in seen_keys:
-                continue
-            markers.append({"type": "day", "timestampUtc": timestamp_utc, "label": day})
-            seen_keys.add(key)
-    else:
-        previous_day = None
-        for point in points_asc:
-            day = point.get("point_date_local") or (point.get("point_timestamp_local") or "")[:10]
-            if day and day != previous_day:
-                key = ("day", day)
-                if key not in seen_keys:
-                    markers.append({"type": "day", "timestampUtc": point["point_timestamp_utc"], "label": day})
-                    seen_keys.add(key)
-            previous_day = day
-    for stop in _detect_stops(
-        points_asc,
-        stop_radius_m=stop_radius_m,
-        stop_min_duration_min=stop_min_duration_min,
-    ):
-        timestamp_utc = stop["startTimeUtc"]
-        key = ("stop", timestamp_utc)
-        if key in seen_keys:
-            continue
-        markers.append(
-            {
-                "type": "stop",
-                "timestampUtc": timestamp_utc,
-                "label": f"Stop {stop['durationMin']} min",
-                "durationMin": stop["durationMin"],
-            }
-        )
-        seen_keys.add(key)
-    markers.sort(key=lambda item: item["timestampUtc"])
-    return markers
+    return _serialize_snap_segments_impl(
+        segments,
+        zoom=zoom,
+        allow_network=allow_network,
+        snap_segment_fn=_snap_segment,
+    )
 
 
 def _snap_segment(
@@ -3004,47 +1634,16 @@ def _snap_segment(
     zoom: int,
     allow_network: bool = True,
 ) -> list[list[float]] | None:
-    sampled = _downsample_points(segment, 80 if zoom <= 14 else 120)
-    if len(sampled) < 2:
-        return None
-    key = hashlib.sha1(
-        "|".join(
-            f"{point['point_timestamp_utc']}:{float(point['latitude']):.6f}:{float(point['longitude']):.6f}"
-            for point in sampled
-        ).encode(),
-        usedforsecurity=False,
-    ).hexdigest()
-    cached = _cache_get(_SNAP_CACHE, key, ttl=_SNAP_CACHE_TTL)
-    if cached:
-        return cached[1]
-    if not allow_network:
-        return None
-    now = time.time()
-    coords = ";".join(f"{float(point['longitude']):.6f},{float(point['latitude']):.6f}" for point in sampled)
-    timestamps = [int(_point_dt(point).timestamp()) for point in sampled]
-    for index in range(1, len(timestamps)):
-        if timestamps[index] <= timestamps[index - 1]:
-            timestamps[index] = timestamps[index - 1] + 1
-    url = (
-        "https://router.project-osrm.org/match/v1/driving/"
-        f"{coords}?overview=full&geometries=geojson&timestamps={';'.join(str(value) for value in timestamps)}"
-        f"&radiuses={';'.join('50' for _ in sampled)}"
+    return _snap_segment_impl(
+        segment,
+        zoom=zoom,
+        allow_network=allow_network,
+        snap_cache=_SNAP_CACHE,
+        snap_cache_ttl=_SNAP_CACHE_TTL,
+        snap_cache_max=_SNAP_CACHE_MAX,
+        cache_get_fn=_cache_get,
+        cache_put_fn=_cache_put,
     )
-    try:
-        with urlopen(url, timeout=6) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        if payload.get("code") != "Ok" or not payload.get("matchings"):
-            result = None
-        else:
-            result = [
-                [round(lat, 6), round(lon, 6)]
-                for matching in payload["matchings"]
-                for lon, lat in matching["geometry"]["coordinates"]
-            ]
-    except Exception:
-        result = None
-    _cache_put(_SNAP_CACHE, key, (now, result), ttl=_SNAP_CACHE_TTL, max_items=_SNAP_CACHE_MAX)
-    return result
 
 
 def _request_metadata(request: Request) -> RequestMetadata:
@@ -3057,17 +1656,6 @@ def _request_metadata(request: Request) -> RequestMetadata:
         request_path=request.url.path,
         request_method=request.method,
     )
-
-
-def _proxied_ip(request: Request, trust_proxy_headers: bool) -> str:
-    if not trust_proxy_headers:
-        return ""
-    header = request.headers.get("x-forwarded-for", "")
-    return header.split(",")[0].strip() if header else ""
-
-
-def _direct_remote_addr(request: Request) -> str:
-    return request.client.host if request.client else ""
 
 
 def _log_request(*, request: Request, status_code: int, duration_ms: float) -> None:
@@ -3104,111 +1692,6 @@ def _json_error(
     response = JSONResponse(status_code=status_code, content=payload)
     response.headers["X-Request-ID"] = request.state.request_id
     return response
-
-
-def _build_session_signing_key(settings: Settings, existing_key: bytes | None = None) -> bytes:
-    if settings.session_signing_secret:
-        return settings.session_signing_secret.encode("utf-8")
-    if settings.bearer_token:
-        return settings.bearer_token.encode("utf-8")
-    if settings.admin_password:
-        return settings.admin_password.encode("utf-8")
-    if existing_key:
-        return existing_key
-    return secrets.token_bytes(32)
-
-
-def _create_session_token(settings: Settings, app: FastAPI) -> str:
-    ts = str(int(time.time()))
-    sig = hmac.new(app.state.session_signing_key, ts.encode(), hashlib.sha256).hexdigest()
-    return f"{ts}:{sig}"
-
-
-def _validate_session_token(token: str, settings: Settings, app: FastAPI) -> bool:
-    try:
-        ts_str, sig = token.split(":", 1)
-        ts = int(ts_str)
-    except (ValueError, AttributeError):
-        return False
-    if time.time() - ts > _SESSION_MAX_AGE:
-        return False
-    expected = hmac.new(app.state.session_signing_key, ts_str.encode(), hashlib.sha256).hexdigest()
-    return compare_digest(sig, expected)
-
-
-async def _require_bearer_token(request: Request, authorization: str | None = Header(default=None)) -> None:
-    settings = _settings(request)
-    if not settings.auth_required:
-        return
-    expected = settings.bearer_token or ""
-    scheme, _, supplied_token = (authorization or "").partition(" ")
-    if scheme.lower() != "bearer" or not supplied_token or not compare_digest(supplied_token, expected):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid bearer token.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-
-async def _apply_rate_limit(request: Request) -> None:
-    limiter: SimpleRateLimiter = request.app.state.rate_limiter
-    key = request.state.proxied_ip or request.state.remote_addr or "unknown"
-    if not limiter.check(key):
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Rate limit exceeded.")
-
-
-async def _require_admin_access(request: Request, authorization: str | None = Header(default=None)) -> None:
-    settings = _settings(request)
-
-    # 1. Session-Cookie — gilt für alle Zugriffspfade
-    cookie = request.cookies.get(_SESSION_COOKIE, "")
-    if cookie and _validate_session_token(cookie, settings, request.app):
-        return
-
-    # 2. HTTP-Basic-Auth (wenn Admin-Credentials konfiguriert)
-    if settings.admin_auth_enabled:
-        scheme, _, encoded = (authorization or "").partition(" ")
-        if scheme.lower() != "basic" or not encoded:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Admin authentication required.",
-                headers={"WWW-Authenticate": "Basic"},
-            )
-        try:
-            username, password = b64decode(encoded).decode("utf-8").split(":", 1)
-        except Exception as exc:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid admin credentials.",
-                headers={"WWW-Authenticate": "Basic"},
-            ) from exc
-        if not (
-            compare_digest(username, settings.admin_username or "")
-            and compare_digest(password, settings.admin_password or "")
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid admin credentials.",
-                headers={"WWW-Authenticate": "Basic"},
-            )
-        return
-
-    # 3. Lokaler Zugriff
-    if _is_local_operator_request(
-        request.state.remote_addr,
-        request.url.hostname,
-        request.headers.get("host", ""),
-    ):
-        return
-
-    # 4. Dashboard-Routen → Login-Redirect statt 403
-    if request.url.path.startswith("/dashboard"):
-        raise _LoginRequired()
-
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Dashboard is local-only until admin credentials are configured.",
-    )
 
 
 async def _record_failure(*, request: Request, http_status: int, error_category: str, error_detail: str) -> None:
@@ -3600,30 +2083,6 @@ def _load_markdown_outline(path: Path) -> dict[str, Any]:
         else:
             current["paragraphs"].append(line)
     return {"title": title, "sections": sections, "path": str(path.relative_to(ROOT_DIR))}
-
-
-def _is_loopback_hostname(hostname: str | None) -> bool:
-    if not hostname:
-        return False
-    candidate = hostname.strip().strip("[]").split(":", 1)[0].lower()
-    return candidate in {"127.0.0.1", "::1", "localhost", "testclient"}
-
-
-def _is_local_operator_request(remote_addr: str, request_hostname: str | None = None, host_header: str = "") -> bool:
-    if remote_addr in {"127.0.0.1", "::1", "localhost", "testclient"}:
-        return True
-    try:
-        remote_ip = ip_address(remote_addr)
-    except ValueError:
-        return False
-    if remote_ip.is_loopback:
-        return True
-    # Docker port publishing to 127.0.0.1 commonly reaches the app from a bridge
-    # gateway IP rather than real loopback. Only treat that as local when the
-    # request itself still targets a loopback host.
-    if (_is_loopback_hostname(request_hostname) or _is_loopback_hostname(host_header)) and remote_ip.is_private:
-        return True
-    return False
 
 
 app = create_app()
