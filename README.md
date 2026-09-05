@@ -27,6 +27,7 @@ Receiver- und Operator-Server für optionale Live-Location-Uploads aus der `Loca
 - **Responsive:** CSS-Grid-basiertes 3-View-System. Desktop: Filter-Panel | Karte | Live-Log. Tablet: 2-Spalten. Mobile: vollständig gestackt, Filter einklappbar. Kartensteuerung und Layer-Menü sind auf kleinen Displays als getrennte Dropdowns nutzbar.
 - **Sichere Operator-UI:** Karten-Live-Log und Import-Status rendern server- bzw. ingestnahe Inhalte nicht mehr als ungefiltertes HTML.
 - **Login:** Der Receiver verwendet den zentralen Dashboard-Login. Eine gültige `ytdl_session`-Session wird dienstübergreifend akzeptiert; eine separate Receiver-Anmeldung ist im Produktionsbetrieb nicht erforderlich.
+- **Produktivadresse auf `devroeber`:** `https://devroeber.tail71a8bc.ts.net:8443/dashboard` über Tailscale Funnel; intern bindet der Dienst auf `0.0.0.0:8082`.
 - **Deutsche Oberfläche:** Alle Dashboard-Seiten vollständig auf Deutsch lokalisiert.
 - **iOS-Vollbild:** Native `requestFullscreen()` nicht auf iOS verfügbar → CSS-Fallback (`position:fixed; 100vw/100dvh`) per ⛶-Button. Einmaliger "Zum Home-Bildschirm"-Banner mit Anleitung. Android nutzt denselben Vollbild-Layoutpfad jetzt auch im nativen Fullscreen.
 
