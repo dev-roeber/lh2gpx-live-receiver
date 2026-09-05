@@ -50,8 +50,6 @@ class Settings:
     public_hostname: str
     public_base_url: str
     bearer_token: str | None
-    admin_username: str | None
-    admin_password: str | None
     data_dir: Path
     sqlite_path: Path
     raw_payload_ndjson_path: Path
@@ -70,16 +68,10 @@ class Settings:
     dawarich_db_user: str = "dawarich"
     dawarich_db_password: str | None = None
     dawarich_sync_enabled: bool = False
-    admin_password_hash: str | None = None
-    session_signing_secret: str | None = None
 
     @property
     def auth_required(self) -> bool:
         return bool(self.bearer_token)
-
-    @property
-    def admin_auth_enabled(self) -> bool:
-        return bool(self.admin_username and (self.admin_password or self.admin_password_hash))
 
     @property
     def dashboard_enabled(self) -> bool:
@@ -113,10 +105,6 @@ class Settings:
         )
 
         raw_bearer_token = os.getenv("LIVE_LOCATION_BEARER_TOKEN", "").strip()
-        raw_admin_username = os.getenv("ADMIN_USERNAME", "").strip()
-        raw_admin_password = os.getenv("ADMIN_PASSWORD", "").strip()
-        raw_admin_password_hash = os.getenv("ADMIN_PASSWORD_HASH", "").strip()
-        raw_session_signing_secret = os.getenv("SESSION_SIGNING_SECRET", "").strip()
 
         return cls(
             bind_host=_read_non_empty_env("BIND_HOST", default="0.0.0.0"),
@@ -124,10 +112,6 @@ class Settings:
             public_hostname=_read_non_empty_env("PUBLIC_HOSTNAME", default="localhost"),
             public_base_url=_read_non_empty_env("PUBLIC_BASE_URL", default="http://localhost:8080"),
             bearer_token=raw_bearer_token or None,
-            admin_username=raw_admin_username or None,
-            admin_password=raw_admin_password or None,
-            admin_password_hash=raw_admin_password_hash or None,
-            session_signing_secret=raw_session_signing_secret or None,
             data_dir=data_dir,
             sqlite_path=sqlite_path,
             raw_payload_ndjson_path=raw_payload_ndjson_path,
@@ -256,11 +240,6 @@ class Settings:
             "publicBaseUrl": self.public_base_url,
             "authRequired": self.auth_required,
             "bearerToken": _mask_secret(self.bearer_token),
-            "adminAuthEnabled": self.admin_auth_enabled,
-            "adminUsername": self.admin_username or "",
-            "adminPassword": _mask_secret(self.admin_password),
-            "adminPasswordHashConfigured": bool(self.admin_password_hash),
-            "sessionSigningSecretConfigured": bool(self.session_signing_secret),
             "dataDir": str(self.data_dir),
             "sqlitePath": str(self.sqlite_path),
             "rawPayloadNdjsonEnabled": self.raw_payload_ndjson_enabled,

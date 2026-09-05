@@ -23,8 +23,6 @@ def make_client(tmp_path: Path) -> TestClient:
         public_hostname="localhost",
         public_base_url="http://localhost:8000",
         bearer_token=None,
-        admin_username=None,
-        admin_password=None,
         data_dir=data_dir,
         sqlite_path=db_path,
         raw_payload_ndjson_path=data_dir / "raw.ndjson",

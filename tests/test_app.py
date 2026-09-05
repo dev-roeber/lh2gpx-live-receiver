@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import io
 import json
 import sqlite3
@@ -10,7 +9,6 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.auth import hash_password
 from app.config import Settings
 from app.import_parsers import parse_file_report
 from app.main import (
@@ -22,8 +20,7 @@ from app.main import (
     _resolve_heatmap_layer,
     _resolve_track_context,
     _resolve_track_layers,
-    create_app,
-)
+    create_app)
 from app.models import PointFilters
 from app.storage import StorageWriteError
 
@@ -68,8 +65,7 @@ def test_invalid_token_is_rejected(tmp_path: Path) -> None:
     response = client.post(
         "/live-location",
         json=valid_payload(),
-        headers={"Authorization": "Bearer wrong-token"},
-    )
+        headers={"Authorization": "Bearer wrong-token"})
 
     assert response.status_code == 401
 
@@ -80,8 +76,7 @@ def test_valid_token_accepts_payload_and_persists_points(tmp_path: Path) -> None
     response = client.post(
         "/live-location",
         json=valid_payload(),
-        headers={"Authorization": "Bearer secret-token"},
-    )
+        headers={"Authorization": "Bearer secret-token"})
 
     assert response.status_code == 202
     body = response.json()
@@ -101,8 +96,7 @@ def test_unknown_additive_fields_remain_compatible(tmp_path: Path) -> None:
     assert response.status_code == 202
     stored_payload = query_text(
         tmp_path,
-        "SELECT raw_payload_json FROM ingest_requests ORDER BY received_at_utc DESC LIMIT 1",
-    )
+        "SELECT raw_payload_json FROM ingest_requests ORDER BY received_at_utc DESC LIMIT 1")
     parsed = json.loads(stored_payload)
     assert parsed["extraTopLevel"] == {"device": "iPhone 15 Pro Max"}
     assert parsed["points"][0]["extraPointField"] == "kept"
@@ -150,35 +144,31 @@ def test_unexpected_error_returns_500_with_request_id(tmp_path: Path) -> None:
 
 
 def test_points_endpoints_filter_and_export(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    client = make_client(tmp_path)
     client.post("/live-location", json=valid_payload())
 
-    headers = basic_auth_headers("operator", "dashboard-pass")
     response = client.get(
-        "/api/points?date_from=2026-03-20&date_to=2026-03-20&time_from=11:59:59&time_to=12:00:10&session_id=123e4567-e89b-12d3-a456-426614174000",
-        headers=headers,
-    )
+        "/api/points?date_from=2026-03-20&date_to=2026-03-20&time_from=11:59:59&time_to=12:00:10&session_id=123e4567-e89b-12d3-a456-426614174000")
 
     assert response.status_code == 200
     body = response.json()
     assert body["points"]["total"] == 2
     assert body["points"]["items"][0]["session_id"] == "123e4567-e89b-12d3-a456-426614174000"
 
-    csv_response = client.get("/api/points?format=csv", headers=headers)
+    csv_response = client.get("/api/points?format=csv")
     assert csv_response.status_code == 200
     assert "point_timestamp_utc" in csv_response.text
 
-    ndjson_response = client.get("/api/points?format=ndjson", headers=headers)
+    ndjson_response = client.get("/api/points?format=ndjson")
     assert ndjson_response.status_code == 200
     assert ndjson_response.text.count("\n") >= 1
 
 
 def test_timeline_endpoint_returns_lightweight_points(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    client = make_client(tmp_path)
     client.post("/live-location", json=valid_payload())
-    headers = basic_auth_headers("operator", "dashboard-pass")
 
-    response = client.get("/api/timeline?limit=10", headers=headers)
+    response = client.get("/api/timeline?limit=10")
 
     assert response.status_code == 200
     body = response.json()
@@ -196,7 +186,7 @@ def test_timeline_endpoint_returns_lightweight_points(tmp_path: Path) -> None:
 
 
 def test_timeline_day_markers_are_precomputed_per_scope(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    client = make_client(tmp_path)
     first = valid_payload()
     second = valid_payload()
     second["sessionID"] = "123e4567-e89b-12d3-a456-426614174111"
@@ -228,7 +218,7 @@ def test_timeline_day_markers_are_precomputed_per_scope(tmp_path: Path) -> None:
 
 
 def test_session_track_rollups_are_precomputed_for_default_parameters(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    client = make_client(tmp_path)
     payload = valid_payload()
     payload["points"] = [
         {
@@ -266,7 +256,7 @@ def test_session_track_rollups_are_precomputed_for_default_parameters(tmp_path: 
 
 
 def test_spatial_tile_keys_are_persisted(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    client = make_client(tmp_path)
     client.post("/live-location", json=valid_payload())
 
     storage = client.app.state.storage
@@ -281,16 +271,15 @@ def test_spatial_tile_keys_are_persisted(tmp_path: Path) -> None:
 
 
 def test_request_and_session_detail_endpoints(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    client = make_client(tmp_path)
     client.post("/live-location", json=valid_payload())
-    headers = basic_auth_headers("operator", "dashboard-pass")
 
-    requests_response = client.get("/api/requests", headers=headers)
+    requests_response = client.get("/api/requests")
     request_id = requests_response.json()["requests"]["items"][0]["request_id"]
-    detail_response = client.get(f"/api/requests/{request_id}", headers=headers)
-    session_response = client.get("/api/sessions", headers=headers)
+    detail_response = client.get(f"/api/requests/{request_id}")
+    session_response = client.get("/api/sessions")
     session_id = session_response.json()["sessions"][0]["session_id"]
-    session_detail = client.get(f"/api/sessions/{session_id}", headers=headers)
+    session_detail = client.get(f"/api/sessions/{session_id}")
 
     assert detail_response.status_code == 200
     assert detail_response.json()["request"]["boundingBox"]["minLatitude"] == 52.52
@@ -298,60 +287,29 @@ def test_request_and_session_detail_endpoints(tmp_path: Path) -> None:
     assert session_detail.json()["session"]["durationSeconds"] == 11
 
 
-def test_dashboard_login_uses_username_password_and_sets_session_cookie(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="admin", admin_password="secret")
+def test_dashboard_requires_shared_session_or_local_access(tmp_path: Path, monkeypatch) -> None:
+    """Without the shared ``ytdl_session`` cookie and without a loopback
+    remote address, every dashboard route must redirect to the external
+    dashboard login URL — no local login form is ever rendered."""
+    monkeypatch.setenv("DASHBOARD_LOGIN_URL", "https://dashboard.example.com/login")
+    client = make_client(tmp_path, remote_client=("203.0.113.5", 51234))
 
     redirect = client.get("/dashboard/map", follow_redirects=False)
 
     assert redirect.status_code == 303
-    assert redirect.headers["location"] == "/login"
-
-    response = client.post(
-        "/login",
-        data={"username": "admin", "password": "secret"},
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert response.headers["location"] == "/dashboard/map"
-    assert "lh2gpx_session=" in response.headers["set-cookie"]
-
-    dashboard = client.get("/dashboard/map")
-    assert dashboard.status_code == 200
+    assert redirect.headers["location"] == "https://dashboard.example.com/login"
+    assert "login.html" not in redirect.text
+    assert "<form" not in redirect.text
 
 
-def test_dashboard_login_rejects_ingest_bearer_token(tmp_path: Path) -> None:
-    client = make_client(
-        tmp_path,
-        bearer_token="ingest-token",
-        admin_username="admin",
-        admin_password="secret",
-    )
+def test_login_route_always_redirects_to_dashboard_login(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("DASHBOARD_LOGIN_URL", "https://dashboard.example.com/login")
+    client = make_client(tmp_path)
 
-    response = client.post(
-        "/login",
-        data={"username": "admin", "password": "ingest-token"},
-    )
-
-    assert response.status_code == 401
-    assert "Ungültiger Benutzername oder Passwort." in response.text
-
-
-def test_dashboard_login_accepts_scrypt_password_hash(tmp_path: Path) -> None:
-    client = make_client(
-        tmp_path,
-        admin_username="admin",
-        admin_password_hash=hash_password("secret"),
-    )
-
-    response = client.post(
-        "/login",
-        data={"username": "admin", "password": "secret"},
-        follow_redirects=False,
-    )
+    response = client.get("/login", follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/dashboard/map"
+    assert response.headers["location"] == "https://dashboard.example.com/login"
 
 
 def test_dashboard_renders_operator_ui(tmp_path: Path) -> None:
@@ -367,12 +325,11 @@ def test_dashboard_renders_operator_ui(tmp_path: Path) -> None:
 
 
 def test_dashboard_navigation_pages_render(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    client = make_client(tmp_path)
     ingest_response = client.post("/live-location", json=valid_payload())
     request_id = ingest_response.json()["requestId"]
     session_id = "123e4567-e89b-12d3-a456-426614174000"
     point_id = query_scalar(tmp_path, "SELECT id FROM gps_points ORDER BY id ASC LIMIT 1")
-    headers = basic_auth_headers("operator", "dashboard-pass")
 
     paths = [
         "/dashboard",
@@ -394,7 +351,7 @@ def test_dashboard_navigation_pages_render(tmp_path: Path) -> None:
     ]
 
     for path in paths:
-        response = client.get(path, headers=headers)
+        response = client.get(path)
         assert response.status_code == 200, path
         assert "LH2GPX Receiver" in response.text, path
 
@@ -402,19 +359,14 @@ def test_dashboard_navigation_pages_render(tmp_path: Path) -> None:
 def test_config_summary_masks_secrets(tmp_path: Path) -> None:
     client = make_client(
         tmp_path,
-        bearer_token="secret-token",
-        admin_username="operator",
-        admin_password="dashboard-pass",
-    )
+        bearer_token="secret-token")
 
-    response = client.get("/api/config-summary", headers=basic_auth_headers("operator", "dashboard-pass"))
+    response = client.get("/api/config-summary")
 
     assert response.status_code == 200
     config = response.json()["config"]
     assert config["bearerToken"] == "set(len=12)"
-    assert config["adminPassword"] == "set(len=14)"
     assert "secret-token" not in response.text
-    assert "dashboard-pass" not in response.text
 
 
 def test_logs_do_not_include_bearer_token(tmp_path: Path, caplog) -> None:
@@ -424,8 +376,7 @@ def test_logs_do_not_include_bearer_token(tmp_path: Path, caplog) -> None:
         response = client.post(
             "/live-location",
             json=valid_payload(),
-            headers={"Authorization": "Bearer secret-token"},
-        )
+            headers={"Authorization": "Bearer secret-token"})
 
     assert response.status_code == 202
     joined = "\n".join(record.message for record in caplog.records)
@@ -433,9 +384,8 @@ def test_logs_do_not_include_bearer_token(tmp_path: Path, caplog) -> None:
 
 
 def test_import_status_exposes_server_metrics(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    client = make_client(tmp_path)
     client.app.state.inline_import_tasks = True
-    headers = basic_auth_headers("operator", "dashboard-pass")
     gpx = (
         b'<?xml version="1.0"?><gpx version="1.1" creator="t"><trk><trkseg>'
         b'<trkpt lat="52.52" lon="13.405"><time>2026-04-23T12:00:00Z</time></trkpt>'
@@ -443,7 +393,7 @@ def test_import_status_exposes_server_metrics(tmp_path: Path) -> None:
         b'</trkseg></trk></gpx>'
     )
 
-    response = client.post("/api/import", headers=headers, files={"file": ("track.gpx", gpx, "application/gpx+xml")})
+    response = client.post("/api/import", files={"file": ("track.gpx", gpx, "application/gpx+xml")})
 
     assert response.status_code == 200
     body = response.json()
@@ -453,7 +403,7 @@ def test_import_status_exposes_server_metrics(tmp_path: Path) -> None:
 
     task = None
     for _ in range(50):
-        status_response = client.get(f"/api/import/status/{task_id}", headers=headers)
+        status_response = client.get(f"/api/import/status/{task_id}")
         assert status_response.status_code == 200
         task = status_response.json()
         if task["status"] in {"done", "error"}:
@@ -537,9 +487,8 @@ def test_parse_google_timeline_2024_json_with_geo_uris() -> None:
 
 
 def test_map_data_accepts_fractional_zoom_and_caps_page_size(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    client = make_client(tmp_path)
     client.post("/live-location", json=valid_payload())
-    headers = basic_auth_headers("operator", "dashboard-pass")
     captured: dict[str, int] = {}
     original_list_points = client.app.state.storage.list_points
 
@@ -548,14 +497,14 @@ def test_map_data_accepts_fractional_zoom_and_caps_page_size(tmp_path: Path) -> 
         return original_list_points(filters)
 
     client.app.state.storage.list_points = capture_list_points
-    response = client.get("/api/map-data?page_size=999999&zoom=11.7", headers=headers)
+    response = client.get("/api/map-data?page_size=999999&zoom=11.7")
 
     assert response.status_code == 200
     assert captured["page_size"] == 250
 
 
 def test_import_session_list_collapses_mixed_capture_modes(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    client = make_client(tmp_path)
     storage = client.app.state.storage
 
     storage.import_points(
@@ -581,8 +530,7 @@ def test_import_session_list_collapses_mixed_capture_modes(tmp_path: Path) -> No
         ],
         source="import:test.zip",
         session_id="import-test-session",
-        request_id="import-test-request",
-    )
+        request_id="import-test-request")
 
     sessions = storage.list_sessions()
     import_sessions = [session for session in sessions if session["session_id"] == "import-test-session"]
@@ -593,8 +541,7 @@ def test_import_session_list_collapses_mixed_capture_modes(tmp_path: Path) -> No
 
 
 def test_map_data_respects_adjustable_log_limit(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
-    headers = basic_auth_headers("operator", "dashboard-pass")
+    client = make_client(tmp_path)
 
     for index in range(5):
         payload = valid_payload()
@@ -609,15 +556,14 @@ def test_map_data_respects_adjustable_log_limit(tmp_path: Path) -> None:
         ]
         client.post("/live-location", json=payload)
 
-    response = client.get("/api/map-data?page_size=50&log_limit=3", headers=headers)
+    response = client.get("/api/map-data?page_size=50&log_limit=3")
 
     assert response.status_code == 200
     assert len(response.json()["logItems"]) == 3
 
 
 def test_map_data_uses_viewport_bbox_filters(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
-    headers = basic_auth_headers("operator", "dashboard-pass")
+    client = make_client(tmp_path)
 
     inside = valid_payload()
     inside["points"] = [
@@ -643,9 +589,7 @@ def test_map_data_uses_viewport_bbox_filters(tmp_path: Path) -> None:
     client.post("/live-location", json=outside)
 
     response = client.get(
-        "/api/map-data?page_size=50&bbox=13.300000,52.400000,13.500000,52.600000&zoom=14",
-        headers=headers,
-    )
+        "/api/map-data?page_size=50&bbox=13.300000,52.400000,13.500000,52.600000&zoom=14")
 
     assert response.status_code == 200
     payload = response.json()
@@ -655,11 +599,10 @@ def test_map_data_uses_viewport_bbox_filters(tmp_path: Path) -> None:
 
 
 def test_map_meta_returns_global_summary(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
-    headers = basic_auth_headers("operator", "dashboard-pass")
+    client = make_client(tmp_path)
     client.post("/live-location", json=valid_payload())
 
-    response = client.get("/api/map-meta", headers=headers)
+    response = client.get("/api/map-meta")
 
     assert response.status_code == 200
     payload = response.json()
@@ -669,53 +612,44 @@ def test_map_meta_returns_global_summary(tmp_path: Path) -> None:
 
 
 def test_map_meta_supports_etag_304(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
-    headers = basic_auth_headers("operator", "dashboard-pass")
+    client = make_client(tmp_path)
     client.post("/live-location", json=valid_payload())
 
-    first = client.get("/api/map-meta", headers=headers)
+    first = client.get("/api/map-meta")
 
     assert first.status_code == 200
     etag = first.headers.get("etag")
     assert etag
 
-    second = client.get("/api/map-meta", headers={**headers, "If-None-Match": etag})
+    second = client.get("/api/map-meta", headers={"If-None-Match": etag})
 
     assert second.status_code == 304
 
 
 def test_map_data_supports_latest_known_ts_delta_304(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
-    headers = basic_auth_headers("operator", "dashboard-pass")
+    client = make_client(tmp_path)
     client.post("/live-location", json=valid_payload())
 
     first = client.get(
-        "/api/map-data?bbox=13.300000,52.400000,13.500000,52.600000&zoom=14",
-        headers=headers,
-    )
+        "/api/map-data?bbox=13.300000,52.400000,13.500000,52.600000&zoom=14")
 
     assert first.status_code == 200
     latest_ts = first.json()["meta"]["latestVisiblePointTsUtc"]
     assert latest_ts
 
     second = client.get(
-        f"/api/map-data?bbox=13.300000,52.400000,13.500000,52.600000&zoom=14&latest_known_ts={latest_ts}",
-        headers=headers,
-    )
+        f"/api/map-data?bbox=13.300000,52.400000,13.500000,52.600000&zoom=14&latest_known_ts={latest_ts}")
 
     assert second.status_code == 304
     assert second.headers.get("x-map-delta") == "noop"
 
 
 def test_map_data_returns_delta_payload_for_newer_viewport_points(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
-    headers = basic_auth_headers("operator", "dashboard-pass")
+    client = make_client(tmp_path)
     client.post("/live-location", json=valid_payload())
 
     first = client.get(
-        "/api/map-data?bbox=13.300000,52.400000,13.500000,52.600000&zoom=14&include_heatmap=true&include_speed=true",
-        headers=headers,
-    )
+        "/api/map-data?bbox=13.300000,52.400000,13.500000,52.600000&zoom=14&include_heatmap=true&include_speed=true")
     latest_ts = first.json()["meta"]["latestVisiblePointTsUtc"]
 
     newer = valid_payload()
@@ -731,9 +665,7 @@ def test_map_data_returns_delta_payload_for_newer_viewport_points(tmp_path: Path
     client.post("/live-location", json=newer)
 
     second = client.get(
-        f"/api/map-data?bbox=13.300000,52.400000,13.500000,52.600000&zoom=14&include_heatmap=true&include_speed=true&latest_known_ts={latest_ts}",
-        headers=headers,
-    )
+        f"/api/map-data?bbox=13.300000,52.400000,13.500000,52.600000&zoom=14&include_heatmap=true&include_speed=true&latest_known_ts={latest_ts}")
 
     assert second.status_code == 200
     payload = second.json()
@@ -796,8 +728,7 @@ def test_prepare_map_delta_payload_supports_partial_context_layers() -> None:
         include_speed=False,
         include_stops=True,
         include_daytrack=True,
-        include_snap=True,
-    )
+        include_snap=True)
 
     assert "upsertStops" in payload["delta"]
     assert "upsertDaytracks" in payload["delta"]
@@ -805,14 +736,11 @@ def test_prepare_map_delta_payload_supports_partial_context_layers() -> None:
 
 
 def test_timeline_preview_returns_lightweight_layers(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
-    headers = basic_auth_headers("operator", "dashboard-pass")
+    client = make_client(tmp_path)
     client.post("/live-location", json=valid_payload())
 
     response = client.get(
-        "/api/timeline-preview?bbox=13.300000,52.400000,13.500000,52.600000&zoom=14&include_points=true&include_polyline=true&include_accuracy=true&include_speed=true&include_stops=true&include_daytrack=true&include_snap=true",
-        headers=headers,
-    )
+        "/api/timeline-preview?bbox=13.300000,52.400000,13.500000,52.600000&zoom=14&include_points=true&include_polyline=true&include_accuracy=true&include_speed=true&include_stops=true&include_daytrack=true&include_snap=true")
 
     assert response.status_code == 200
     payload = response.json()
@@ -867,8 +795,7 @@ def test_prepare_map_payload_keeps_viewport_layers_separate_from_buffered_geomet
         zoom=14,
         include_points=True,
         include_heatmap=True,
-        include_accuracy=True,
-    )
+        include_accuracy=True)
 
     assert payload["meta"]["visiblePoints"] == 1
     assert payload["meta"]["loadedPoints"] == 2
@@ -909,8 +836,7 @@ def test_prepare_map_payload_handles_empty_viewport_with_buffered_context() -> N
         zoom=14,
         include_points=True,
         include_heatmap=True,
-        include_accuracy=True,
-    )
+        include_accuracy=True)
 
     assert payload["meta"]["visiblePoints"] == 0
     assert payload["meta"]["loadedPoints"] == 1
@@ -923,7 +849,7 @@ def test_prepare_map_payload_handles_empty_viewport_with_buffered_context() -> N
 
 
 def test_resolve_heatmap_layer_uses_specialized_storage_and_cache(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    client = make_client(tmp_path)
     storage = client.app.state.storage
     filters = PointFilters(page=1, page_size=50)
     bbox = (13.3, 52.4, 13.5, 52.6)
@@ -957,7 +883,7 @@ def test_resolve_heatmap_layer_uses_specialized_storage_and_cache(tmp_path: Path
 
 
 def test_resolve_track_context_and_layers_use_specialized_caches(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    client = make_client(tmp_path)
     storage = client.app.state.storage
     filters = PointFilters(page=1, page_size=50)
     bbox = (13.3, 52.4, 13.5, 52.6)
@@ -995,16 +921,14 @@ def test_resolve_track_context_and_layers_use_specialized_caches(tmp_path: Path)
         bbox=bbox,
         zoom=14,
         route_time_gap_min=15,
-        route_dist_gap_m=1200,
-    )
+        route_dist_gap_m=1200)
     second_context = _resolve_track_context(
         storage,
         filters,
         bbox=bbox,
         zoom=14,
         route_time_gap_min=15,
-        route_dist_gap_m=1200,
-    )
+        route_dist_gap_m=1200)
     first_layers = _resolve_track_layers(
         first_context,
         zoom=14,
@@ -1016,8 +940,7 @@ def test_resolve_track_context_and_layers_use_specialized_caches(tmp_path: Path)
         stop_radius_m=40,
         include_daytrack=True,
         route_time_gap_min=15,
-        include_snap=False,
-    )
+        include_snap=False)
     second_layers = _resolve_track_layers(
         second_context,
         zoom=14,
@@ -1029,8 +952,7 @@ def test_resolve_track_context_and_layers_use_specialized_caches(tmp_path: Path)
         stop_radius_m=40,
         include_daytrack=True,
         route_time_gap_min=15,
-        include_snap=False,
-    )
+        include_snap=False)
 
     assert first_context == second_context
     assert first_layers == second_layers
@@ -1043,20 +965,14 @@ def make_client(
     tmp_path: Path,
     *,
     bearer_token: str | None = None,
-    admin_username: str | None = None,
-    admin_password: str | None = None,
-    admin_password_hash: str | None = None,
     raise_server_exceptions: bool = True,
-) -> TestClient:
+    remote_client: tuple[str, int] | None = None) -> TestClient:
     settings = Settings(
         bind_host="127.0.0.1",
         port=8080,
         public_hostname="localhost",
         public_base_url="http://localhost:8080",
         bearer_token=bearer_token,
-        admin_username=admin_username,
-        admin_password=admin_password,
-        admin_password_hash=admin_password_hash,
         data_dir=tmp_path / "data",
         sqlite_path=tmp_path / "data" / "receiver.sqlite3",
         raw_payload_ndjson_path=tmp_path / "data" / "raw-payloads.ndjson",
@@ -1068,9 +984,11 @@ def make_client(
         points_page_size_default=50,
         points_page_size_max=250,
         rate_limit_requests_per_minute=0,
-        trust_proxy_headers=True,
-    )
-    return TestClient(create_app(settings), raise_server_exceptions=raise_server_exceptions)
+        trust_proxy_headers=True)
+    kwargs: dict[str, object] = {"raise_server_exceptions": raise_server_exceptions}
+    if remote_client is not None:
+        kwargs["client"] = remote_client
+    return TestClient(create_app(settings), **kwargs)
 
 
 def valid_payload() -> dict[str, object]:
@@ -1096,11 +1014,6 @@ def valid_payload() -> dict[str, object]:
         ],
         "extraTopLevel": {"device": "iPhone 15 Pro Max"},
     }
-
-
-def basic_auth_headers(username: str, password: str) -> dict[str, str]:
-    token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
-    return {"Authorization": f"Basic {token}"}
 
 
 def query_scalar(tmp_path: Path, sql: str) -> int:

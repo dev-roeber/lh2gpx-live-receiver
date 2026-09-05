@@ -23,17 +23,17 @@
 
   <div class="tile">
     <div class="tile-header">
-      <span class="tile-title">Admin-Zugriff</span>
+      <span class="tile-title">Dashboard-Zugriff</span>
       <span class="status-badge info">INFO</span>
     </div>
     <div class="tile-metrics">
       <div class="tile-metric">
         <span class="tile-metric-label">Modus</span>
-        <span class="tile-metric-value">{{ 'Basic Auth' if config_summary.adminAuthEnabled else 'local-only' }}</span>
+        <span class="tile-metric-value">Geteilte Dashboard-Session</span>
       </div>
       <div class="tile-metric">
-        <span class="tile-metric-label">Admin-User</span>
-        <span class="tile-metric-value">{{ config_summary.adminUsername or 'nicht gesetzt' }}</span>
+        <span class="tile-metric-label">Fallback</span>
+        <span class="tile-metric-value">Lokaler Loopback-Zugriff</span>
       </div>
     </div>
   </div>

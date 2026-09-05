@@ -34,8 +34,6 @@ def _settings(tmp_path: Path, port: int) -> Settings:
         public_hostname="localhost",
         public_base_url=f"http://127.0.0.1:{port}",
         bearer_token=None,
-        admin_username=None,
-        admin_password=None,
         data_dir=data_dir,
         sqlite_path=tmp_path / "receiver.sqlite3",
         raw_payload_ndjson_path=data_dir / "raw.ndjson",

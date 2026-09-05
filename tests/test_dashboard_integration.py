@@ -13,22 +13,20 @@ from app.main import (
     _TRACK_CONTEXT_CACHE,
     _TRACK_LAYER_CACHE,
     _SNAP_CACHE,
-    _invalidate_data_caches,
-)
-from tests.test_app import make_client, basic_auth_headers, valid_payload
+    _invalidate_data_caches)
+from tests.test_app import make_client, valid_payload
 from app.storage import StorageError
 
 def test_dashboard_map_accepts_query_parameters(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
-    headers = basic_auth_headers("operator", "dashboard-pass")
+    client = make_client(tmp_path)
     
     # Test with session_id
-    response = client.get("/dashboard/map?session_id=test-session", headers=headers)
+    response = client.get("/dashboard/map?session_id=test-session")
     assert response.status_code == 200
     assert "test-session" in response.text
     
     # Test with import_session
-    response = client.get("/dashboard/map?import_session=import-test", headers=headers)
+    response = client.get("/dashboard/map?import_session=import-test")
     assert response.status_code == 200
     assert "import-test" in response.text
 
@@ -49,9 +47,8 @@ def test_invalidate_data_caches_clears_all_caches() -> None:
 
 @patch("app.main.manager.broadcast")
 def test_import_invalidates_caches_and_broadcasts(mock_broadcast: MagicMock, tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    client = make_client(tmp_path)
     client.app.state.inline_import_tasks = True
-    headers = basic_auth_headers("operator", "dashboard-pass")
     
     # Fill cache
     _POINTS_CACHE["stale"] = (1.0, "etag", b"body")
@@ -62,7 +59,7 @@ def test_import_invalidates_caches_and_broadcasts(mock_broadcast: MagicMock, tmp
     ]).encode("utf-8")
     
     files = {"file": ("test.json", import_data, "application/json")}
-    response = client.post("/api/import", files=files, headers=headers)
+    response = client.post("/api/import", files=files)
     
     assert response.status_code == 200
     assert len(_POINTS_CACHE) == 0  # Cache should be invalidated
@@ -74,8 +71,7 @@ def test_import_invalidates_caches_and_broadcasts(mock_broadcast: MagicMock, tmp
 
 @patch("app.main.manager.broadcast")
 def test_session_delete_invalidates_caches_and_broadcasts(mock_broadcast: MagicMock, tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
-    headers = basic_auth_headers("operator", "dashboard-pass")
+    client = make_client(tmp_path)
     
     # Create a session
     client.post("/live-location", json=valid_payload())
@@ -85,7 +81,7 @@ def test_session_delete_invalidates_caches_and_broadcasts(mock_broadcast: MagicM
     _POINTS_CACHE["stale"] = (1.0, "etag", b"body")
     
     # Delete session
-    response = client.delete(f"/api/sessions/{session_id}", headers=headers)
+    response = client.delete(f"/api/sessions/{session_id}")
     
     assert response.status_code == 200
     assert len(_POINTS_CACHE) == 0  # Cache should be invalidated
@@ -97,32 +93,27 @@ def test_session_delete_invalidates_caches_and_broadcasts(mock_broadcast: MagicM
     assert mock_broadcast.call_args[0][0]["deleted"] > 0
 
 def test_storage_dashboard_snapshot_includes_fields(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
-    headers = basic_auth_headers("operator", "dashboard-pass")
+    client = make_client(tmp_path)
     
     snapshot = client.app.state.storage.get_dashboard_snapshot()
     assert "sqliteWalFile" in snapshot["storage"]
     assert "sqliteShmFile" in snapshot["storage"]
     
-    response = client.get("/dashboard/storage", headers=headers)
+    response = client.get("/dashboard/storage")
     assert response.status_code == 200
     assert "SQLite Groesse" in response.text
 
 def test_storage_dashboard_fallback_does_not_crash(tmp_path: Path) -> None:
     client = make_client(
         tmp_path,
-        admin_username="operator",
-        admin_password="dashboard-pass",
-        raise_server_exceptions=False,
-    )
-    headers = basic_auth_headers("operator", "dashboard-pass")
+                raise_server_exceptions=False)
     
     def fail_snapshot():
         raise StorageError("forced failure")
     
     # Mock storage.get_dashboard_snapshot on the storage instance
     with patch.object(client.app.state.storage, "get_dashboard_snapshot", side_effect=fail_snapshot):
-        response = client.get("/dashboard/storage", headers=headers)
+        response = client.get("/dashboard/storage")
         assert response.status_code == 200
         assert "Speicher" in response.text
         # Check if fallback fields are present in HTML
@@ -130,13 +121,12 @@ def test_storage_dashboard_fallback_does_not_crash(tmp_path: Path) -> None:
         assert "SQLite zuletzt geaendert" in response.text
 
 def test_historical_import_guarantees_full_refresh_via_client(tmp_path: Path) -> None:
-    client = make_client(tmp_path, admin_username="operator", admin_password="dashboard-pass")
+    client = make_client(tmp_path)
     client.app.state.inline_import_tasks = True
-    headers = basic_auth_headers("operator", "dashboard-pass")
     
     # 1. Newest point
     client.post("/live-location", json=valid_payload())
-    first = client.get("/api/map-data?page_size=1000", headers=headers)
+    first = client.get("/api/map-data?page_size=1000")
     assert first.status_code == 200
     assert first.json()["meta"]["totalPoints"] == 2
     
@@ -151,13 +141,11 @@ def test_historical_import_guarantees_full_refresh_via_client(tmp_path: Path) ->
     
     client.post(
         "/api/import",
-        files={"file": ("old.json", import_data, "application/json")},
-        headers=headers,
-    )
+        files={"file": ("old.json", import_data, "application/json")})
     
     # 3. Simulate client-side cache clear (no latest_known_ts sent)
     # The server MUST return 200 and include the new point in totals.
-    full_refresh = client.get("/api/map-data?page_size=1000", headers=headers)
+    full_refresh = client.get("/api/map-data?page_size=1000")
     assert full_refresh.status_code == 200
     assert full_refresh.json()["meta"]["totalPoints"] == 3
     

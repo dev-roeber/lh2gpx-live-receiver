@@ -13,7 +13,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlencode
+from urllib.parse import urlencode
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, WebSocket, WebSocketDisconnect, status
@@ -47,19 +47,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .auth import (
-    SESSION_COOKIE,
-    SESSION_MAX_AGE,
     LoginRequired,
     apply_rate_limit,
-    build_session_signing_key,
-    create_session_token,
     direct_remote_addr,
-    login_redirect_url,
     proxied_ip,
     require_admin_access,
     require_bearer_token,
-    validate_session_token,
-    verify_admin_credentials,
 )
 from .config import Settings
 from .import_parsers import ImportError as GpsImportError, parse_file_report as parse_import_file_report
@@ -459,7 +452,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.storage = ReceiverStorage(resolved_settings)
     app.state.storage.startup()
     app.state.rate_limiter = SimpleRateLimiter(resolved_settings.rate_limit_requests_per_minute)
-    app.state.session_signing_key = build_session_signing_key(resolved_settings)
     app.state.inline_import_tasks = False
     app.state.started_at_utc = datetime.now(timezone.utc)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -730,11 +722,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             new_storage.startup()
             request.app.state.storage = new_storage
             request.app.state.rate_limiter = SimpleRateLimiter(new_settings.rate_limit_requests_per_minute)
-            request.app.state.session_signing_key = build_session_signing_key(
-                new_settings,
-                existing_key=getattr(request.app.state, "session_signing_key", None),
-            )
-            
+
             # Templates-Globals aktualisieren
             templates.env.globals.update(
                 format_timestamp=lambda value: _timestamp_summary(value, new_settings.local_timezone),
@@ -916,78 +904,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found.")
         return {"requestId": request.state.request_id, "session": item}
 
+    def _dashboard_login_url() -> str:
+        return os.getenv("DASHBOARD_LOGIN_URL", "https://devroeber.tail71a8bc.ts.net/login")
+
     @app.exception_handler(LoginRequired)
     async def login_required_handler(request: Request, exc: LoginRequired) -> RedirectResponse:
-        return RedirectResponse(url=login_redirect_url(), status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(url=_dashboard_login_url(), status_code=status.HTTP_303_SEE_OTHER)
 
-    @app.get("/login", response_class=HTMLResponse, include_in_schema=False)
-    async def login_page(request: Request, error: str | None = None) -> HTMLResponse:
-        settings = _settings(request)
-        if not settings.admin_auth_enabled:
-            dashboard_login = os.getenv("DASHBOARD_LOGIN_URL", "https://devroeber.tail71a8bc.ts.net/login")
-            return RedirectResponse(url=dashboard_login, status_code=status.HTTP_303_SEE_OTHER)
-        if settings.admin_auth_enabled and request.cookies.get(SESSION_COOKIE):
-            if validate_session_token(request.cookies.get(SESSION_COOKIE, ""), request.app):
-                return RedirectResponse(url="/dashboard/map", status_code=status.HTTP_303_SEE_OTHER)
-        return templates.TemplateResponse(
-            request=request,
-            name="login.html",
-            context={
-                "error": error,
-                "admin_auth_enabled": settings.admin_auth_enabled,
-                "admin_username": settings.admin_username or "",
-            },
-        )
-
-    @app.post("/login", include_in_schema=False, response_model=None)
-    async def login_submit(request: Request) -> RedirectResponse | HTMLResponse:
-        settings = _settings(request)
-        raw_body = await request.body()
-        form = {k: v[0] for k, v in parse_qs(raw_body.decode("utf-8", errors="replace")).items()}
-        username = form.get("username", "").strip()
-        password = form.get("password", "")
-
-        if not settings.admin_auth_enabled:
-            return templates.TemplateResponse(
-                request=request,
-                name="login.html",
-                context={
-                    "error": "Dashboard-Login ist nicht konfiguriert.",
-                    "admin_auth_enabled": False,
-                    "admin_username": "",
-                },
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        if not verify_admin_credentials(settings, username, password):
-            return templates.TemplateResponse(
-                request=request,
-                name="login.html",
-                context={
-                    "error": "Ungültiger Benutzername oder Passwort.",
-                    "admin_auth_enabled": True,
-                    "admin_username": settings.admin_username or "",
-                },
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        token = create_session_token(request.app, username)
-        redirect = RedirectResponse(url="/dashboard/map", status_code=status.HTTP_303_SEE_OTHER)
-        redirect.set_cookie(
-            key=SESSION_COOKIE,
-            value=token,
-            max_age=SESSION_MAX_AGE,
-            httponly=True,
-            samesite="lax",
-            secure=request.url.scheme == "https" or settings.public_base_url.startswith("https://"),
-            path="/",
-        )
-        return redirect
+    @app.get("/login", include_in_schema=False)
+    async def login_page() -> RedirectResponse:
+        return RedirectResponse(url=_dashboard_login_url(), status_code=status.HTTP_303_SEE_OTHER)
 
     @app.get("/logout", include_in_schema=False)
-    async def logout(request: Request) -> RedirectResponse:
-        redirect = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
-        redirect.delete_cookie(key=SESSION_COOKIE, samesite="lax", path="/")
-        return redirect
+    async def logout() -> RedirectResponse:
+        return RedirectResponse(url=_dashboard_login_url(), status_code=status.HTTP_303_SEE_OTHER)
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     async def home(request: Request) -> HTMLResponse:
@@ -1940,7 +1870,7 @@ def _receiver_summary(snapshot: dict[str, Any], settings: Settings, started_at_u
         "readinessStatus": "ready" if readiness["is_ready"] else "not ready",
         "storageStatus": "writable" if readiness["writable"] else "blocked",
         "authStatus": "aktiv" if settings.auth_required else "inaktiv",
-        "adminStatus": "aktiv" if settings.admin_auth_enabled else "local-only",
+        "adminStatus": "shared-dashboard-session",
         "publicHostname": settings.public_hostname,
         "bindAddress": f"{settings.bind_host}:{settings.port}",
         "startedAtUtc": started_at_utc.isoformat(),
