@@ -46,7 +46,7 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response as RawResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response as RawResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -459,6 +459,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.rate_limiter = SimpleRateLimiter(resolved_settings.rate_limit_requests_per_minute)
     app.state.inline_import_tasks = False
     app.state.started_at_utc = datetime.now(timezone.utc)
+
+    # PWA: der Service Worker muss vom ROOT-Pfad ausgeliefert werden (nicht
+    # /static/service-worker.js), sonst gilt sein Default-Scope nur für
+    # /static/* statt der gesamten App (siehe service-worker.js-Kommentarkopf).
+    @app.get("/service-worker.js", include_in_schema=False)
+    async def service_worker() -> FileResponse:
+        return FileResponse(STATIC_DIR / "service-worker.js", media_type="application/javascript")
+
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     @app.middleware("http")
