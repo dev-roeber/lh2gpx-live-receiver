@@ -48,7 +48,7 @@
 <body>
 
   <header class="global-header">
-    <button class="menu-toggle" onclick="toggleMobileMenu()" title="Navigation" aria-label="Navigation öffnen">☰</button>
+    <button class="menu-toggle" onclick="toggleMobileMenu()" title="Navigation" aria-label="Navigation öffnen" aria-expanded="false" aria-controls="primary-navigation">☰</button>
     <div class="gh-brand">
       <div class="gh-brand-mark">LL</div>
       <div class="gh-brand-name">LH2GPX Receiver</div>
@@ -72,7 +72,7 @@
   </header>
 
   <div class="app-shell">
-    <aside class="sidebar">
+    <aside id="primary-navigation" class="sidebar">
       <nav class="sidebar-nav">
         {% for group in nav_groups %}
         <div class="sidebar-section">
@@ -80,7 +80,7 @@
           <ul>
             {% for item in group["items"] %}
             <li>
-              <a href="{{ item.href }}" class="{{ 'active' if active_nav == item.key }}">
+              <a href="{{ item.href }}" class="{{ 'active' if active_nav == item.key }}"{% if active_nav == item.key %} aria-current="page"{% endif %}>
                 {{ item.label }}
               </a>
             </li>

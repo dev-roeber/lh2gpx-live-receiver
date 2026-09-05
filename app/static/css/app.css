@@ -1838,6 +1838,7 @@ td .kv-sub     { font-size: 0.72rem; color: var(--text-3); }
 
 #map-wrap {
   --map-overlay-gap: clamp(10px, 1vw, 18px);
+  --map-timeline-bottom: max(10px, env(safe-area-inset-bottom));
   --map-loading-width: min(380px, 42vw);
   --map-timeline-width: min(680px, calc(100% - 2 * var(--map-overlay-gap)));
   min-height: 0;
