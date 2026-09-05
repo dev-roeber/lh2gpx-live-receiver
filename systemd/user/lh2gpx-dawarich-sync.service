@@ -1,0 +1,25 @@
+[Unit]
+Description=LH2GPX Dawarich PostgreSQL change synchronizer
+After=network-online.target dawarich-db.service lh2gpx-live-receiver.service
+Wants=network-online.target
+Requires=dawarich-db.service
+
+[Service]
+WorkingDirectory=%h/services/lh2gpx-live-receiver
+EnvironmentFile=%h/services/lh2gpx-live-receiver/.env
+EnvironmentFile=%h/Secrets/dawarich.env
+Environment=DAWARICH_DB_HOST=127.0.0.1
+Environment=DAWARICH_DB_PORT=5433
+Environment=DAWARICH_DB_NAME=dawarich_production
+Environment=DAWARICH_DB_USER=dawarich
+ExecStart=%h/services/lh2gpx-live-receiver/.venv/bin/python -m app.dawarich_sync
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=%h/services/lh2gpx-live-receiver/data %h/services/lh2gpx-live-receiver/logs
+
+[Install]
+WantedBy=default.target

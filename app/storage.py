@@ -987,6 +987,142 @@ class ReceiverStorage:
             "last_timestamp_utc": last_ts,
         }
 
+    def upsert_dawarich_points(self, points: list[dict[str, Any]], *, rebuild: bool = True) -> dict[str, int]:
+        """Upsert points received from the Dawarich PostgreSQL CDC stream."""
+        self._require_ready()
+        if not points:
+            return {"inserted": 0, "updated": 0, "invalid": 0}
+        request_id = f"dawarich-sync-{sha1(str(datetime.now(timezone.utc)).encode()).hexdigest()[:16]}"
+        now = datetime.now(timezone.utc)
+        received_iso = isoformat_utc(now)
+        inserted = updated = invalid = 0
+        with self._locked_transaction() as connection:
+            connection.execute(
+                """INSERT OR IGNORE INTO ingest_requests (
+                    request_id, received_at_utc, sent_at_utc, source, session_id,
+                    capture_mode, points_count, first_point_ts_utc, last_point_ts_utc,
+                    user_agent, remote_addr, proxied_ip, ingest_status, http_status,
+                    error_category, error_detail, raw_payload_json, raw_payload_reference
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (request_id, received_iso, received_iso, "dawarich", "dawarich-sync",
+                 "dawarich-sync", len(points), None, None, "dawarich-cdc", "", "",
+                 "accepted", 202, None, None, "{}", None),
+            )
+            for point in points:
+                try:
+                    external_id = str(int(point["id"]))
+                    user_id = str(int(point["user_id"]))
+                    latitude = float(point["latitude"])
+                    longitude = float(point["longitude"])
+                    timestamp = datetime.fromtimestamp(int(point["timestamp"]), timezone.utc)
+                    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+                        raise ValueError("coordinates out of range")
+                    session_id = f"dawarich-user-{user_id}"
+                    ts_local = timestamp.astimezone(self._timezone)
+                    row = (
+                        request_id, received_iso, received_iso, isoformat_utc(timestamp),
+                        latitude, longitude, float(point.get("accuracy") or 0),
+                        "dawarich", session_id, "dawarich-sync",
+                        ts_local.strftime("%Y-%m-%d"), ts_local.strftime("%H:%M:%S"),
+                        ts_local.isoformat(), _slippy_tile_x(longitude, zoom=10),
+                        _slippy_tile_y(latitude, zoom=10), _slippy_tile_x(longitude, zoom=14),
+                        _slippy_tile_y(latitude, zoom=14), _tile_key(_slippy_tile_x(longitude, zoom=10), _slippy_tile_y(latitude, zoom=10), zoom=10),
+                        _tile_key(_slippy_tile_x(longitude, zoom=14), _slippy_tile_y(latitude, zoom=14), zoom=14),
+                    )
+                    mapping = connection.execute(
+                        "SELECT receiver_point_id FROM external_points WHERE provider='dawarich' AND external_id=?",
+                        (external_id,),
+                    ).fetchone()
+                    if mapping:
+                        updated_row = connection.execute(
+                            """UPDATE gps_points SET request_id=?, received_at_utc=?, sent_at_utc=?,
+                            point_timestamp_utc=?, latitude=?, longitude=?, horizontal_accuracy_m=?,
+                            source=?, session_id=?, capture_mode=?, point_date_local=?, point_time_local=?,
+                            point_timestamp_local=?, tile_z10_x=?, tile_z10_y=?, tile_z14_x=?, tile_z14_y=?,
+                            tile_z10_key=?, tile_z14_key=? WHERE id=?""",
+                            (*row, mapping[0]),
+                        )
+                        if updated_row.rowcount == 0:
+                            connection.execute("DELETE FROM external_points WHERE provider='dawarich' AND external_id=?", (external_id,))
+                            mapping = None
+                        else:
+                            connection.execute(
+                                "UPDATE external_points SET source_updated_at=?, payload_hash=? WHERE provider='dawarich' AND external_id=?",
+                                (point.get("updated_at"), point.get("payload_hash"), external_id),
+                            )
+                            updated += 1
+                    if mapping is None:
+                        cursor = connection.execute(
+                            """INSERT INTO gps_points (
+                            request_id, received_at_utc, sent_at_utc, point_timestamp_utc, latitude,
+                            longitude, horizontal_accuracy_m, source, session_id, capture_mode,
+                            point_date_local, point_time_local, point_timestamp_local, tile_z10_x,
+                            tile_z10_y, tile_z14_x, tile_z14_y, tile_z10_key, tile_z14_key
+                            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", row,
+                        )
+                        connection.execute(
+                            """INSERT INTO external_points(provider, external_id, receiver_point_id,
+                            dawarich_user_id, source_updated_at, payload_hash) VALUES (?,?,?,?,?,?)""",
+                            ("dawarich", external_id, cursor.lastrowid, user_id, point.get("updated_at"), point.get("payload_hash")),
+                        )
+                        inserted += 1
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    invalid += 1
+            if rebuild:
+                self._rebuild_point_rollups(connection)
+                self._rebuild_timeline_day_markers(connection)
+                self._rebuild_spatial_tiles(connection)
+                self._rebuild_all_session_track_rollups(connection)
+        return {"inserted": inserted, "updated": updated, "invalid": invalid}
+
+    def rebuild_derived_data(self) -> None:
+        self._require_ready()
+        with self._locked_transaction() as connection:
+            self._rebuild_point_rollups(connection)
+            self._rebuild_timeline_day_markers(connection)
+            self._rebuild_spatial_tiles(connection)
+            self._rebuild_all_session_track_rollups(connection)
+
+    def delete_dawarich_points(self, external_ids: list[str]) -> int:
+        self._require_ready()
+        if not external_ids:
+            return 0
+        with self._locked_transaction() as connection:
+            ids = [str(value) for value in external_ids]
+            placeholders = ",".join("?" * len(ids))
+            rows = connection.execute(
+                f"SELECT receiver_point_id FROM external_points WHERE provider='dawarich' AND external_id IN ({placeholders})", ids
+            ).fetchall()
+            receiver_ids = [row[0] for row in rows]
+            if receiver_ids:
+                rp = ",".join("?" * len(receiver_ids))
+                connection.execute(f"DELETE FROM gps_points WHERE id IN ({rp})", receiver_ids)
+            connection.execute(
+                f"DELETE FROM external_points WHERE provider='dawarich' AND external_id IN ({placeholders})", ids
+            )
+            if receiver_ids:
+                self._rebuild_point_rollups(connection)
+                self._rebuild_timeline_day_markers(connection)
+                self._rebuild_spatial_tiles(connection)
+                self._rebuild_all_session_track_rollups(connection)
+            return len(receiver_ids)
+
+    def get_dawarich_sync_state(self) -> dict[str, Any]:
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM dawarich_sync_state WHERE provider='dawarich'").fetchone()
+            return dict(row) if row else {"provider": "dawarich", "last_event_id": 0}
+
+    def set_dawarich_sync_state(self, *, last_event_id: int, last_success_at: str | None = None, last_error: str | None = None) -> None:
+        with self._locked_transaction() as connection:
+            connection.execute(
+                """INSERT INTO dawarich_sync_state(provider,last_event_id,last_success_at,last_error)
+                VALUES ('dawarich',?,?,?) ON CONFLICT(provider) DO UPDATE SET
+                last_event_id=MAX(dawarich_sync_state.last_event_id, excluded.last_event_id),
+                last_success_at=COALESCE(excluded.last_success_at, dawarich_sync_state.last_success_at),
+                last_error=excluded.last_error""",
+                (last_event_id, last_success_at, last_error),
+            )
+
     def get_live_summary(self, *, limit: int) -> dict[str, Any]:
         self._require_ready()
         capped_limit = max(1, min(limit, self.settings.points_page_size_max * 40))
@@ -2442,6 +2578,23 @@ class ReceiverStorage:
                 tile_z14_key INTEGER
             );
 
+            CREATE TABLE IF NOT EXISTS external_points (
+                provider TEXT NOT NULL,
+                external_id TEXT NOT NULL,
+                receiver_point_id INTEGER NOT NULL,
+                dawarich_user_id TEXT,
+                source_updated_at TEXT,
+                payload_hash TEXT,
+                PRIMARY KEY (provider, external_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS dawarich_sync_state (
+                provider TEXT PRIMARY KEY,
+                last_event_id INTEGER NOT NULL DEFAULT 0,
+                last_success_at TEXT,
+                last_error TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS point_rollups (
                 scope_type TEXT NOT NULL,
                 scope_key TEXT NOT NULL,
@@ -2692,4 +2845,3 @@ class ReceiverStorage:
             return str(self.raw_ndjson_path)
         except OSError as exc:
             raise StorageWriteError(str(exc)) from exc
-

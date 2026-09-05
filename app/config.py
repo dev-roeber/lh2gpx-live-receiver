@@ -64,6 +64,12 @@ class Settings:
     points_page_size_max: int
     rate_limit_requests_per_minute: int
     trust_proxy_headers: bool
+    dawarich_db_host: str = "127.0.0.1"
+    dawarich_db_port: int = 5433
+    dawarich_db_name: str = "dawarich_production"
+    dawarich_db_user: str = "dawarich"
+    dawarich_db_password: str | None = None
+    dawarich_sync_enabled: bool = False
     admin_password_hash: str | None = None
     session_signing_secret: str | None = None
 
@@ -134,6 +140,12 @@ class Settings:
             points_page_size_max=_read_int_env("POINTS_PAGE_SIZE_MAX", default=2000, minimum=1),
             rate_limit_requests_per_minute=_read_int_env("RATE_LIMIT_REQUESTS_PER_MINUTE", default=0, minimum=0),
             trust_proxy_headers=_read_bool_env("TRUST_PROXY_HEADERS", default=True),
+            dawarich_db_host=_read_non_empty_env("DAWARICH_DB_HOST", default="127.0.0.1"),
+            dawarich_db_port=_read_int_env("DAWARICH_DB_PORT", default=5433, minimum=1, maximum=65535),
+            dawarich_db_name=_read_non_empty_env("DAWARICH_DB_NAME", default="dawarich_production"),
+            dawarich_db_user=_read_non_empty_env("DAWARICH_DB_USER", default="dawarich"),
+            dawarich_db_password=os.getenv("DAWARICH_DB_PASSWORD", "").strip() or None,
+            dawarich_sync_enabled=_read_bool_env("DAWARICH_SYNC_ENABLED", default=False),
         )
 
     def with_persistent_overrides(self) -> "Settings":
@@ -261,6 +273,12 @@ class Settings:
             "pointsPageSizeMax": self.points_page_size_max,
             "rateLimitRequestsPerMinute": self.rate_limit_requests_per_minute,
             "trustProxyHeaders": self.trust_proxy_headers,
+            "dawarichSyncEnabled": self.dawarich_sync_enabled,
+            "dawarichDbHost": self.dawarich_db_host,
+            "dawarichDbPort": self.dawarich_db_port,
+            "dawarichDbName": self.dawarich_db_name,
+            "dawarichDbUser": self.dawarich_db_user,
+            "dawarichDbPasswordConfigured": bool(self.dawarich_db_password or os.getenv("POSTGRES_PASSWORD", "").strip()),
         }
 
 
