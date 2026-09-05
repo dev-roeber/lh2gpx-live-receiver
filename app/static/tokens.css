@@ -1,0 +1,164 @@
+/* ============================================================================
+   tokens.css — gemeinsames Design-Token-System für dashboard/, webui/ und
+   (perspektivisch) LH2GPX Live Receiver. Single Source of Truth.
+
+   WICHTIG (Kompatibilität mit webui/static/style.css):
+   webui/static/style.css definiert bereits eigene :root-Variablen
+   (--canvas, --surface, --accent-amber, --space-1, --radius, ...), die das
+   gesamte bestehende, ausgereifte UI referenzieren. Diese Datei überschreibt
+   KEINEN dieser bestehenden Namen — alle hier neu eingeführten Tokens tragen
+   bewusst das Präfix "--tk-", damit webui optisch komplett unverändert
+   bleibt, auch wenn tokens.css vor style.css geladen wird. dashboard/ (das
+   bislang gar keine Tokens hatte) referenziert ausschließlich --tk-*.
+
+   Herkunft der Werte:
+   - Alle Grund-/Akzentfarben sind exakte OKLCH-Entsprechungen der in
+     webui/static/style.css hart kodierten Hex-Werte (sRGB -> OKLab -> OKLCH,
+     Standard-D65-Formel, keine Schätzung/Rundung von Hand) — visuell absolut
+     identisch, nur perzeptuell gleichmäßiger interpolierbar (color-mix()).
+   - Die drei webui-Themes Ember/Violet/Mono wurden 1:1 aus style.css
+     übernommen, nur als OKLCH-Tripel statt Hex.
+   - Spacing-/Type-Clamp-Formeln sind aus style.css übernommen und
+     generalisiert (gleiche Kurven, neue Namen).
+   - Container-Query- und Light-Mode-Bausteine sind neu für dieses
+     Token-System (in style.css bisher nur punktuell/gar nicht vorhanden).
+   ========================================================================= */
+
+:root {
+  /* --- Neutralpalette (Dark, Standard) -----------------------------------
+     Exakte OKLCH-Entsprechung von style.css: --canvas/--surface/--surface-2/
+     --hairline/--hairline-strong/--text/--text-dim/--text-faint. */
+  --tk-canvas: oklch(13.9% 0.003 246.3);
+  --tk-surface: oklch(17.5% 0.004 164.6);
+  --tk-surface-2: oklch(20.2% 0.005 145.4);
+  --tk-hairline: oklch(26.4% 0.013 120.3);
+  --tk-hairline-strong: oklch(35.4% 0.017 120.9);
+  --tk-text: oklch(96.2% 0.007 115.7);
+  --tk-text-dim: oklch(69.0% 0.016 119.2);
+  --tk-text-faint: oklch(50.4% 0.016 120.6);
+  /* Textfarbe auf leuchtenden Akzentflächen (Buttons/Brand-Mark) —
+     Entsprechung von style.css' hart kodiertem #0a0a08. */
+  --tk-on-accent: oklch(14.4% 0.005 107.0);
+
+  /* --- Akzent-/Statusfarben, Theme "Ember" (Standard) ---------------------
+     Entsprechung von --accent-amber/--accent-lime/--accent-red/--accent-blue. */
+  --tk-accent-1: oklch(76.9% 0.165 70.1);   /* Amber f59e0b */
+  --tk-accent-2: oklch(76.8% 0.204 130.8);  /* Lime 84cc16 */
+  --tk-danger: oklch(63.7% 0.208 25.3);     /* Rot ef4444 — themeübergreifend fix */
+  --tk-info: oklch(71.4% 0.143 254.6);      /* Blau 60a5fa — themeübergreifend fix */
+
+  /* --- Fluide Spacing-Skala (clamp), generalisiert aus style.css --------- */
+  --tk-space-1: clamp(6px, 0.25vw + 5.2px, 10px);
+  --tk-space-2: clamp(12px, 0.5vw + 10.4px, 20px);
+  --tk-space-3: clamp(16px, 1vw + 12.8px, 32px);
+  --tk-space-4: clamp(24px, 1.25vw + 20px, 44px);
+
+  --tk-radius-sm: clamp(6px, 0.2vw + 5.2px, 9px);
+  --tk-radius: clamp(8px, 0.25vw + 7.2px, 12px);
+  --tk-radius-lg: clamp(12px, 0.4vw + 10.4px, 18px);
+
+  /* --- Fluide Typografie-Skala (clamp) -----------------------------------
+     --tk-text-input: 1:1 aus style.css' --input-font-size übernommen (feste
+     16px-Untergrenze wegen iOS-Zoom-Bug bei Eingabefeldern < 16px). */
+  --tk-text-xs: clamp(10px, 0.15vw + 9.4px, 12px);
+  --tk-text-sm: clamp(12px, 0.2vw + 11px, 14px);
+  --tk-text-base: clamp(14px, 0.25vw + 12.8px, 16px);
+  --tk-text-lg: clamp(16px, 0.4vw + 14.4px, 20px);
+  --tk-text-xl: clamp(20px, 0.8vw + 17px, 28px);
+  --tk-input-font-size: clamp(16px, 0.3vw + 15px, 17px);
+
+  --tk-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  /* --- Abgeleitete Zustände via color-mix(in oklch, ...) ------------------
+     Ersetzt hart kodierte Zusatzfarben (z.B. "rgba(245,158,11,.06)" oder
+     eigene Hover-Hex-Werte) durch relative Mischungen der obigen Tokens —
+     ein Theme-Wechsel (siehe unten) aktualisiert sie automatisch mit, ohne
+     dass irgendwo ein zweiter Hex-Wert gepflegt werden muss. */
+  --tk-accent-1-hover: color-mix(in oklch, var(--tk-accent-1) 88%, white 12%);
+  --tk-accent-1-active: color-mix(in oklch, var(--tk-accent-1) 80%, black 20%);
+  --tk-accent-1-subtle: color-mix(in oklch, var(--tk-accent-1) 12%, transparent);
+  --tk-accent-1-border: color-mix(in oklch, var(--tk-accent-1) 45%, var(--tk-hairline-strong));
+
+  --tk-accent-2-hover: color-mix(in oklch, var(--tk-accent-2) 88%, white 12%);
+  --tk-accent-2-subtle: color-mix(in oklch, var(--tk-accent-2) 12%, transparent);
+  --tk-accent-2-border: color-mix(in oklch, var(--tk-accent-2) 45%, var(--tk-hairline-strong));
+
+  --tk-danger-hover: color-mix(in oklch, var(--tk-danger) 88%, white 12%);
+  --tk-danger-subtle: color-mix(in oklch, var(--tk-danger) 12%, transparent);
+  --tk-danger-border: color-mix(in oklch, var(--tk-danger) 45%, var(--tk-hairline-strong));
+
+  --tk-disabled-opacity: 0.5;
+
+  /* Gradient-Shortcut: Brand-Mark/Start-Button/Fortschrittsbalken nutzen
+     überall denselben Zwei-Farben-Verlauf — ein Theme-Wechsel reicht aus. */
+  --tk-gradient-accent: linear-gradient(135deg, var(--tk-accent-1), var(--tk-accent-2));
+}
+
+/* --- Themes ----------------------------------------------------------------
+   1:1 aus webui/static/style.css übernommen (nur Werte, nicht Struktur):
+   Ember ist Standard (= :root oben), Violet/Mono überschreiben ausschließlich
+   --tk-accent-1/--tk-accent-2 (und damit automatisch alle davon abgeleiteten
+   color-mix()-Zustände). Anwendung identisch zu style.css:
+   <html data-theme="ember|violet|mono">. */
+:root[data-theme="ember"] {
+  --tk-accent-1: oklch(76.9% 0.165 70.1);   /* Amber f59e0b */
+  --tk-accent-2: oklch(76.8% 0.204 130.8);  /* Lime 84cc16 */
+}
+
+:root[data-theme="violet"] {
+  --tk-accent-1: oklch(60.6% 0.219 292.7);  /* violet-500 8b5cf6 */
+  --tk-accent-2: oklch(79.7% 0.134 211.5);  /* cyan-400 22d3ee */
+}
+
+:root[data-theme="mono"] {
+  --tk-accent-1: oklch(87.1% 0.005 286.3);  /* zinc-300 d4d4d8 */
+  --tk-accent-2: oklch(55.2% 0.014 285.9);  /* zinc-500 71717a */
+}
+
+/* Theme-Override-Beispiel für LH2GPX (Phase 2, siehe Plan): Mint-Akzent statt
+   eines komplett eigenständigen Farbschemas — LH2GPX setzt künftig
+   data-theme="mint" und erbt Neutralpalette/Spacing/Type unverändert von
+   hier. Bewusst schon als Kommentar+Regel hinterlegt, auch wenn LH2GPX diese
+   Datei erst in einer späteren Phase einbindet. */
+:root[data-theme="mint"] {
+  --tk-accent-1: oklch(75.6% 0.208 147.0); /* Mint #30D158 */
+  --tk-accent-2: oklch(71.4% 0.143 254.6); /* Blau 60a5fa als Zweitfarbe */
+}
+
+/* --- Container-Query-Utility-Pattern ---------------------------------------
+   Empfehlung, wie einzelne Apps container-type nutzen sollen: Auf den
+   jeweiligen Grid-/Layout-Container (nicht auf jedes Kind einzeln) diese
+   Klasse setzen, dann per @container (min-width: ...) { ... } im App-eigenen
+   CSS gezielt auf die tatsächliche verfügbare Breite reagieren — unabhängig
+   vom Viewport (Beispiel in style.css: .files-panel/.board-col mit
+   container-name "files-panel"/"board-col"; dashboard/static/style.css nutzt
+   dieselbe Klasse für .tiles). container-name ist bewusst NICHT vorgegeben,
+   da jede App ihren eigenen, eindeutigen Namen für @container-Queries
+   braucht (mehrere gleich benannte Container auf einer Seite sind sonst
+   mehrdeutig). */
+.token-container {
+  container-type: inline-size;
+}
+
+/* --- Optionaler Light-Mode-Zweig -------------------------------------------
+   Ergänzung, kein Ersatz: Standard bleibt hart dunkel (siehe :root oben,
+   gilt ohne jede Bedingung). Nur wer sein Betriebssystem/Browser explizit
+   auf hell gestellt hat, bekommt hier eine eigenständig abgestimmte helle
+   Variante der Neutralpalette (Akzentfarben bleiben unverändert — sie sind
+   in beiden Modi kontraststark genug). Werte ebenfalls exakt per
+   sRGB->OKLCH berechnet, keine bloße Hell/Dunkel-Invertierung. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --tk-canvas: oklch(97.6% 0.003 106.4);
+    --tk-surface: oklch(100% 0 89.9);
+    --tk-surface-2: oklch(95.2% 0.008 121.6);
+    --tk-hairline: oklch(89.7% 0.011 118.0);
+    --tk-hairline-strong: oklch(82.1% 0.017 118.2);
+    --tk-text: oklch(19.2% 0.012 115.2);
+    --tk-text-dim: oklch(44.7% 0.016 120.7);
+    --tk-text-faint: oklch(61.4% 0.018 118.3);
+    /* Auf hellem Grund muss Text auf Akzentflächen dunkel bleiben wie im
+       Dark-Mode (Amber/Lime sind hell genug für schwarzen Text in beiden
+       Modi) — kein eigener Wert nötig, --tk-on-accent bleibt unverändert. */
+  }
+}

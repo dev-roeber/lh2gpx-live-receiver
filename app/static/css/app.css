@@ -1,5 +1,11 @@
 /* ============================================================
    LH2GPX Live Receiver — iOS-Inspired Dark Design System
+
+   Wird nach /static/tokens.css geladen (gemeinsames Token-Fundament,
+   Praefix --tk-*). Diese Datei definiert weiterhin ihr eigenes,
+   vollstaendiges App-Theme (--bg/--surface-*/--mint/... unten) und
+   referenziert aktuell keine --tk-*-Variablen -- das iOS-Dark-Theme
+   mit Mint-Akzent (#30D158) bleibt dadurch unveraendert bestehen.
    ============================================================ */
 
 /* ── Design Tokens ─────────────────────────────────────────── */
@@ -1188,11 +1194,6 @@ label {
 #map-wrap[data-timeline-mini="1"] #timeline-source-select {
   font-size: 0.68rem !important;
   padding: 5px 8px !important;
-}
-
-.leaflet-container img {
-  max-width: none !important;
-  max-height: none !important;
 }
 
 /* ── Map Layer Control (floating, oben rechts auf der Karte) ── */
