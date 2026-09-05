@@ -257,6 +257,8 @@ const {
     if (!menu) return;
     const nextState = typeof forceState === 'boolean' ? forceState : (menu.style.display === 'none' || menu.style.display === '');
     menu.style.display = nextState ? 'flex' : 'none';
+    const btn = document.getElementById('browser-location-btn');
+    if (btn) btn.setAttribute('aria-expanded', String(nextState));
   }
 
   async function focusLatestPoint() {
@@ -485,6 +487,7 @@ const {
     if (!button) return;
     button.style.opacity = legendVisible ? '1' : '0.72';
     button.title = legendVisible ? 'Legende ausblenden' : 'Legende einblenden';
+    button.setAttribute('aria-pressed', String(legendVisible));
   }
 
   function updateTimelineToggleButton() {
@@ -492,6 +495,7 @@ const {
     if (!button) return;
     button.style.opacity = timelineVisible ? '1' : '0.72';
     button.title = timelineVisible ? 'Timeline ausblenden' : 'Timeline einblenden';
+    button.setAttribute('aria-pressed', String(timelineVisible));
   }
 
   function applyTimelineVisibilityState() {
@@ -510,7 +514,11 @@ const {
       timelineIsPlaying = false;
       clearTimeout(timelinePlayTimer);
       const playButton = document.getElementById('timeline-play-btn');
-      if (playButton) playButton.textContent = '▶';
+      if (playButton) {
+        playButton.textContent = '▶';
+        playButton.setAttribute('aria-pressed', 'false');
+        playButton.setAttribute('aria-label', 'Wiedergabe starten');
+      }
     }
     updateMapOverlayLayout();
     updateTimelineToggleButton();
@@ -547,6 +555,8 @@ const {
     if (!ctrl) return;
     const nextState = typeof forceState === 'boolean' ? forceState : !ctrl.classList.contains('mqc-open');
     ctrl.classList.toggle('mqc-open', nextState);
+    const btn = document.getElementById('mqc-btn');
+    if (btn) btn.setAttribute('aria-expanded', String(nextState));
   }
 
   function toggleFilterPanel(show) {
@@ -558,6 +568,7 @@ const {
     backdrop.classList.toggle('fp-open', show);
     button.dataset.open = show ? '1' : '0';
     button.textContent = show ? '✕ Filter' : '☰ Filter';
+    button.setAttribute('aria-expanded', String(show));
     storageSet('map-fp-hidden', show ? '0' : '1');
     if (map) setTimeout(() => map.resize(), 250);
   }
@@ -608,6 +619,7 @@ const {
       container.style.margin = '0';
       document.getElementById('fullscreen-btn').innerHTML = '✕ <span>Vollbild</span>';
       document.getElementById('fullscreen-btn').title = 'Vollbild beenden';
+      document.getElementById('fullscreen-btn').setAttribute('aria-pressed', 'true');
     } else {
       wrap.style.position = 'relative';
       wrap.style.top = '';
@@ -624,6 +636,7 @@ const {
       container.style.margin = '';
       document.getElementById('fullscreen-btn').innerHTML = '⛶ <span>Vollbild</span>';
       document.getElementById('fullscreen-btn').title = 'Vollbild';
+      document.getElementById('fullscreen-btn').setAttribute('aria-pressed', 'false');
     }
     if (map) map.resize();
     updateLegendPlacement();
@@ -2323,8 +2336,11 @@ const {
     const date = new Date(selectedTs);
     timelineSelectedTs = Number.isFinite(selectedTs) ? Math.round(selectedTs) : null;
     storageSet('map-timeline-selected-ts', timelineSelectedTs ? String(timelineSelectedTs) : '');
-    document.getElementById('timeline-current-time').textContent = date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    document.getElementById('timeline-current-date').textContent = date.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: '2-digit' });
+    const timeText = date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const dateText = date.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: '2-digit' });
+    document.getElementById('timeline-current-time').textContent = timeText;
+    document.getElementById('timeline-current-date').textContent = dateText;
+    document.getElementById('map-timeline-slider')?.setAttribute('aria-valuetext', `${dateText} ${timeText}`);
 
     const count = timelinePoints.filter(p => new Date(p.timestampUtc || p.point_timestamp_utc).getTime() <= selectedTs).length;
     document.getElementById('timeline-info-points').textContent = `${count.toLocaleString('de-DE')} Punkte`;
@@ -2348,7 +2364,9 @@ const {
     timelineIsPlaying = !timelineIsPlaying;
     const btn = document.getElementById('timeline-play-btn');
     btn.textContent = timelineIsPlaying ? '⏸' : '▶';
-    
+    btn.setAttribute('aria-pressed', String(timelineIsPlaying));
+    btn.setAttribute('aria-label', timelineIsPlaying ? 'Wiedergabe pausieren' : 'Wiedergabe starten');
+
     if (timelineIsPlaying) {
       if (!timelineVisible) {
         timelineVisible = true;
@@ -2556,6 +2574,7 @@ const {
       map = new maplibregl.Map(Object.assign({}, mapOptions, { pitch: 0, antialias: false }));
       pitch3DActive = false;
       storageSet('map-pitch-3d', '0');
+      document.getElementById('pitch-toggle-btn')?.setAttribute('aria-pressed', 'false');
     }
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-left');
@@ -2588,6 +2607,8 @@ const {
       setupMapLayers();
       forceMapResize();
       
+      document.getElementById('pitch-toggle-btn')?.setAttribute('aria-pressed', String(pitch3DActive));
+      document.getElementById('dark-mode-btn')?.setAttribute('aria-pressed', String(darkMode));
       updateLegend();
       updateLegendPlacement();
       updateLegendToggleButton();
@@ -2798,13 +2819,23 @@ const {
     if (locMenu && !locMenu.contains(event.target)) toggleLocationMenu(false);
 
     const ctrl = document.getElementById('map-layer-ctrl');
-    if (ctrl && !ctrl.contains(event.target)) ctrl.classList.remove('mlc-open');
+    if (ctrl && !ctrl.contains(event.target)) {
+      ctrl.classList.remove('mlc-open');
+      document.getElementById('mlc-btn')?.setAttribute('aria-expanded', 'false');
+    }
     const quickCtrl = document.getElementById('map-quick-ctrl');
-    if (quickCtrl && !quickCtrl.contains(event.target)) quickCtrl.classList.remove('mqc-open');
+    if (quickCtrl && !quickCtrl.contains(event.target)) {
+      quickCtrl.classList.remove('mqc-open');
+      document.getElementById('mqc-btn')?.setAttribute('aria-expanded', 'false');
+    }
   });
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && cssFsActive) activateCssFullscreen();
+    if (event.key === 'Escape') {
+      const fpBtn = document.getElementById('fp-show-btn');
+      if (fpBtn && fpBtn.dataset.open === '1') toggleFilterPanel(false);
+    }
   });
 
   document.addEventListener('fullscreenchange', () => {
@@ -2884,7 +2915,8 @@ const {
     storageSet('map-dark-mode', String(darkMode));
     document.getElementById('dark-mode-btn').innerHTML = `${darkMode ? '☀️' : '🌙'} <span>Dark</span>`;
     document.getElementById('dark-mode-btn').title = darkMode ? 'Helle Karte' : 'Dunkle Karte';
-    
+    document.getElementById('dark-mode-btn').setAttribute('aria-pressed', String(darkMode));
+
     const nextTileUrl = darkMode
       ? 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
       : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -2906,6 +2938,7 @@ const {
   document.getElementById('pitch-toggle-btn').onclick = () => {
     pitch3DActive = !pitch3DActive;
     storageSet('map-pitch-3d', pitch3DActive ? '1' : '0');
+    document.getElementById('pitch-toggle-btn').setAttribute('aria-pressed', String(pitch3DActive));
     map.easeTo({ pitch: pitch3DActive ? 45 : 0, duration: 800 });
   };
   document.getElementById('fullscreen-btn').onclick = toggleFullscreen;
@@ -2927,6 +2960,7 @@ const {
   document.getElementById('stops-toggle').onchange = (event) => {
     stopsActive = event.target.checked;
     document.getElementById('stops-config').style.display = stopsActive ? '' : 'none';
+    event.target.setAttribute('aria-expanded', String(stopsActive));
     updateLegend();
     if (stopsActive && !layerDataLoaded.stops) debouncedMapRefresh();
     else updateLayerVisibility('stops', stopsActive);
@@ -2966,6 +3000,7 @@ const {
       filtersExpanded = !filtersExpanded;
       filterPanel.classList.toggle('collapsed', !filtersExpanded);
       toggleBtn.textContent = filtersExpanded ? 'Filteroptionen ▲' : 'Filteroptionen ▼';
+      toggleBtn.setAttribute('aria-expanded', String(filtersExpanded));
     };
   })();
 

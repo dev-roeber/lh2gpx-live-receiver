@@ -37,18 +37,18 @@
 <script src="/static/vendor/dexie.js"></script>
 
 <div class="map-page-container">
-  <button id="map-filter-toggle-btn" class="map-filter-toggle" style="display: none;">Filteroptionen ▼</button>
+  <button id="map-filter-toggle-btn" class="map-filter-toggle" style="display: none;" aria-expanded="false" aria-controls="map-filter-panel">Filteroptionen ▼</button>
 
-  <div class="map-filter-panel">
+  <div class="map-filter-panel" id="map-filter-panel">
     <div style="display:flex;justify-content:flex-end;margin:-6px -6px 0 0;">
-      <button id="fp-hide-btn" class="fp-hide-btn" title="Menü ausblenden" onclick="toggleFilterPanel(false)">◀</button>
+      <button id="fp-hide-btn" class="fp-hide-btn" title="Menü ausblenden" aria-label="Filtermenü ausblenden" onclick="toggleFilterPanel(false)">◀</button>
     </div>
 
     <p class="fp-section-label">Session / Import</p>
     <div class="filter-group fp-row">
       <input type="checkbox" id="session-filter-toggle">
       <label for="session-filter-toggle" class="fp-check-label">Session</label>
-      <select id="session-select-dropdown" disabled class="fp-dropdown fp-inactive">
+      <select id="session-select-dropdown" disabled class="fp-dropdown fp-inactive" aria-label="Session auswählen">
         <option value="">Alle Sessions</option>
         {% for session in sessions %}
         <option value="{{ session.session_id }}">{{ session.first_point_ts_utc[:10] }} {{ session.first_point_ts_utc[11:16] }}–{{ session.last_point_ts_utc[11:16] }} ({{ session.points_count }})</option>
@@ -58,7 +58,7 @@
     <div class="filter-group fp-row">
       <input type="checkbox" id="import-filter-toggle">
       <label for="import-filter-toggle" class="fp-check-label">Import</label>
-      <select id="import-select-dropdown" disabled class="fp-dropdown fp-inactive">
+      <select id="import-select-dropdown" disabled class="fp-dropdown fp-inactive" aria-label="Import auswählen">
         <option value="">Alle Importe</option>
         {% for s in import_sessions %}
         <option value="{{ s.session_id }}">{{ s.source[7:] | truncate(24, true, '…') }} ({{ s.points_count }})</option>
@@ -154,7 +154,7 @@
         <div id="map-timeline-card" style="background:rgba(28,28,30,0.75);backdrop-filter:blur(15px) saturate(180%);-webkit-backdrop-filter:blur(15px) saturate(180%);border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:12px 18px;box-shadow:0 12px 40px rgba(0,0,0,0.5);pointer-events:auto;display:flex;flex-direction:column;gap:8px;box-sizing:border-box;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
             <div style="display:flex;align-items:center;gap:12px;">
-            <button id="timeline-play-btn" style="background:var(--mint);color:#000;border:none;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:1.1rem;transition:transform 0.1s active;">▶</button>
+            <button id="timeline-play-btn" aria-label="Wiedergabe starten" aria-pressed="false" style="background:var(--mint);color:#000;border:none;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:1.1rem;transition:transform 0.1s active;">▶</button>
               <div style="display:flex;flex-direction:column;">
                 <span id="timeline-current-time" style="color:var(--text-1);font-weight:600;font-size:0.85rem;font-variant-numeric:tabular-nums;">—</span>
                 <span id="timeline-current-date" style="color:var(--text-3);font-size:0.65rem;">—</span>
@@ -169,25 +169,25 @@
 
           <div id="timeline-toolbar" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-              <button id="timeline-start-btn" class="mqc-btn" style="padding:6px 9px;font-size:0.72rem;">⏮</button>
-              <button id="timeline-prev-btn" class="mqc-btn" style="padding:6px 9px;font-size:0.72rem;">◀</button>
+              <button id="timeline-start-btn" class="mqc-btn" aria-label="Zum Anfang springen" style="padding:6px 9px;font-size:0.72rem;">⏮</button>
+              <button id="timeline-prev-btn" class="mqc-btn" aria-label="Zurückspringen" style="padding:6px 9px;font-size:0.72rem;">◀</button>
               <button id="timeline-live-btn" class="mqc-btn" style="padding:6px 10px;font-size:0.72rem;">Jetzt</button>
-              <button id="timeline-next-btn" class="mqc-btn" style="padding:6px 9px;font-size:0.72rem;">▶</button>
-              <button id="timeline-end-btn" class="mqc-btn" style="padding:6px 9px;font-size:0.72rem;">⏭</button>
-              <select id="timeline-speed-select" class="mqc-select" style="width:auto;min-width:84px;padding:6px 8px;font-size:0.72rem;">
+              <button id="timeline-next-btn" class="mqc-btn" aria-label="Vorwärtsspringen" style="padding:6px 9px;font-size:0.72rem;">▶</button>
+              <button id="timeline-end-btn" class="mqc-btn" aria-label="Zum Ende springen" style="padding:6px 9px;font-size:0.72rem;">⏭</button>
+              <select id="timeline-speed-select" class="mqc-select" aria-label="Wiedergabegeschwindigkeit" style="width:auto;min-width:84px;padding:6px 8px;font-size:0.72rem;">
                 <option value="0.5">0.5x</option>
                 <option value="1">1x</option>
                 <option value="2">2x</option>
                 <option value="4">4x</option>
               </select>
-              <select id="timeline-step-select" class="mqc-select" style="width:auto;min-width:108px;padding:6px 8px;font-size:0.72rem;">
+              <select id="timeline-step-select" class="mqc-select" aria-label="Schrittweite" style="width:auto;min-width:108px;padding:6px 8px;font-size:0.72rem;">
                 <option value="points:1">1 Punkt</option>
                 <option value="points:5">5 Punkte</option>
                 <option value="seconds:30">30 Sek</option>
                 <option value="seconds:300">5 Min</option>
               </select>
             </div>
-            <select id="timeline-source-select" class="mqc-select" style="width:auto;min-width:136px;padding:6px 8px;font-size:0.72rem;">
+            <select id="timeline-source-select" class="mqc-select" aria-label="Datenquelle für Timeline" style="width:auto;min-width:136px;padding:6px 8px;font-size:0.72rem;">
               <option value="viewport">Quelle: Ansicht</option>
               <option value="filter">Quelle: Filter</option>
             </select>
@@ -198,7 +198,7 @@
           </div>
           
           <div style="position:relative;height:24px;display:flex;align-items:center;">
-            <input type="range" id="map-timeline-slider" min="0" max="1000" value="1000" 
+            <input type="range" id="map-timeline-slider" min="0" max="1000" value="1000" aria-label="Zeitachse"
               style="width:100%;height:6px;appearance:none;-webkit-appearance:none;background:rgba(255,255,255,0.1);border-radius:999px;outline:none;cursor:pointer;--thumb-color:var(--mint);">
           </div>
           <div id="timeline-marker-strip" style="position:relative;height:10px;"></div>
@@ -213,7 +213,7 @@
 
       {# Karten-Menü — floating oben rechts über dem Layer-Menü #}
       <div id="map-quick-ctrl" style="z-index:720;">
-        <button id="mqc-btn" title="Kartensteuerung ein-/ausblenden">☰ Karte</button>
+        <button id="mqc-btn" title="Kartensteuerung ein-/ausblenden" aria-haspopup="true" aria-expanded="false" aria-controls="mqc-panel">☰ Karte</button>
         <div id="mqc-panel">
           {# Standort-Auswahl-Menü (Glassmorphismus) #}
           <div id="location-selection-menu" style="display:none;position:absolute;right:0;top:calc(100% + 8px);background:rgba(28,28,30,0.85);backdrop-filter:blur(15px);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:8px;width:190px;box-shadow:0 8px 24px rgba(0,0,0,0.4);flex-direction:column;gap:4px;z-index:730;">
@@ -280,11 +280,11 @@
               <span id="btn-text">↻</span><span id="btn-spinner" style="display:none;">⌛</span>
               <span>Refresh</span>
             </button>
-            <button id="browser-location-btn" class="mqc-btn" title="Aktuellen Browser-Standort abrufen">◎ <span>Standort</span></button>
-            <button id="legend-toggle-btn" class="mqc-btn" title="Legende ein-/ausblenden">ℹ <span>Legende</span></button>
-            <button id="dark-mode-btn" class="mqc-btn" title="Darkmode umschalten">🌙 <span>Dark</span></button>
-            <button id="pitch-toggle-btn" class="mqc-btn" title="3D-Ansicht umschalten">🧊 <span>3D</span></button>
-            <button id="fullscreen-btn" class="mqc-btn" title="Vollbild">⛶ <span>Vollbild</span></button>
+            <button id="browser-location-btn" class="mqc-btn" title="Aktuellen Browser-Standort abrufen" aria-haspopup="true" aria-expanded="false" aria-controls="location-selection-menu">◎ <span>Standort</span></button>
+            <button id="legend-toggle-btn" class="mqc-btn" title="Legende ein-/ausblenden" aria-pressed="true">ℹ <span>Legende</span></button>
+            <button id="dark-mode-btn" class="mqc-btn" title="Darkmode umschalten" aria-pressed="false">🌙 <span>Dark</span></button>
+            <button id="pitch-toggle-btn" class="mqc-btn" title="3D-Ansicht umschalten" aria-pressed="false">🧊 <span>3D</span></button>
+            <button id="fullscreen-btn" class="mqc-btn" title="Vollbild" aria-pressed="false">⛶ <span>Vollbild</span></button>
           </div>
           <div class="mqc-switches">
             <label class="mqc-toggle" title="Letzter Punkt folgen — Karte springt automatisch zum neuesten GPS-Punkt">
@@ -299,7 +299,7 @@
 
       {# Layer-Control — floating auf der Karte (oben rechts) #}
       <div id="map-layer-ctrl" style="z-index:710;">
-        <button id="mlc-btn" title="Layer ein-/ausblenden" onclick="document.getElementById('map-layer-ctrl').classList.toggle('mlc-open')">⊞ Layer</button>
+        <button id="mlc-btn" title="Layer ein-/ausblenden" aria-haspopup="true" aria-expanded="false" aria-controls="mlc-panel" onclick="this.setAttribute('aria-expanded', document.getElementById('map-layer-ctrl').classList.toggle('mlc-open'))">⊞ Layer</button>
         <div id="mlc-panel">
           <div class="mlc-row"><label class="mlc-lbl" title="Dichteverteilung aller Punkte als Wärmebild"><input type="checkbox" id="heatmap-toggle"> Heatmap</label></div>
           <div class="mlc-row"><label class="mlc-lbl" title="Jeden GPS-Punkt als Kreis anzeigen"><input type="checkbox" id="points-toggle" checked> Punkte</label></div>
@@ -308,7 +308,7 @@
           <div class="mlc-row"><label class="mlc-lbl" title="Uhrzeit am Anfang und Ende jedes Routen-Segments"><input type="checkbox" id="labels-toggle"> Labels</label></div>
           <div class="mlc-row"><label class="mlc-lbl" title="Liniensegmente nach Geschwindigkeit einfärben"><input type="checkbox" id="speed-toggle"> Tempo</label></div>
           <div class="mlc-row">
-            <label class="mlc-lbl" title="Orte markieren wo du mindestens X Minuten geblieben bist"><input type="checkbox" id="stops-toggle"> Stops</label>
+            <label class="mlc-lbl" title="Orte markieren wo du mindestens X Minuten geblieben bist"><input type="checkbox" id="stops-toggle" aria-controls="stops-config" aria-expanded="false"> Stops</label>
             <div id="stops-config" style="display:none;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);">
               <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
                 <label style="font-size:0.72rem;color:var(--text-3);flex:1;">Min. (min)</label>
@@ -326,7 +326,7 @@
       </div>
 
       <div id="map-timeline-ctrl" style="z-index:705;">
-        <button id="mtc-btn" title="Timeline ein-/ausblenden">◴ Timeline</button>
+        <button id="mtc-btn" title="Timeline ein-/ausblenden" aria-pressed="false">◴ Timeline</button>
       </div>
 
     </div>
@@ -513,8 +513,8 @@
   </div>
 </article>
 </div>
-<button id="fp-show-btn" title="Filter ein-/ausblenden" onclick="toggleFilterPanel(this.dataset.open!=='1')">☰ Filter</button>
-<div id="fp-backdrop" onclick="toggleFilterPanel(false)"></div>
+<button id="fp-show-btn" title="Filter ein-/ausblenden" aria-expanded="false" aria-controls="map-filter-panel" onclick="toggleFilterPanel(this.dataset.open!=='1')">☰ Filter</button>
+<div id="fp-backdrop" aria-hidden="true" onclick="toggleFilterPanel(false)"></div>
 
 <script>
   window.MAP_BOOTSTRAP = {
