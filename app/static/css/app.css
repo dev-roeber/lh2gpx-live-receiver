@@ -78,6 +78,15 @@
   --shadow:    0 8px 32px rgba(0, 0, 0, 0.5);
   --shadow-sm: 0 2px 12px rgba(0, 0, 0, 0.4);
 
+  /* Shared motion and interaction foundations. */
+  --motion-duration-fast: 120ms;
+  --motion-duration-standard: 180ms;
+  --motion-duration-slow: 280ms;
+  --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease-emphasized: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-ease-linear: linear;
+  --map-touch-target: 44px;
+
   /* Layout */
   --sidebar-width: 260px;
   --header-height: 56px;
@@ -120,6 +129,17 @@ a:hover { opacity: 0.75; text-decoration: none; }
   width: 100%;
   max-width: 100%;
   overflow-x: hidden;
+}
+
+/* Progressive viewport-height fallback for mobile browser chrome. */
+@supports (height: 100svh) {
+  body { min-height: 100svh; }
+  .app-shell { min-height: calc(100svh - var(--header-height)); }
+}
+
+@supports (height: 100dvh) {
+  body { min-height: 100dvh; }
+  .app-shell { min-height: calc(100dvh - var(--header-height)); }
 }
 
 /* ── Global Header ────────────────────────────────────────── */
@@ -848,6 +868,15 @@ label {
   z-index: 1;
   margin-top: 10px;
   overflow: hidden;
+  max-height: max(320px, calc(100vh - var(--header-height) - 96px));
+}
+
+@supports (height: 100svh) {
+  #map-container { max-height: max(320px, calc(100svh - var(--header-height) - 96px)); }
+}
+
+@supports (height: 100dvh) {
+  #map-container { max-height: max(320px, calc(100dvh - var(--header-height) - 96px)); }
 }
 
 #map-wrap {
@@ -1714,7 +1743,19 @@ td .kv-sub     { font-size: 0.72rem; color: var(--text-3); }
 
 /* ── Hover/press transitions ──────────────────────────────── */
 .panel, .tile, .list-card, .metric-card {
-  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  transition: transform var(--motion-duration-standard) var(--motion-ease-standard),
+              box-shadow var(--motion-duration-standard) var(--motion-ease-standard),
+              background var(--motion-duration-standard) var(--motion-ease-standard);
+}
+
+/* Global accessibility rule; map.css adds the same protection for map-only assets. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* Custom positioning for controls */

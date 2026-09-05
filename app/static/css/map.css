@@ -19,3 +19,38 @@
   cursor: pointer;
   box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
 }
+
+/* ── Shared map-control foundations ───────────────────────── */
+#map-quick-ctrl > button,
+#map-layer-ctrl > button,
+#map-timeline-ctrl > button,
+#timeline-toolbar > button,
+#timeline-toolbar .mqc-btn,
+#map-quick-ctrl .mqc-btn,
+#map-filter-toggle-btn,
+#fp-show-btn {
+  min-width: var(--map-touch-target, 44px);
+  min-height: var(--map-touch-target, 44px);
+}
+
+#timeline-play-btn {
+  min-width: var(--map-touch-target, 44px);
+  min-height: var(--map-touch-target, 44px);
+}
+
+/* A larger invisible interaction area keeps compact desktop controls usable. */
+#map-quick-ctrl > button,
+#map-layer-ctrl > button,
+#map-timeline-ctrl > button {
+  padding-inline: max(9px, 0.65rem);
+}
+
+/* Respect users who request less motion, including map-specific animations. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
