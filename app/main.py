@@ -14,6 +14,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
+import sys as _sys
+
+_sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import security_shared
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, WebSocket, WebSocketDisconnect, status
@@ -448,6 +452,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     app = FastAPI(title="LH2GPX Live Location Receiver", version=APP_VERSION)
+    security_shared.setup_security_headers(app, permissions_policy="geolocation=(self)")
     app.state.settings = resolved_settings
     app.state.storage = ReceiverStorage(resolved_settings)
     app.state.storage.startup()
