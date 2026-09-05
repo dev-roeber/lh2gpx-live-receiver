@@ -1779,3 +1779,174 @@ td .kv-sub     { font-size: 0.72rem; color: var(--text-3); }
   right: 10px !important;
   z-index: 445;
 }
+
+/* ── P1 map-first layout (CSS-only, template-compatible) ─────
+   Keep the existing DOM and inline styles functional, but give the map
+   the visual priority of a tracking workspace. Logs and KPIs remain
+   available below it without competing for the initial viewport. */
+.map-page-container {
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: auto auto auto !important;
+  gap: clamp(10px, 1.2vw, 18px);
+  align-items: start;
+}
+
+.map-container-wrapper {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+  min-width: 0;
+  overflow: visible;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.16);
+}
+
+.log-container-wrapper {
+  grid-column: 1 !important;
+  grid-row: 3 !important;
+  min-width: 0;
+  opacity: 0.9;
+}
+
+.map-stats-container {
+  grid-column: 1 !important;
+  grid-row: 2 !important;
+  min-width: 0;
+  padding-block: clamp(10px, 1.4vw, 16px);
+}
+
+.map-stats-container .panel-header {
+  margin-bottom: 8px;
+}
+
+.map-stats-container .tile-grid {
+  gap: clamp(8px, 1vw, 14px);
+}
+
+.map-stats-container .tile {
+  min-height: 0;
+  padding: clamp(10px, 1.2vw, 16px) !important;
+}
+
+.log-container-wrapper .panel-header {
+  gap: 10px;
+  padding-block: clamp(10px, 1.2vw, 16px);
+}
+
+.log-container-wrapper .table-panel {
+  max-height: clamp(180px, 28vh, 340px);
+  scrollbar-gutter: stable;
+}
+
+#map-wrap {
+  --map-overlay-gap: clamp(10px, 1vw, 18px);
+  --map-loading-width: min(380px, 42vw);
+  --map-timeline-width: min(680px, calc(100% - 2 * var(--map-overlay-gap)));
+  min-height: 0;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+#map-container {
+  margin-top: 0;
+  height: clamp(420px, calc(100dvh - var(--header-height, 60px) - 210px), 860px) !important;
+  min-height: 420px;
+  max-height: none;
+  border-radius: inherit;
+}
+
+/* Separate the status/loading area from the vertical map controls. */
+#map-loading-overlay {
+  left: var(--map-overlay-gap) !important;
+  right: auto !important;
+  justify-content: flex-start;
+}
+
+#map-sync-pill {
+  top: var(--map-overlay-gap);
+  right: var(--map-overlay-gap);
+}
+
+#map-quick-ctrl {
+  top: calc(var(--map-overlay-gap) + 52px) !important;
+  right: var(--map-overlay-gap) !important;
+}
+
+#map-layer-ctrl {
+  top: calc(var(--map-overlay-gap) + 106px) !important;
+  right: var(--map-overlay-gap) !important;
+}
+
+#map-timeline-ctrl {
+  top: calc(var(--map-overlay-gap) + 160px) !important;
+  right: var(--map-overlay-gap) !important;
+}
+
+#map-timeline-container {
+  left: 50% !important;
+  bottom: var(--map-timeline-bottom) !important;
+  width: var(--map-timeline-width) !important;
+}
+
+@media (min-width: 1440px) {
+  .map-page-container {
+    max-width: none;
+  }
+
+  #map-container {
+    height: clamp(560px, calc(100dvh - var(--header-height, 60px) - 150px), 980px) !important;
+  }
+
+  .log-container-wrapper .table-panel {
+    max-height: clamp(180px, 24vh, 300px);
+  }
+}
+
+@media (max-width: 767px) {
+  .map-page-container {
+    gap: clamp(8px, 2vw, 12px);
+  }
+
+  .map-container-wrapper {
+    box-shadow: none;
+  }
+
+  #map-container {
+    height: clamp(360px, calc(100dvh - var(--header-height, 60px) - 112px), 720px) !important;
+    min-height: 360px;
+  }
+
+  #map-loading-card {
+    max-width: min(84vw, 340px) !important;
+  }
+
+  #map-loading-overlay {
+    max-width: calc(100% - 2 * var(--map-overlay-gap));
+  }
+
+  #map-sync-pill {
+    max-width: min(52vw, 220px);
+  }
+
+  #map-quick-ctrl { top: calc(var(--map-overlay-gap) + 50px) !important; }
+  #map-layer-ctrl { top: calc(var(--map-overlay-gap) + 104px) !important; }
+  #map-timeline-ctrl { top: calc(var(--map-overlay-gap) + 158px) !important; }
+
+  #map-timeline-container {
+    bottom: max(10px, env(safe-area-inset-bottom)) !important;
+    width: calc(100% - 2 * var(--map-overlay-gap)) !important;
+  }
+
+  .log-container-wrapper {
+    opacity: 1;
+  }
+
+  .log-container-wrapper .table-panel {
+    max-height: min(34dvh, 300px);
+  }
+}
+
+@media (max-height: 600px) {
+  #map-container {
+    height: calc(100dvh - var(--header-height, 60px) - 86px) !important;
+    min-height: 280px;
+  }
+}

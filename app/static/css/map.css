@@ -54,3 +54,33 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* P1 overlay polish: a single predictable control rail and a clear
+   bottom timeline zone. Specificity/!important is intentional because
+   map.html contains legacy inline positioning that must remain untouched. */
+#map-quick-ctrl,
+#map-layer-ctrl,
+#map-timeline-ctrl {
+  right: clamp(10px, 1vw, 18px) !important;
+  width: max-content;
+}
+
+#map-quick-ctrl > button,
+#map-layer-ctrl > button,
+#map-timeline-ctrl > button {
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.24);
+}
+
+#map-timeline-container {
+  max-width: calc(100% - 20px) !important;
+  pointer-events: auto;
+}
+
+@media (max-width: 767px) {
+  #map-quick-ctrl > button,
+  #map-layer-ctrl > button,
+  #map-timeline-ctrl > button {
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  }
+}
