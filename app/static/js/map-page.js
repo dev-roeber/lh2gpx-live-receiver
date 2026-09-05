@@ -2478,6 +2478,35 @@ const {
 
   let socket = null;
   let socketReconnectTimer = null;
+  let socketReconnectAttempt = 0;
+  let socketReconnectScheduled = false;
+
+  const SOCKET_RECONNECT_BASE_MS = 1000;
+  const SOCKET_RECONNECT_MAX_MS = 30000;
+
+  function setWebSocketStatus(text, mode = 'info', durationMs = 5000) {
+    // Reuse the existing status pill; do not require template/CSS changes.
+    showSyncPill(`Live: ${text}`, mode, durationMs);
+  }
+
+  function scheduleWebSocketReconnect() {
+    if (socketReconnectScheduled || socketReconnectTimer) return;
+    const exponentialDelay = Math.min(
+      SOCKET_RECONNECT_MAX_MS,
+      SOCKET_RECONNECT_BASE_MS * (2 ** Math.min(socketReconnectAttempt, 5))
+    );
+    // Jitter avoids synchronized reconnects after a server/network outage.
+    const jitter = 0.75 + (Math.random() * 0.5);
+    const delay = Math.round(exponentialDelay * jitter);
+    socketReconnectAttempt += 1;
+    socketReconnectScheduled = true;
+    setWebSocketStatus(`getrennt – neuer Versuch in ${Math.ceil(delay / 1000)}s`, 'error', delay + 1000);
+    socketReconnectTimer = setTimeout(() => {
+      socketReconnectTimer = null;
+      socketReconnectScheduled = false;
+      initWebSocket();
+    }, delay);
+  }
 
   function invalidateMapClientCacheForStructuralChange() {
     console.log('Strukturelle Änderung erkannt: Client-Caches werden invalidiert.');
@@ -2492,16 +2521,33 @@ const {
   function initWebSocket() {
     if (!('WebSocket' in window)) {
       console.warn('WebSocket im Browser nicht verfügbar.');
+      setWebSocketStatus('nicht verfügbar', 'error', 60000);
       return;
     }
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/map`;
-    
-    if (socket) socket.close();
-    socket = new WebSocket(wsUrl);
 
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
+    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+    const connection = new WebSocket(wsUrl);
+    socket = connection;
+    setWebSocketStatus('verbinde…', 'info', 3000);
+
+    connection.onopen = () => {
+      // A successful connection resets the backoff for the next outage.
+      socketReconnectAttempt = 0;
+      setWebSocketStatus('verbunden', 'noop', 2500);
+    };
+
+    connection.onmessage = (event) => {
+      let data;
+      try {
+        data = JSON.parse(event.data);
+      } catch (error) {
+        console.warn('Ungültige WebSocket-Nachricht ignoriert:', error);
+        setWebSocketStatus('ungültige Nachricht ignoriert', 'error', 5000);
+        return;
+      }
+      if (!data || typeof data !== 'object' || Array.isArray(data)) return;
       if (data.type === 'new_location' || data.type === 'import_completed' || data.type === 'session_deleted') {
         console.log(`Echtzeit-Update empfangen (${data.type})...`);
         
@@ -2515,15 +2561,21 @@ const {
       }
     };
 
-    socket.onclose = () => {
-      console.warn('WebSocket geschlossen. Reconnect in 5s...');
-      clearTimeout(socketReconnectTimer);
-      socketReconnectTimer = setTimeout(initWebSocket, 5000);
+    connection.onclose = () => {
+      // Ignore close events from an obsolete connection.
+      if (socket !== connection) return;
+      socket = null;
+      console.warn('WebSocket geschlossen. Reconnect wird geplant.');
+      scheduleWebSocketReconnect();
     };
 
-    socket.onerror = (err) => {
+    connection.onerror = (err) => {
       console.error('WebSocket Fehler:', err);
-      socket.close();
+      setWebSocketStatus('Verbindungsfehler', 'error', 5000);
+      // onclose performs the single reconnect scheduling.
+      if (connection.readyState === WebSocket.OPEN || connection.readyState === WebSocket.CONNECTING) {
+        connection.close();
+      }
     };
   }
 
@@ -2808,7 +2860,20 @@ const {
     // Popups
     map.on('click', 'layer-points', (e) => {
       const p = e.features[0].properties;
-      new maplibregl.Popup().setLngLat(e.lngLat).setHTML(`<b>GPS-Punkt</b><br>${p.timestamp}<br>±${Math.round(p.accuracy)}m`).addTo(map);
+      const content = document.createElement('div');
+      const title = document.createElement('strong');
+      title.textContent = 'GPS-Punkt';
+      content.appendChild(title);
+      content.appendChild(document.createElement('br'));
+      const timestamp = document.createElement('span');
+      timestamp.textContent = p.timestamp == null ? '' : String(p.timestamp);
+      content.appendChild(timestamp);
+      content.appendChild(document.createElement('br'));
+      const accuracy = document.createElement('span');
+      const accuracyValue = Number(p.accuracy);
+      accuracy.textContent = `±${Number.isFinite(accuracyValue) ? Math.round(accuracyValue) : 0}m`;
+      content.appendChild(accuracy);
+      new maplibregl.Popup().setLngLat(e.lngLat).setDOMContent(content).addTo(map);
     });
     map.on('mouseenter', 'layer-points', () => map.getCanvas().style.cursor = 'pointer');
     map.on('mouseleave', 'layer-points', () => map.getCanvas().style.cursor = '');
