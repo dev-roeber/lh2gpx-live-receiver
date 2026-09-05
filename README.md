@@ -19,6 +19,7 @@ Receiver- und Operator-Server für optionale Live-Location-Uploads aus der `Loca
 - iOS-inspiriertes Dark-Design-System (OLED-Schwarz, semantische Akzentfarben)
 - vollständig responsive Oberfläche (Desktop / Tablet / Mobile)
 - Docker-Compose-Deployment mit Caddy als TLS-Reverse-Proxy
+- optionaler direkter Dawarich-PostgreSQL-Sync in eine lokale Receiver-Spiegelung
 
 ## Aktueller Stand
 
@@ -30,6 +31,7 @@ Receiver- und Operator-Server für optionale Live-Location-Uploads aus der `Loca
 - **Produktivadresse auf `devroeber`:** `https://devroeber.tail71a8bc.ts.net:8443/dashboard` über Tailscale Funnel; intern bindet der Dienst auf `0.0.0.0:8082`.
 - **Deutsche Oberfläche:** Alle Dashboard-Seiten vollständig auf Deutsch lokalisiert.
 - **iOS-Vollbild:** Native `requestFullscreen()` nicht auf iOS verfügbar → CSS-Fallback (`position:fixed; 100vw/100dvh`) per ⛶-Button. Einmaliger "Zum Home-Bildschirm"-Banner mit Anleitung. Android nutzt denselben Vollbild-Layoutpfad jetzt auch im nativen Fullscreen.
+- **Dawarich-Sync (Produktivbetrieb):** `lh2gpx-dawarich-sync.service` liest Änderungen aus Dawarichs PostgreSQL/PostGIS-Quelle über eine dauerhafte Trigger-Outbox und aktualisiert die lokale SQLite-Spiegelung inkrementell. Dawarich bleibt die führende Quelle; Inserts, Updates und Deletes werden verarbeitet. Die produktive Detaildokumentation steht in [docs/DAWARICH_SYNC.md](docs/DAWARICH_SYNC.md).
 
 ## Root cause des bisherigen HTTP-500
 
@@ -283,3 +285,4 @@ Der Smoke-Test prüft:
 - [docs/APPSTORE_PRIVACY_NOTES.md](docs/APPSTORE_PRIVACY_NOTES.md)
 - [docs/DEPLOY_RUNBOOK.md](docs/DEPLOY_RUNBOOK.md)
 - [docs/OPEN_ITEMS.md](docs/OPEN_ITEMS.md)
+- [docs/DAWARICH_SYNC.md](docs/DAWARICH_SYNC.md)
