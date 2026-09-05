@@ -12,7 +12,8 @@
 - optionales NDJSON-Audit für Rohpayloads
 - serverseitig gerenderte Operator-UI
 - MapLibre-basierte Operator-Karte mit serverseitiger Layer-Aufbereitung für `/dashboard/map`
-- Caddy als TLS-Reverse-Proxy
+- optional Caddy-Reverse-Proxy im Docker-Compose-Deployment
+- produktiver Serverbetrieb: systemd-User-Service hinter Tailscale Funnel
 
 ## Request-Fluss
 
@@ -26,9 +27,11 @@
 
 ## Operator-Zugriff
 
-- Session-Cookie nach Bearer-Login
-- optional HTTP Basic Auth
-- ohne Admin-Credentials lokal-only
+- zentrale Dashboard-Session aus `~/services/auth/sessions.db`
+- Cookie-Name: `ytdl_session` (gemeinsam mit Dashboard und ytdl-webui)
+- nicht authentifizierte HTML-Aufrufe werden zur zentralen Dashboard-Loginseite weitergeleitet
+- eine separate Receiver-Anmeldung ist im produktiven Setup deaktiviert
+- der Ingest bleibt unabhängig davon per Bearer-Token geschützt
 
 ## Kartenmodell
 
@@ -85,5 +88,5 @@
 
 - persistentes Rate-Limit-Backend
 - externes Migrationsframework
-- Multi-User-/Rollenmodell
+- eigene Multi-User-/Rollenverwaltung im Receiver (Rollen kommen aus dem zentralen Dashboard)
 - automatische Retention- oder Export-Jobs

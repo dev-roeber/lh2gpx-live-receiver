@@ -263,7 +263,7 @@ Zusätzlich für Punkte:
 ## Zugriffsschutz
 
 - Ingest: Bearer-Token
-- Dashboard:
-  - signierter Session-Cookie nach Bearer-Login
-  - optional HTTP Basic Auth
-  - ohne Admin-Credentials lokal-only
+- Dashboard: zentrale Dashboard-Session im Cookie `ytdl_session`
+- Session-Datenbank: `DASHBOARD_SESSIONS_DB` (produktiv `~/services/auth/sessions.db`)
+- nicht angemeldete HTML-Aufrufe werden zur zentralen Login-Seite weitergeleitet
+- `/health` und `/readyz` bleiben für Monitoring ohne Browser-Login erreichbar

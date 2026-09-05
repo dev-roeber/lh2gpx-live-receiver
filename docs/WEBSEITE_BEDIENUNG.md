@@ -2,7 +2,7 @@
 
 ## Einstieg
 
-- `/login` für Bearer-basierten Dashboard-Login
+- Anmeldung erfolgt über den zentralen Dashboard-Login; `/login` des Receivers leitet dorthin weiter
 - `/dashboard` leitet auf die Kartenansicht weiter
 
 ## Hauptbereiche

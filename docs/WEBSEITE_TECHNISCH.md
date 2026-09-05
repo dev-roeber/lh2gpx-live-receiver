@@ -31,10 +31,14 @@
 
 ## Auth-Modell
 
-- `_require_admin_access()` akzeptiert:
-  - validen Session-Cookie
-  - optional HTTP Basic Auth
-  - lokal-only Zugriff ohne Admin-Credentials
+- `require_admin_access()` akzeptiert im produktiven Setup eine gültige zentrale
+  Dashboard-Session aus `DASHBOARD_SESSIONS_DB` über den Cookie `ytdl_session`.
+- Session-Daten werden prozessübergreifend aus der gemeinsamen SQLite-Datei gelesen
+  und gleitend verlängert.
+- `/login` ist keine eigene Loginmaske mehr, sondern leitet zur zentralen
+  `DASHBOARD_LOGIN_URL` weiter.
+- `LIVE_LOCATION_BEARER_TOKEN` schützt ausschließlich den Ingest-Endpunkt und
+  ersetzt keine Browser-Anmeldung.
 
 ## Settings-Hot-Reload
 
