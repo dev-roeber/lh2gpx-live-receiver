@@ -72,10 +72,9 @@ Der `0600`-Fix greift nur beim Anlegen neuer Raw-Payload-Dateien; bestehende Dat
 
 ## Dashboard-Zugriff
 
-- ohne `ADMIN_USERNAME` und `ADMIN_PASSWORD`:
-  - Dashboard ist nur lokal erreichbar
-- mit gesetzten Credentials:
-  - Dashboard und API sind zusätzlich über HTTP Basic Auth geschützt
+- Der Receiver übernimmt die zentrale Dashboard-Session aus `DASHBOARD_SESSIONS_DB`.
+- Nicht angemeldete Browser werden zur zentralen `DASHBOARD_LOGIN_URL` weitergeleitet.
+- Der Cookie-Name ist `ytdl_session`; Cookies sind nicht port-spezifisch und funktionieren daher auch über Tailscale Funnel.
 
 ## Sichere Defaults
 

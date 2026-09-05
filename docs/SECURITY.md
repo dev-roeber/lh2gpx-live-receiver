@@ -14,14 +14,9 @@
 
 ## Dashboard-Schutz
 
-- Session-Cookie nach Bearer-Login
-- Cookie-Signatur über:
-  - `SESSION_SIGNING_SECRET`, falls gesetzt
-  - sonst `LIVE_LOCATION_BEARER_TOKEN`
-  - sonst `ADMIN_PASSWORD`
-  - sonst ein pro Prozess generierter Zufalls-Key
-- optional HTTP Basic Auth mit `ADMIN_USERNAME` / `ADMIN_PASSWORD`
-- ohne Admin-Credentials lokal-only
+- zentrale Dashboard-Session aus `~/services/auth/sessions.db` über den Cookie `ytdl_session`
+- die Session wird vom Dashboard erstellt und besitzt eine gleitende Gültigkeit
+- der Receiver führt keine eigene Benutzer- oder Passwortanmeldung im Produktionsbetrieb durch
 
 ## Netzwerk
 

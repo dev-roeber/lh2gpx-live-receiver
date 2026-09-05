@@ -61,16 +61,12 @@ Pruefen bei Altbestand:
 
 ## Dashboard nicht erreichbar
 
-Ohne Admin-Credentials:
+Bei einem Weiterleiten zum Login:
 
-- Dashboard ist absichtlich nur lokal erreichbar
-
-Mit Admin-Credentials:
-
-- Basic-Auth Header prüfen
-- `ADMIN_USERNAME`
-- `ADMIN_PASSWORD`
-- falls einzelne Menüpunkte nicht laden: dieselbe Admin-Auth muss auch für `/dashboard/*` Unterseiten mitgesendet werden
+- prüfen, ob der zentrale Dashboard-Login erfolgreich war
+- `DASHBOARD_SESSIONS_DB` muss auf dieselbe `sessions.db` wie beim Dashboard zeigen
+- Browser-Cookies für `devroeber.tail71a8bc.ts.net` dürfen nicht blockiert werden
+- falls einzelne Menüpunkte nicht laden: Session-Ablauf und Dashboard-Service prüfen
 
 ## Punkte erscheinen nicht in der Liste
 

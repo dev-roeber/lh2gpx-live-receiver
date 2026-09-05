@@ -26,7 +26,7 @@ Receiver- und Operator-Server für optionale Live-Location-Uploads aus der `Loca
 - **Interaktive Karte:** `/dashboard/map` mit MapLibre GL JS, separatem Metapfad `/api/map-meta`, viewport-basierten Layern über `/api/map-data`, eigenem Timeline-Endpoint `/api/timeline`, leichtem `/api/timeline-preview`, lokalem IndexedDB-Mirror via Dexie, hybrider Live-Aktualisierung aus WebSocket-Hinweisen, Delta-Refresh und konfigurierbarem Polling, Timeline-Scrubbing, Echtzeit-Replay, 3D-Pitch, GeoJSON-Export, Browser-Standort und Server-Verarbeitungsstatus.
 - **Responsive:** CSS-Grid-basiertes 3-View-System. Desktop: Filter-Panel | Karte | Live-Log. Tablet: 2-Spalten. Mobile: vollständig gestackt, Filter einklappbar. Kartensteuerung und Layer-Menü sind auf kleinen Displays als getrennte Dropdowns nutzbar.
 - **Sichere Operator-UI:** Karten-Live-Log und Import-Status rendern server- bzw. ingestnahe Inhalte nicht mehr als ungefiltertes HTML.
-- **Login:** Bearer-basierter Dashboard-Login mit signiertem Session-Cookie. Nach Login Redirect auf `/dashboard/map`.
+- **Login:** Der Receiver verwendet den zentralen Dashboard-Login. Eine gültige `ytdl_session`-Session wird dienstübergreifend akzeptiert; eine separate Receiver-Anmeldung ist im Produktionsbetrieb nicht erforderlich.
 - **Deutsche Oberfläche:** Alle Dashboard-Seiten vollständig auf Deutsch lokalisiert.
 - **iOS-Vollbild:** Native `requestFullscreen()` nicht auf iOS verfügbar → CSS-Fallback (`position:fixed; 100vw/100dvh`) per ⛶-Button. Einmaliger "Zum Home-Bildschirm"-Banner mit Anleitung. Android nutzt denselben Vollbild-Layoutpfad jetzt auch im nativen Fullscreen.
 
@@ -207,7 +207,7 @@ Darunter: priorisierte Next-Actions, jüngste Requests-Tabelle, Top-Sessions, ne
 - Systemseite mit Version, Laufzeit und Changelog-Ausschnitten
 - CSV-, JSON- und NDJSON-Export der Punkteliste
 
-**Sicherheitshinweis:** Der Zugriffsschutz für das Dashboard erfolgt über signierte Session-Cookies oder optional HTTP Basic Auth. Ingest-Endpunkte sind Bearer-Token-gesichert.
+**Sicherheitshinweis:** Der Zugriffsschutz für das Dashboard erfolgt über die zentrale Dashboard-Session (`ytdl_session`) in `~/services/auth/sessions.db`. Ingest-Endpunkte sind weiterhin Bearer-Token-gesichert.
 
 ## Konfiguration
 
@@ -217,8 +217,8 @@ Wichtige ENV-Variablen:
 
 - `PUBLIC_HOSTNAME` / `PUBLIC_BASE_URL`
 - `LIVE_LOCATION_BEARER_TOKEN` (Pflicht für Ingest-Sicherheit)
-- `ADMIN_USERNAME` / `ADMIN_PASSWORD` (Dashboard-Login)
-- `SESSION_SIGNING_SECRET` (optional dedizierter Signing-Key für Dashboard-Cookies)
+- `DASHBOARD_SESSIONS_DB` (gemeinsame Session-Datenbank, Standard: `~/services/auth/sessions.db`)
+- `DASHBOARD_LOGIN_URL` (zentrale Login-Seite für nicht angemeldete Nutzer)
 - `LOCAL_TIMEZONE` (IANA-Validierung beim Start; Zeitstempel werden als UTC in DB gespeichert, wenn `UTC` gesetzt)
 - `DATA_DIR` / `SQLITE_PATH`
 - `ENABLE_RAW_PAYLOAD_NDJSON`

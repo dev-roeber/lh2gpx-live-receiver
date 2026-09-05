@@ -3,13 +3,16 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import secrets
+import sqlite3
 import time
 from base64 import b64decode, b64encode, urlsafe_b64decode, urlsafe_b64encode
 from ipaddress import ip_address
 from secrets import compare_digest
 from typing import Any
 from urllib.parse import quote
+from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Request, status
 
@@ -17,6 +20,7 @@ from .config import Settings
 
 
 SESSION_COOKIE = "lh2gpx_session"
+SHARED_SESSION_COOKIE = "ytdl_session"
 SESSION_MAX_AGE = 7 * 24 * 3600  # 7 Tage
 
 
@@ -138,6 +142,41 @@ def direct_remote_addr(request: Request) -> str:
     return request.client.host if request.client else ""
 
 
+def validate_shared_dashboard_session(request: Request) -> str | None:
+    """Validate the session created by the central dashboard login.
+
+    The cookie is host-scoped (not port-scoped), so it is available to the
+    receiver when it is opened on the same public hostname. The SQLite
+    database is shared by dashboard and all first-party tools.
+    """
+    session_id = request.cookies.get(SHARED_SESSION_COOKIE, "").strip()
+    if not session_id:
+        return None
+    database = Path(os.getenv("DASHBOARD_SESSIONS_DB", str(Path.home() / "services/auth/sessions.db")))
+    try:
+        with sqlite3.connect(database, timeout=2) as connection:
+            row = connection.execute(
+                "SELECT username, expires FROM sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            username, expires = row
+            if float(expires) < time.time():
+                connection.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+                connection.commit()
+                return None
+            # Keep the central dashboard's sliding-session behaviour.
+            connection.execute(
+                "UPDATE sessions SET expires = ? WHERE session_id = ?",
+                (time.time() + 14 * 24 * 3600, session_id),
+            )
+            connection.commit()
+            return str(username) if username else None
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return None
+
+
 async def require_bearer_token(request: Request, authorization: str | None = Header(default=None)) -> None:
     settings: Settings = request.app.state.settings
     if not settings.auth_required:
@@ -161,6 +200,9 @@ async def apply_rate_limit(request: Request) -> None:
 
 async def require_admin_access(request: Request, authorization: str | None = Header(default=None)) -> None:
     settings: Settings = request.app.state.settings
+
+    if validate_shared_dashboard_session(request):
+        return
 
     cookie = request.cookies.get(SESSION_COOKIE, "")
     if cookie and validate_session_token(cookie, request.app):

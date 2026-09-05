@@ -7,8 +7,8 @@
 3. Bearer-Token eingeben
 4. anmelden
 
-- erfolgreicher Login setzt einen signierten Session-Cookie
-- ohne `ADMIN_USERNAME` / `ADMIN_PASSWORD` ist das Dashboard nur lokal erreichbar
+- Anmeldung erfolgt zentral über das Dashboard; danach gilt die `ytdl_session`-Session auch für den Receiver.
+- Eine separate Receiver-Anmeldeseite ist im Produktionsbetrieb nicht vorgesehen.
 
 ## Karte
 

@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import math
+import os
 import platform
 import time
 from collections import defaultdict, deque
@@ -922,6 +923,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/login", response_class=HTMLResponse, include_in_schema=False)
     async def login_page(request: Request, error: str | None = None) -> HTMLResponse:
         settings = _settings(request)
+        if not settings.admin_auth_enabled:
+            dashboard_login = os.getenv("DASHBOARD_LOGIN_URL", "https://devroeber.tail71a8bc.ts.net/login")
+            return RedirectResponse(url=dashboard_login, status_code=status.HTTP_303_SEE_OTHER)
         if settings.admin_auth_enabled and request.cookies.get(SESSION_COOKIE):
             if validate_session_token(request.cookies.get(SESSION_COOKIE, ""), request.app):
                 return RedirectResponse(url="/dashboard/map", status_code=status.HTTP_303_SEE_OTHER)
