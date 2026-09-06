@@ -7,7 +7,7 @@ from ipaddress import ip_address
 from secrets import compare_digest
 from pathlib import Path
 
-from fastapi import Header, HTTPException, Request, status
+from fastapi import Header, HTTPException, Request, WebSocket, WebSocketException, status
 
 from .config import Settings
 
@@ -111,6 +111,27 @@ async def require_admin_access(request: Request) -> None:
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Dashboard requires the shared dashboard login or local (loopback) access.",
     )
+
+
+async def require_admin_access_ws(websocket: WebSocket) -> None:
+    """WebSocket counterpart of require_admin_access.
+
+    Cannot reuse require_admin_access directly: it depends on
+    request.state.remote_addr, which is only populated by the HTTP
+    middleware (never runs for the websocket ASGI scope), and FastAPI
+    resolves a plain `Request` parameter differently for websocket routes.
+    Same trust decision otherwise: shared dashboard admin session, or a
+    loopback/local operator connection.
+    """
+    session = validate_shared_dashboard_session(websocket)  # type: ignore[arg-type]
+    if session and session.get("role") == "admin":
+        return
+
+    remote_addr = websocket.client.host if websocket.client else ""
+    if is_local_operator_request(remote_addr, websocket.url.hostname, websocket.headers.get("host", "")):
+        return
+
+    raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="Admin session or local access required.")
 
 
 def is_loopback_hostname(hostname: str | None) -> bool:

@@ -146,6 +146,7 @@ from .auth import (
     direct_remote_addr,
     proxied_ip,
     require_admin_access,
+    require_admin_access_ws,
     require_bearer_token,
 )
 from .config import Settings
@@ -808,7 +809,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         sse_manager.publish({"type": "new_location", "sessionId": str(payload.sessionID)})
         return {"status": "accepted", "requestId": metadata.request_id, **storage_summary}
 
-    @app.websocket("/ws/map", dependencies=[Depends(require_admin_access)])
+    @app.websocket("/ws/map", dependencies=[Depends(require_admin_access_ws)])
     async def websocket_endpoint(websocket: WebSocket):
         await manager.connect(websocket)
         try:
