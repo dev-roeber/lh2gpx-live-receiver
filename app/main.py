@@ -808,7 +808,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         sse_manager.publish({"type": "new_location", "sessionId": str(payload.sessionID)})
         return {"status": "accepted", "requestId": metadata.request_id, **storage_summary}
 
-    @app.websocket("/ws/map")
+    @app.websocket("/ws/map", dependencies=[Depends(require_admin_access)])
     async def websocket_endpoint(websocket: WebSocket):
         await manager.connect(websocket)
         try:
