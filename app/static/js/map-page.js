@@ -1355,6 +1355,16 @@ const {
     return Array.from(merged.values());
   }
 
+  // Delta updates only replace properties on the payload and its layers. Keep
+  // unchanged, potentially large arrays structurally shared instead of
+  // recursively cloning the complete payload on every update.
+  function createDeltaPayloadBase(previous) {
+    const layers = previous && previous.layers && typeof previous.layers === 'object'
+      ? previous.layers
+      : {};
+    return Object.assign({}, previous, { layers: Object.assign({}, layers) });
+  }
+
   function updateStatistics(stats, meta) {
     document.getElementById('stat-points-per-min').innerText = (stats.pointsPerMinute || 0).toFixed(1);
     document.getElementById('stat-avg-accuracy').innerText = stats.avgAccuracyM ? `${Math.round(stats.avgAccuracyM)}m` : '-';
@@ -1453,7 +1463,7 @@ const {
     }
     mapRuntimeWarnings = persistentRuntimeWarnings.slice();
     renderProcessingStatus(payload.processing || null);
-    const merged = JSON.parse(JSON.stringify(lastMapPayload));
+    const merged = createDeltaPayloadBase(lastMapPayload);
     merged.meta = payload.meta || merged.meta;
     merged.stats = payload.stats || merged.stats;
     merged.processing = payload.processing || merged.processing;

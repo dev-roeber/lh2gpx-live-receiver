@@ -1113,14 +1113,23 @@ class ReceiverStorage:
             return dict(row) if row else {"provider": "dawarich", "last_event_id": 0}
 
     def set_dawarich_sync_state(self, *, last_event_id: int, last_success_at: str | None = None, last_error: str | None = None) -> None:
+        # The sync worker can report results out of order (for example when a
+        # retry from an older connection finishes after a newer one).  Keep
+        # the cursor monotonic in the database statement itself so this also
+        # holds across separate ReceiverStorage instances/processes.
+        event_id = int(last_event_id)
         with self._locked_transaction() as connection:
             connection.execute(
                 """INSERT INTO dawarich_sync_state(provider,last_event_id,last_success_at,last_error)
                 VALUES ('dawarich',?,?,?) ON CONFLICT(provider) DO UPDATE SET
-                last_event_id=MAX(dawarich_sync_state.last_event_id, excluded.last_event_id),
+                last_event_id=CASE
+                    WHEN excluded.last_event_id > dawarich_sync_state.last_event_id
+                    THEN excluded.last_event_id
+                    ELSE dawarich_sync_state.last_event_id
+                END,
                 last_success_at=COALESCE(excluded.last_success_at, dawarich_sync_state.last_success_at),
                 last_error=excluded.last_error""",
-                (last_event_id, last_success_at, last_error),
+                (event_id, last_success_at, last_error),
             )
 
     def get_live_summary(self, *, limit: int) -> dict[str, Any]:
