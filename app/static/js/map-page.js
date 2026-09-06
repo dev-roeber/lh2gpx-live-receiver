@@ -20,6 +20,83 @@ const {
   const supportsTextDecoder = typeof window.TextDecoder === 'function';
   const supportsTextEncoder = typeof window.TextEncoder === 'function';
 
+  const FETCH_TIMEOUT_MS = 8000;
+  const FETCH_MAX_RETRIES = 2;
+  const FETCH_RETRY_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+  function sleepWithSignal(ms, signal) {
+    return new Promise((resolve, reject) => {
+      if (signal && signal.aborted) {
+        const error = new DOMException('The operation was aborted.', 'AbortError');
+        reject(error);
+        return;
+      }
+      let timer = setTimeout(() => {
+        if (signal) signal.removeEventListener('abort', abort);
+        resolve();
+      }, ms);
+      const abort = () => {
+        clearTimeout(timer);
+        timer = null;
+        signal.removeEventListener('abort', abort);
+        reject(new DOMException('The operation was aborted.', 'AbortError'));
+      };
+      if (signal) signal.addEventListener('abort', abort, { once: true });
+    });
+  }
+
+  // All map GETs use one bounded request policy. The caller's signal remains
+  // authoritative, while every individual attempt gets its own timeout.
+  async function fetchWithRetry(input, options = {}, config = {}) {
+    const timeoutMs = Number.isFinite(config.timeoutMs) ? config.timeoutMs : FETCH_TIMEOUT_MS;
+    const maxRetries = Number.isFinite(config.maxRetries) ? config.maxRetries : FETCH_MAX_RETRIES;
+    const parentSignal = options.signal;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      if (parentSignal && parentSignal.aborted) {
+        throw new DOMException('The operation was aborted.', 'AbortError');
+      }
+
+      const controller = supportsAbortController ? new AbortController() : null;
+      let timedOut = false;
+      let timeoutId = null;
+      const abortFromParent = () => controller?.abort();
+      if (parentSignal && controller) parentSignal.addEventListener('abort', abortFromParent, { once: true });
+      if (controller) {
+        timeoutId = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, timeoutMs);
+      }
+
+      try {
+        const attemptOptions = Object.assign({}, options);
+        if (controller) attemptOptions.signal = controller.signal;
+        const response = await fetch(input, attemptOptions);
+        if (!FETCH_RETRY_STATUS.has(response.status) || attempt >= maxRetries) return response;
+        try { await response.body?.cancel(); } catch (error) { /* response cleanup is best effort */ }
+      } catch (error) {
+        if (parentSignal?.aborted) throw new DOMException('The operation was aborted.', 'AbortError');
+        const retryable = timedOut || error?.name === 'TypeError' || error?.name === 'NetworkError';
+        if (!retryable || attempt >= maxRetries) {
+          if (timedOut) {
+            const timeoutError = new Error(`Zeitüberschreitung nach ${Math.round(timeoutMs / 1000)} s`);
+            timeoutError.name = 'TimeoutError';
+            throw timeoutError;
+          }
+          throw error;
+        }
+      } finally {
+        if (timeoutId !== null) clearTimeout(timeoutId);
+        if (parentSignal && controller) parentSignal.removeEventListener('abort', abortFromParent);
+      }
+
+      const backoffMs = Math.min(4000, 500 * (2 ** attempt)) + Math.round(Math.random() * 250);
+      await sleepWithSignal(backoffMs, parentSignal);
+    }
+    throw new Error('Anfrage konnte nicht abgeschlossen werden.');
+  }
+
   function storageGet(key, fallback = null) {
     try {
       const value = window.localStorage ? window.localStorage.getItem(key) : null;
@@ -311,7 +388,7 @@ const {
     
     if (!latest) {
       try {
-        const response = await fetch('/api/points?page_size=1', { credentials: 'same-origin' });
+        const response = await fetchWithRetry('/api/points?page_size=1', { credentials: 'same-origin' });
         if (response.ok) {
           const data = await response.json();
           const point = data && data.points && data.points.items ? data.points.items[0] : null;
@@ -333,7 +410,7 @@ const {
     forceGlobalLatestFocus = false;
     let latest = fallback;
     try {
-      const response = await fetch('/api/points?page_size=1', { credentials: 'same-origin' });
+      const response = await fetchWithRetry('/api/points?page_size=1', { credentials: 'same-origin' });
       if (response.ok) {
         const data = await response.json();
         const point = data && data.points && data.points.items ? data.points.items[0] : null;
@@ -826,7 +903,7 @@ const {
     currentMetaFetchController = supportsAbortController ? new AbortController() : null;
     const fetchOptions = { credentials: 'same-origin', headers };
     if (currentMetaFetchController) fetchOptions.signal = currentMetaFetchController.signal;
-    const response = await fetch(url, fetchOptions);
+    const response = await fetchWithRetry(url, fetchOptions);
     if (response.status === 304 && lastMetaPayload) {
       lastMetaQueryKey = queryKey;
       lastMetaFetchedAtMs = now;
@@ -844,7 +921,7 @@ const {
   }
 
   async function exportGeoJSON() {
-    const response = await fetch(buildGeoJsonExportUrl(), { credentials: 'same-origin' });
+    const response = await fetchWithRetry(buildGeoJsonExportUrl(), { credentials: 'same-origin' });
     if (!response.ok) {
       alert('GeoJSON-Export fehlgeschlagen.');
       return;
@@ -1810,7 +1887,7 @@ const {
       const headers = lastETag && !isManualRefresh ? { 'If-None-Match': lastETag } : {};
       const fetchOptions = { credentials: 'same-origin', headers };
       if (currentFetchController) fetchOptions.signal = currentFetchController.signal;
-      const response = await fetch(url, fetchOptions);
+      const response = await fetchWithRetry(url, fetchOptions);
       const fetchMs = Date.now() - fetchStart;
       const serverTiming = parseServerTimingHeader(response.headers.get('server-timing'));
       setLoadingDetail(formatServerTimingDetail(serverTiming));
@@ -2244,7 +2321,7 @@ const {
     if (timelinePreviewController && typeof timelinePreviewController.abort === 'function') timelinePreviewController.abort();
     timelinePreviewController = supportsAbortController ? new AbortController() : null;
     try {
-      const response = await fetch(buildTimelinePreviewUrl(selectedTs), {
+      const response = await fetchWithRetry(buildTimelinePreviewUrl(selectedTs), {
         credentials: 'same-origin',
         signal: timelinePreviewController ? timelinePreviewController.signal : undefined,
       });
@@ -2282,7 +2359,7 @@ const {
     if (timelineLoadedQueryKey === queryKey && timelineSourcePoints.length) return timelineSourcePoints;
     updateTimelineModeLabel('Laden');
     const token = ++timelineFetchToken;
-    const response = await fetch(buildTimelineFetchUrl(), { credentials: 'same-origin' });
+    const response = await fetchWithRetry(buildTimelineFetchUrl(), { credentials: 'same-origin' });
     if (!response.ok) throw new Error(`Timeline HTTP ${response.status}`);
     const payload = await response.json();
     if (token !== timelineFetchToken) return timelineSourcePoints;

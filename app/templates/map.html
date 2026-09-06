@@ -109,7 +109,7 @@
   <article class="panel map-container-wrapper">
     <div id="map-wrap" style="position:relative;">
       <div id="map-container"></div>
-      <div id="map-loading-overlay">
+      <div id="map-loading-overlay" role="status" aria-live="polite" aria-atomic="false">
         <div id="map-loading-card">
           <div class="map-loading-header">
             <span id="map-loading-spinner">⟳</span>
@@ -141,12 +141,12 @@
             <span id="map-loading-bytes">0 KB</span>
             <span id="map-loading-percent">0%</span>
           </div>
-          <div id="map-loading-track">
+          <div id="map-loading-track" role="progressbar" aria-label="Karten-Synchronisierung" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
             <div id="map-loading-bar"></div>
           </div>
         </div>
       </div>
-      <div id="map-sync-pill" aria-live="polite">
+      <div id="map-sync-pill" role="status" aria-live="polite" aria-atomic="true">
         <span id="map-sync-pill-text">Synchronisiert</span>
       </div>
 

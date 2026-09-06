@@ -52,6 +52,12 @@ Diese Datei beschreibt den **aktuellen** Restbestand nach dem inzwischen deutlic
 
 - Doku-/Audit-Nachzug künftig laufend aktuell halten
 
+## Produktionshinweis
+
+- Der produktive Receiver läuft per User-systemd auf `127.0.0.1:8082`; der öffentliche Zugriff erfolgt über den zentralen Dashboard-Proxy.
+- WebSocket-Live-Updates benötigen die in `requirements.txt` deklarierte `websockets`-Abhängigkeit. Ohne diese Abhängigkeit fällt die Oberfläche auf Polling zurück.
+- Die zentrale Dashboard-Session (`ytdl_session`) ist im Produktionsbetrieb die einzige Anmeldung; eine separate Receiver-Admin-Anmeldung ist kein offener Punkt.
+
 ## Bewusst nicht Teil dieses Repos
 
 - Änderungen an iOS-App oder Wrapper-Repos

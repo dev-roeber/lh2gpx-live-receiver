@@ -64,7 +64,7 @@ python3 -m compileall app tests
 
 Der aktuelle Teststand liegt über den historischen 15 Tests und deckt u. a. Karte, Timeline, Delta-Pfade und Importstatus mit ab.
 
-## Docker / Betrieb
+## Docker / optionaler Standalone-Betrieb
 
 ```bash
 docker compose build
@@ -74,7 +74,7 @@ docker compose logs --tail=200
 curl http://127.0.0.1:8080/readyz
 ```
 
-Öffentlicher TLS-Einstieg läuft über Caddy.
+Das ist der optionale Compose-Modus. Die aktuelle Produktionsinstanz läuft als User-systemd/Uvicorn auf `127.0.0.1:8082`; ihr öffentlicher Einstieg ist der zentrale Dashboard-Proxy.
 
 ## Wahrheitsquellen
 

@@ -4,7 +4,8 @@ Dieses Runbook beschreibt nur den Receiver-/Serverbetrieb. App, Wrapper und loka
 
 ## Voraussetzungen
 
-- Docker und `docker compose`
+- für den aktuellen Produktionsbetrieb: User-systemd und die projektinterne `.venv`
+- für den optionalen Standalone-Modus: Docker und `docker compose`
 - Port `80/tcp` und `443/tcp` offenbar für den Reverse-Proxy
 - eine lokale `.env` mit nicht versionierten Werten
 
@@ -28,8 +29,8 @@ Hinweis zum NDJSON-Fix:
 ```bash
 docker compose ps
 docker compose logs --tail=200
-curl http://127.0.0.1:8080/health
-curl http://127.0.0.1:8080/readyz
+curl http://127.0.0.1:8082/health
+curl http://127.0.0.1:8082/readyz
 ./scripts/smoke-test.sh
 ```
 
@@ -81,7 +82,7 @@ Der `0600`-Fix greift nur beim Anlegen neuer Raw-Payload-Dateien; bestehende Dat
 - keine versionierte produktive Hostvorgabe
 - kein versionierter Bearer-Token
 - keine Klartext-Anzeige von Secrets in API oder UI
-- weitergehende Produktionshaertung wie separate Admin-Auth, Retention-Automatisierung oder Job-Scheduling ist bewusst nicht Teil dieses Laufs
+- weitergehende Produktionshärtung wie Retention-Automatisierung oder Job-Scheduling ist bewusst nicht Teil dieses Laufs
 
 ## Rollback
 
@@ -99,7 +100,6 @@ Wenn die Datenbasis erhalten bleiben soll, `./data` nicht löschen.
 
 Vor einem breiteren produktiven Betrieb weiterhin offen:
 
-- separate Admin-Authentifizierung statt nur Local-only-/Basic-Auth-Modell
 - formalisierte Backup-/Restore-Automatisierung
 - automatische Retention-/Export-Jobs
 - finaler App-/Wrapper-Abgleich außerhalb dieses Repos

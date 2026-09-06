@@ -18,7 +18,7 @@ Receiver- und Operator-Server für optionale Live-Location-Uploads aus der `Loca
 - Live-Punkt-Log mit konfigurierbarem Polling und Zeitraumfilter
 - iOS-inspiriertes Dark-Design-System (OLED-Schwarz, semantische Akzentfarben)
 - vollständig responsive Oberfläche (Desktop / Tablet / Mobile)
-- Docker-Compose-Deployment mit Caddy als TLS-Reverse-Proxy
+- Produktionsbetrieb per User-systemd/Uvicorn; Docker Compose bleibt ein optionaler Standalone-Betriebsmodus
 - optionaler direkter Dawarich-PostgreSQL-Sync in eine lokale Receiver-Spiegelung
 
 ## Aktueller Stand
@@ -28,7 +28,7 @@ Receiver- und Operator-Server für optionale Live-Location-Uploads aus der `Loca
 - **Responsive:** CSS-Grid-basiertes 3-View-System. Desktop: Filter-Panel | Karte | Live-Log. Tablet: 2-Spalten. Mobile: vollständig gestackt, Filter einklappbar. Kartensteuerung und Layer-Menü sind auf kleinen Displays als getrennte Dropdowns nutzbar.
 - **Sichere Operator-UI:** Karten-Live-Log und Import-Status rendern server- bzw. ingestnahe Inhalte nicht mehr als ungefiltertes HTML.
 - **Login:** Der Receiver verwendet den zentralen Dashboard-Login. Eine gültige `ytdl_session`-Session wird dienstübergreifend akzeptiert; eine separate Receiver-Anmeldung ist im Produktionsbetrieb nicht erforderlich.
-- **Produktivadressen auf `devroeber`:** intern im Tailnet `http://100.113.100.41:8082/dashboard`; zusätzlich über den zentralen Dashboard-Reverse-Proxy `https://devroeber.tail71a8bc.ts.net/receiver/dashboard`. Der öffentliche Funnel-Port `8443` gehört Dawarich; der Receiver bindet intern auf `0.0.0.0:8082`.
+- **Produktivadressen auf `devroeber`:** der Receiver bindet lokal auf `127.0.0.1:8082` und ist über den zentralen Dashboard-Reverse-Proxy unter `https://devroeber.tail71a8bc.ts.net/receiver/dashboard` erreichbar. Ein direkter Tailnet-Zugriff auf Port 8082 ist absichtlich nicht vorgesehen. Der öffentliche Funnel-Port `8443` gehört Dawarich.
 - **Deutsche Oberfläche:** Alle Dashboard-Seiten vollständig auf Deutsch lokalisiert.
 - **iOS-Vollbild:** Native `requestFullscreen()` nicht auf iOS verfügbar → CSS-Fallback (`position:fixed; 100vw/100dvh`) per ⛶-Button. Einmaliger "Zum Home-Bildschirm"-Banner mit Anleitung. Android nutzt denselben Vollbild-Layoutpfad jetzt auch im nativen Fullscreen.
 - **Dawarich-Sync (Produktivbetrieb):** `lh2gpx-dawarich-sync.service` liest Änderungen aus Dawarichs PostgreSQL/PostGIS-Quelle über eine dauerhafte Trigger-Outbox und aktualisiert die lokale SQLite-Spiegelung inkrementell. Dawarich bleibt die führende Quelle; Inserts, Updates und Deletes werden verarbeitet. Die produktive Detaildokumentation steht in [docs/DAWARICH_SYNC.md](docs/DAWARICH_SYNC.md).
@@ -240,7 +240,7 @@ Hinweise:
 ## Lokaler Start
 
 ```bash
-cd /home/sebastian/repos/lh2gpx-live-receiver
+cd /home/sebastian/services/lh2gpx-live-receiver
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
@@ -251,14 +251,14 @@ cp .env.example .env
 ## Docker Compose
 
 ```bash
-cd /home/sebastian/repos/lh2gpx-live-receiver
+cd /home/sebastian/services/lh2gpx-live-receiver
 docker compose build
 docker compose up -d
 docker compose ps
 docker compose logs --tail=200
 ```
 
-Der Backend-Port bleibt lokal auf `127.0.0.1:8080`. Öffentlich wird nur Caddy auf `80/443` exponiert.
+Im optionalen Compose-Modus bleibt der Backend-Port lokal auf `127.0.0.1:8080`; öffentlich wird nur Caddy auf `80/443` exponiert. Das aktuelle Produktions-Setup verwendet dagegen User-systemd auf `127.0.0.1:8082` und den zentralen Dashboard-Proxy.
 
 ## Smoke-Test
 
