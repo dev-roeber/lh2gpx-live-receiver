@@ -110,3 +110,21 @@ app/
 - Jede Phase soll fuer sich deploybar bleiben
 - Public API-Verhalten nur absichtlich aendern
 - Ingest-, Readiness- und Kartenpfade nach jedem P0-Schritt mit Tests absichern
+
+## Status: Adoption durch den Full-Rewrite (2026-09-06)
+
+Die oben beschriebene **Zielstruktur** (`auth.py`, `routers/`, `services/`,
+`storage/`, `schemas/`, modulare `static/js/map/*`) ist die verbindliche
+Blaupause für den Full-Rewrite (siehe
+`docs/LIVE_UPLOAD_CONTRACT.md`/`openapi.yaml`, Phase 0 dort).
+
+**Wichtiger Unterschied zur Ausführung**: Die oben beschriebenen Phasen
+1–4 gingen von einem **inkrementellen In-Place-Umbau** des laufenden
+`app/`-Verzeichnisses aus ("jede Phase bleibt deploybar"). Der
+Full-Rewrite folgt stattdessen dem Greenfield-Prinzip: der neue Code
+entsteht **isoliert**, das laufende `app/` bleibt bis zum verifizierten
+Cutover unverändert in Produktion. Die Zielstruktur (Verzeichnisnamen,
+Modulschnitt) bleibt identisch — nur der Bauort und die
+Migrationsstrategie ändern sich. Dieser P0-P2-Plan gilt damit als
+**inhaltlich weiter gültige Referenz für den Modulschnitt**, nicht mehr
+als auszuführende Schritt-für-Schritt-Anleitung am laufenden Code.
