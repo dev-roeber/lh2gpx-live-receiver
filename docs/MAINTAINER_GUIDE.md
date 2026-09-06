@@ -74,7 +74,16 @@ docker compose logs --tail=200
 curl http://127.0.0.1:8080/readyz
 ```
 
-Das ist der optionale Compose-Modus. Die aktuelle Produktionsinstanz läuft als User-systemd/Uvicorn auf `127.0.0.1:8082`; ihr öffentlicher Einstieg ist der zentrale Dashboard-Proxy.
+Das ist der optionale Compose-Modus. Die aktuelle Produktionsinstanz läuft
+als `lh2gpx-live-receiver.service` unter User-systemd/Uvicorn auf
+`127.0.0.1:8082`; ihr öffentlicher Einstieg ist der zentrale Dashboard-Proxy.
+Produktionsprüfung und Neustart erfolgen mit:
+
+```bash
+systemctl --user status lh2gpx-live-receiver.service
+systemctl --user restart lh2gpx-live-receiver.service
+curl http://127.0.0.1:8082/readyz
+```
 
 ## Wahrheitsquellen
 

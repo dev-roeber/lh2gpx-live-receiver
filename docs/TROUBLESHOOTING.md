@@ -112,7 +112,7 @@ Pruefen:
 
 Dieses Troubleshooting beschreibt den aktuellen Receiver-Kern. Noch nicht Teil dieses Laufs:
 
-- Session-Login-/Admin-Auth-Fehlerbilder einer späteren eigenständigen Admin-Schicht
+- Fehlerbilder einer nicht vorhandenen separaten Receiver-Admin-Schicht; im Produktionsbetrieb wird ausschließlich die zentrale Dashboard-Session (`ytdl_session`) verwendet
 - Cron-/Retention-/Backup-Job-Fehlerbilder
 - App- oder Wrapper-seitige Fehlersuche außerhalb dieses Repos
 

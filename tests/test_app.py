@@ -6,6 +6,7 @@ import json
 import sqlite3
 import time
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -38,6 +39,57 @@ def test_health_endpoint_returns_service_status(tmp_path: Path) -> None:
     assert body["authRequired"] is False
     assert body["storageReady"] is True
     assert body["sqlitePath"].endswith("receiver.sqlite3")
+    assert body["dawarichSync"] == {
+        "enabled": False,
+        "available": True,
+        "last_event_id": 0,
+        "last_success_at": None,
+        "last_error_present": False,
+    }
+
+
+def test_health_exposes_safe_dawarich_sync_summary(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    client.app.state.settings = replace(client.app.state.settings, dawarich_sync_enabled=True)
+    client.app.state.storage.set_dawarich_sync_state(
+        last_event_id=42,
+        last_success_at="2026-09-06T12:00:00+00:00",
+        last_error="database password must never be returned",
+    )
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    sync = response.json()["dawarichSync"]
+    assert sync == {
+        "enabled": True,
+        "available": True,
+        "last_event_id": 42,
+        "last_success_at": "2026-09-06T12:00:00+00:00",
+        "last_error_present": True,
+    }
+    assert "password" not in response.text
+
+
+def test_health_remains_ok_when_dawarich_sync_status_is_unavailable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client = make_client(tmp_path)
+
+    def unavailable() -> dict[str, object]:
+        raise RuntimeError("sync status unavailable")
+
+    monkeypatch.setattr(client.app.state.storage, "get_dawarich_sync_state", unavailable)
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert response.json()["dawarichSync"] == {
+        "enabled": False,
+        "available": False,
+        "last_event_id": None,
+        "last_success_at": None,
+        "last_error_present": False,
+    }
 
 
 def test_readyz_reports_storage_not_ready(tmp_path: Path) -> None:

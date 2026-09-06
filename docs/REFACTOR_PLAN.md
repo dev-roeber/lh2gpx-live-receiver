@@ -28,6 +28,13 @@ Das Repo soll von einer stark dateizentrierten Struktur in eine klar geschnitten
 
 ## Zielstruktur
 
+Hinweis zum Status: Die unten genannten Auth-/Session-Refactor-Schritte sind
+historische Planpunkte. Die produktive Authentifizierung ist bereits zentral
+über die Dashboard-Session (`ytdl_session`) umgesetzt; eine separate
+Receiver-Admin-Anmeldung ist nicht vorgesehen. Verbleibende Auth-Arbeiten in
+dieser Datei dürfen daher nicht als offene Einführung eines zweiten Logins
+interpretiert werden.
+
 ```text
 app/
   auth.py

@@ -666,6 +666,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "storageMessage": readiness.message,
             "sqlitePath": readiness.sqlite_path,
             "rawPayloadNdjsonPath": readiness.raw_ndjson_path,
+            "dawarichSync": _dawarich_sync_health(request),
         }
 
     @app.get("/readyz")
@@ -1447,6 +1448,48 @@ def _settings(request: Request) -> Settings:
 
 def _storage(request: Request) -> ReceiverStorage:
     return request.app.state.storage
+
+
+def _dawarich_sync_health(request: Request) -> dict[str, Any]:
+    """Return a non-sensitive, best-effort summary of the Dawarich sync.
+
+    The sync worker is a separate process and its local status row may be
+    unavailable while SQLite is starting, locked, or being migrated.  Health
+    must remain useful in those situations, so status lookup is deliberately
+    isolated from the main health response and never raises.
+    """
+    summary: dict[str, Any] = {
+        "enabled": bool(_settings(request).dawarich_sync_enabled),
+        "available": False,
+        "last_event_id": None,
+        "last_success_at": None,
+        "last_error_present": False,
+    }
+    try:
+        state = _storage(request).get_dawarich_sync_state()
+        if not isinstance(state, dict):
+            raise TypeError("sync state is not an object")
+
+        raw_event_id = state.get("last_event_id", 0)
+        try:
+            last_event_id = int(raw_event_id or 0)
+        except (TypeError, ValueError):
+            last_event_id = None
+
+        raw_success_at = state.get("last_success_at")
+        summary.update(
+            {
+                "available": True,
+                "last_event_id": last_event_id,
+                "last_success_at": raw_success_at if isinstance(raw_success_at, str) else None,
+                # Deliberately expose presence only; error text can contain
+                # connection details or other operationally sensitive data.
+                "last_error_present": bool(state.get("last_error")),
+            }
+        )
+    except Exception as exc:  # health must not depend on the sync worker
+        LOGGER.warning("Dawarich sync status unavailable (%s)", type(exc).__name__)
+    return summary
 
 
 def _parse_bbox(raw_bbox: str | None) -> tuple[float, float, float, float] | None:

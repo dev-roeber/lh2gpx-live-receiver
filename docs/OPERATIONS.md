@@ -17,9 +17,16 @@
 
 ## Laufende Instanz
 
+- Produktionsdienst: `lh2gpx-live-receiver.service` unter User-systemd
+- Produktions-Bind: `127.0.0.1:8082`
 - öffentlich den zentralen Dashboard-Proxy verwenden: `https://devroeber.tail71a8bc.ts.net/receiver/dashboard`
 - `PUBLIC_BASE_URL` ist für alternative Standalone-/Reverse-Proxy-Deployments gedacht und entspricht nicht automatisch der öffentlichen Dawarich-Adresse
 - bei `sslip.io`-Deployments ist die rohe IP kein sauberer TLS-Einstieg
+
+Der separate Dawarich-Sync läuft als `lh2gpx-dawarich-sync.service`. Sein
+Passwort wird ausschließlich aus `/home/sebastian/Secrets/lh2gpx-dawarich-sync.env`
+geladen (`0600`); `/home/sebastian/Secrets/dawarich.env` wird von diesem Dienst
+nicht geladen.
 
 ## Backups
 
@@ -32,7 +39,7 @@
 
 1. Receiver stoppen
 2. SQLite- und optionale NDJSON-Dateien wiederherstellen
-3. den verwendeten Betriebsmodus starten (`systemctl --user restart lh2gpx-live-receiver.service` oder optional `docker compose up -d`)
+3. den Produktionsdienst starten (`systemctl --user restart lh2gpx-live-receiver.service`) oder im optionalen Standalone-Modus `docker compose up -d` verwenden
 4. `readyz`, `/health` und Dashboard prüfen
 
 ## Wartung

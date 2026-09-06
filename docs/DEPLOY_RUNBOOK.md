@@ -2,14 +2,30 @@
 
 Dieses Runbook beschreibt nur den Receiver-/Serverbetrieb. App, Wrapper und lokale Standortdateien sind bewusst nicht Teil dieses Schritts.
 
+## Betriebsmodi
+
+Der aktuelle Produktionsbetrieb läuft als User-systemd-Dienst mit der
+projektinternen `.venv`:
+
+- Unit: `lh2gpx-live-receiver.service`
+- Arbeitsverzeichnis: `/home/sebastian/services/lh2gpx-live-receiver`
+- Bind: `127.0.0.1:8082`
+- öffentlicher Einstieg: zentraler Dashboard-Proxy unter
+  `https://devroeber.tail71a8bc.ts.net/receiver/dashboard`
+
+Docker Compose ist nur ein optionaler Standalone-Betriebsmodus. Dort gilt der
+in `compose.yaml` konfigurierte lokale Port (derzeit `127.0.0.1:8080`); dieser
+Modus ist nicht die laufende Produktionsinstanz.
+
+Für den jeweiligen Modus werden eine lokale `.env` und ausschließlich lokal
+gespeicherte, nicht versionierte Werte benötigt.
+
 ## Voraussetzungen
 
-- für den aktuellen Produktionsbetrieb: User-systemd und die projektinterne `.venv`
+- für den Produktionsbetrieb: User-systemd und die projektinterne `.venv`
 - für den optionalen Standalone-Modus: Docker und `docker compose`
-- Port `80/tcp` und `443/tcp` offenbar für den Reverse-Proxy
-- eine lokale `.env` mit nicht versionierten Werten
 
-## Erstes Setup
+## Erstes Setup: optionaler Compose-Standalone-Modus
 
 ```bash
 cd /home/sebastian/services/lh2gpx-live-receiver
@@ -29,12 +45,23 @@ Hinweis zum NDJSON-Fix:
 ```bash
 docker compose ps
 docker compose logs --tail=200
-curl http://127.0.0.1:8082/health
-curl http://127.0.0.1:8082/readyz
+curl http://127.0.0.1:8080/health
+curl http://127.0.0.1:8080/readyz
 ./scripts/smoke-test.sh
 ```
 
-## Post-merge verification auf `main`
+## Produktionsbetrieb per User-systemd
+
+```bash
+cd /home/sebastian/services/lh2gpx-live-receiver
+systemctl --user daemon-reload
+systemctl --user enable --now lh2gpx-live-receiver.service
+systemctl --user status lh2gpx-live-receiver.service
+curl http://127.0.0.1:8082/health
+curl http://127.0.0.1:8082/readyz
+```
+
+## Post-merge verification im optionalen Compose-Modus
 
 Nach dem finalen Merge wurde `main` noch einmal direkt im laufenden Setup geprueft mit:
 
@@ -51,7 +78,7 @@ Ergebnis:
 - Live-Ingest, Dashboard und Punkteliste blieben funktionsfähig
 - aus diesem Check war kein weiterer Receiver-Commit nötig
 
-## Update-Deploy
+## Update-Deploy im optionalen Compose-Modus
 
 ```bash
 cd /home/sebastian/services/lh2gpx-live-receiver
