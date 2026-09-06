@@ -202,6 +202,8 @@ Zusätzlich für Punkte:
 - WebSocket-Endpunkt für Karten-Clients
 - sendet bei neuem Ingest `{"type":"new_location","sessionId":"..."}` an verbundene Browser
 - dient als Echtzeit-Hinweis für die Kartenansicht; ersetzt den konfigurierbaren Polling-Pfad nicht vollständig
+- erfordert dieselbe Vertrauensstufe wie `/events/map`: gültige Dashboard-Admin-Session oder lokaler (loopback) Zugriff (`require_admin_access_ws`, `app/auth.py`) — vor 2026-09-06 war die Route unauthentifiziert erreichbar
+- im Full-Rewrite (siehe `openapi.yaml`/`docs/LIVE_UPLOAD_CONTRACT.md`) entfällt diese Route ersatzlos zugunsten von SSE `/events/map`
 
 ## Import
 
