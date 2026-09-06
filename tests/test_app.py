@@ -23,6 +23,7 @@ from app.main import (
     _resolve_track_context,
     _resolve_track_layers,
     create_app)
+from app.main import SSEManager
 from app.models import PointFilters
 from app.storage import StorageWriteError
 
@@ -413,6 +414,81 @@ def test_expired_admin_session_does_not_grant_admin_access(tmp_path: Path, monke
     client.cookies.set("ytdl_session", session_id)
 
     response = client.get("/api/stats")
+
+    assert response.status_code == 403
+
+
+def test_sse_replays_events_after_last_event_id() -> None:
+    async def scenario() -> None:
+        manager = SSEManager(queue_size=4, history_size=4)
+        manager.publish({"type": "new_location", "sessionId": "one"})
+        manager.publish({"type": "import_completed", "sessionId": "two", "inserted": 3})
+
+        subscription, replay = manager.subscribe("1")
+
+        assert [event["id"] for event in replay] == [2]
+        assert replay[0]["event"] == "import_completed"
+        manager.unsubscribe(subscription)
+
+    asyncio.run(scenario())
+
+
+def test_sse_requests_resync_when_last_event_is_outside_history() -> None:
+    async def scenario() -> None:
+        manager = SSEManager(queue_size=4, history_size=2)
+        for index in range(3):
+            manager.publish({"type": "new_location", "sessionId": str(index)})
+
+        subscription, replay = manager.subscribe("0")
+
+        assert len(replay) == 1
+        assert replay[0]["event"] == "resync_required"
+        assert replay[0]["data"]["reason"] == "event_history_unavailable"
+        assert replay[0]["data"]["latestEventId"] == 3
+        manager.unsubscribe(subscription)
+
+    asyncio.run(scenario())
+
+
+def test_sse_requests_resync_when_last_event_is_from_newer_server_instance() -> None:
+    async def scenario() -> None:
+        manager = SSEManager(queue_size=4, history_size=4)
+        manager.publish({"type": "new_location", "sessionId": "one"})
+
+        subscription, replay = manager.subscribe("99")
+
+        assert len(replay) == 1
+        assert replay[0]["event"] == "resync_required"
+        assert replay[0]["data"]["latestEventId"] == 1
+        manager.unsubscribe(subscription)
+
+    asyncio.run(scenario())
+
+
+def test_sse_client_queue_overflow_requires_resync() -> None:
+    async def scenario() -> None:
+        manager = SSEManager(queue_size=1, history_size=4)
+        subscription, _ = manager.subscribe()
+        manager.publish({"type": "new_location", "sessionId": "one"})
+        manager.publish({"type": "new_location", "sessionId": "two"})
+
+        event = await subscription.queue.get()
+
+        assert event["event"] == "resync_required"
+        assert event["data"]["reason"] == "client_queue_overflow"
+        assert subscription.resync_pending is True
+        manager.unsubscribe(subscription)
+
+    asyncio.run(scenario())
+
+
+def test_remote_user_cannot_open_sse_stream(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("DASHBOARD_SESSIONS_DB", str(tmp_path / "sessions.db"))
+    session_id = _write_shared_session(tmp_path, role="user")
+    client = make_client(tmp_path, remote_client=("203.0.113.5", 51234))
+    client.cookies.set("ytdl_session", session_id)
+
+    response = client.get("/events/map")
 
     assert response.status_code == 403
 

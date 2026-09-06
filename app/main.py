@@ -45,8 +45,98 @@ class ConnectionManager:
             self.disconnect(connection)
 
 manager = ConnectionManager()
+
+
+class SSESubscription:
+    def __init__(self, queue: asyncio.Queue[dict[str, Any]]):
+        self.queue = queue
+        self.resync_pending = False
+
+
+class SSEManager:
+    """In-process SSE fan-out with bounded per-client queues."""
+
+    def __init__(self, *, queue_size: int = 64, history_size: int = 128):
+        self.queue_size = queue_size
+        self.history: deque[dict[str, Any]] = deque(maxlen=history_size)
+        self.subscribers: set[SSESubscription] = set()
+        self.next_event_id = 0
+
+    def subscribe(self, last_event_id: str | None = None) -> tuple[SSESubscription, list[dict[str, Any]]]:
+        subscription = SSESubscription(asyncio.Queue(maxsize=self.queue_size))
+        replay: list[dict[str, Any]] = []
+        latest_id = self.next_event_id
+        if last_event_id is not None and last_event_id.strip():
+            try:
+                requested_id = int(last_event_id.strip())
+            except ValueError:
+                requested_id = -1
+            oldest_id = self.history[0]["id"] if self.history else latest_id
+            if requested_id < 0 or requested_id > latest_id or (self.history and requested_id < oldest_id - 1):
+                replay.append({
+                    "id": latest_id,
+                    "event": "resync_required",
+                    "data": {"reason": "event_history_unavailable", "latestEventId": latest_id},
+                })
+            else:
+                replay = [event for event in self.history if event["id"] > requested_id]
+        self.subscribers.add(subscription)
+        return subscription, replay
+
+    def unsubscribe(self, subscription: SSESubscription) -> None:
+        self.subscribers.discard(subscription)
+
+    def publish(self, message: dict[str, Any]) -> None:
+        self.next_event_id += 1
+        event = {
+            "id": self.next_event_id,
+            "event": str(message.get("type") or "message"),
+            "data": message,
+        }
+        self.history.append(event)
+        for subscription in list(self.subscribers):
+            if subscription.resync_pending:
+                continue
+            try:
+                subscription.queue.put_nowait(event)
+            except asyncio.QueueFull:
+                while not subscription.queue.empty():
+                    subscription.queue.get_nowait()
+                subscription.queue.put_nowait({
+                    "id": self.next_event_id,
+                    "event": "resync_required",
+                    "data": {"reason": "client_queue_overflow", "latestEventId": self.next_event_id},
+                })
+                subscription.resync_pending = True
+
+
+sse_manager = SSEManager()
+
+
+def _format_sse(event: dict[str, Any]) -> str:
+    payload = json.dumps(event["data"], ensure_ascii=False, separators=(",", ":"))
+    return f"id: {event['id']}\nevent: {event['event']}\ndata: {payload}\n\n"
+
+
+async def _sse_event_stream(request: Request, subscription: SSESubscription, replay: list[dict[str, Any]]):
+    try:
+        for event in replay:
+            yield _format_sse(event)
+        while True:
+            if await request.is_disconnected():
+                return
+            try:
+                event = await asyncio.wait_for(subscription.queue.get(), timeout=15)
+            except asyncio.TimeoutError:
+                yield ": heartbeat\n\n"
+                continue
+            if event["event"] == "resync_required":
+                subscription.resync_pending = False
+            yield _format_sse(event)
+    finally:
+        sse_manager.unsubscribe(subscription)
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response as RawResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response as RawResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -416,6 +506,11 @@ async def _run_import_task(task_id: str, filename: str, data: bytes, storage: "R
             "sessionId": session_id,
             "inserted": result["inserted"]
         })
+        sse_manager.publish({
+            "type": "import_completed",
+            "sessionId": session_id,
+            "inserted": result["inserted"],
+        })
 
     except GpsImportError as e:
         _import_tasks[task_id] = {
@@ -709,6 +804,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["Cache-Control"] = "no-store"
         # Phase 4: Echtzeit-Push via WebSocket
         await manager.broadcast({"type": "new_location", "sessionId": str(payload.sessionID)})
+        sse_manager.publish({"type": "new_location", "sessionId": str(payload.sessionID)})
         return {"status": "accepted", "requestId": metadata.request_id, **storage_summary}
 
     @app.websocket("/ws/map")
@@ -722,6 +818,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             manager.disconnect(websocket)
         except Exception:
             manager.disconnect(websocket)
+
+    @app.get("/events/map", dependencies=[Depends(require_admin_access)])
+    async def sse_map_events(
+        request: Request,
+        last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+    ) -> StreamingResponse:
+        subscription, replay = sse_manager.subscribe(last_event_id)
+        return StreamingResponse(
+            _sse_event_stream(request, subscription, replay),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-store",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @app.get("/api/stats", dependencies=[Depends(require_admin_access)])
     async def api_stats(request: Request) -> dict[str, Any]:
@@ -1092,6 +1204,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "type": "session_deleted",
             "sessionId": session_id,
             "deleted": deleted
+        })
+        sse_manager.publish({
+            "type": "session_deleted",
+            "sessionId": session_id,
+            "deleted": deleted,
         })
         return JSONResponse({"ok": True, "deleted": deleted, "session_id": session_id})
 

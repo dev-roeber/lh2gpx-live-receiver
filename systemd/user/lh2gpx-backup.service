@@ -6,6 +6,7 @@ After=lh2gpx-live-receiver.service
 Type=oneshot
 WorkingDirectory=%h/services/lh2gpx-live-receiver
 Environment=LH2GPX_BACKUP_ROOT=%h/ki-backups/lh2gpx-live-receiver
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/services/lh2gpx-live-receiver/scripts/backup-data.sh
 Nice=10
 NoNewPrivileges=true

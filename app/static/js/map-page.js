@@ -1979,6 +1979,15 @@ const {
     return 0;
   }
 
+  function setLoadingProgress(ui, percent) {
+    const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
+    const roundedPercent = Math.round(safePercent);
+    if (ui.percent) ui.percent.textContent = `${roundedPercent}%`;
+    if (ui.progress) ui.progress.setAttribute('aria-valuenow', String(roundedPercent));
+    if (ui.bar) ui.bar.style.width = `${safePercent}%`;
+    return roundedPercent;
+  }
+
   function setLoadingStage(stage, subtext = null, options = {}) {
     const ui = getLoadingUi();
     if (!ui.card || !ui.stage || !ui.title || !ui.subtext || !ui.metricLabel || !ui.bytes || !ui.percent) return;
@@ -2001,8 +2010,7 @@ const {
     ui.stage.style.borderColor = `color-mix(in srgb, ${current.color} 28%, transparent)`;
     if (stage !== 'error') {
       const percent = computeLoadingPercent(stage, loadedBytes, totalBytes, serverTiming);
-      ui.percent.textContent = `${percent}%`;
-      if (ui.progress) ui.progress.setAttribute('aria-valuenow', String(percent));
+      setLoadingProgress(ui, percent);
       updateLoadingEta(percent);
     }
     if (ui.retry) ui.retry.style.display = stage === 'error' ? 'inline-flex' : 'none';
@@ -2013,6 +2021,7 @@ const {
     } else if (stage === 'error') {
       ui.bytes.textContent = 'Aktualisierung abgebrochen';
       ui.percent.textContent = '—';
+      if (ui.bar) ui.bar.style.width = '0%';
       if (ui.progress) ui.progress.removeAttribute('aria-valuenow');
       if (ui.eta) ui.eta.textContent = 'ETA nicht verfügbar';
     }
@@ -2109,21 +2118,18 @@ const {
     if (total) {
       ui.card.dataset.indeterminate = '0';
       const overallPercent = computeLoadingPercent('download', loaded, total, serverTiming);
-      ui.percent.textContent = `${overallPercent}%`;
-      if (ui.progress) ui.progress.setAttribute('aria-valuenow', String(overallPercent));
+      setLoadingProgress(ui, overallPercent);
       setLoadingStage('download', loaded >= total ? 'Download abgeschlossen, Daten werden übernommen…' : 'Antwort wird heruntergeladen…', { loadedBytes: loaded, totalBytes: total, serverTiming });
       ui.bar.style.opacity = '1';
-      ui.bar.style.width = `${overallPercent}%`;
       ui.bar.style.background = 'linear-gradient(90deg,#0A84FF 0%,#30D158 55%,#64D2FF 100%)';
       ui.bar.style.backgroundPositionX = '0px';
       ui.bar.style.filter = 'none';
     } else {
       ui.card.dataset.indeterminate = loaded > 0 ? '1' : '0';
-      ui.percent.textContent = `${computeLoadingPercent(loaded > 0 ? 'download' : 'connect', loaded, total, serverTiming)}%`;
-      if (ui.progress) ui.progress.setAttribute('aria-valuenow', ui.percent.textContent.replace('%', ''));
+      const progress = computeLoadingPercent(loaded > 0 ? 'download' : 'connect', loaded, total, serverTiming);
+      setLoadingProgress(ui, progress);
       setLoadingStage(loaded > 0 ? 'download' : 'connect', loaded > 0 ? 'Datenstrom aktiv…' : 'Verbindung wird aufgebaut…', { loadedBytes: loaded, totalBytes: total, serverTiming });
       ui.bar.style.opacity = loaded > 0 ? '0.9' : '1';
-      ui.bar.style.width = `${computeLoadingPercent(loaded > 0 ? 'download' : 'connect', loaded, total, serverTiming)}%`;
       ui.bar.style.background = 'linear-gradient(90deg,#0A84FF 0%,#30D158 55%,#64D2FF 100%)';
       ui.bar.style.backgroundPositionX = '0px';
       ui.bar.style.filter = 'none';
