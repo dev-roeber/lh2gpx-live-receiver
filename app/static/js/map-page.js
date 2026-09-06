@@ -740,15 +740,6 @@ const {
     wrap.dataset.timelineMini = width < 520 || height < 410 ? '1' : '0';
   }
 
-  function getRelativeTime(timestamp) {
-    const diffMs = Date.now() - new Date(timestamp).getTime();
-    if (diffMs < 1000) return 'jetzt';
-    if (diffMs < 60000) return `vor ${Math.floor(diffMs / 1000)}s`;
-    if (diffMs < 3600000) return `vor ${Math.floor(diffMs / 60000)}m`;
-    if (diffMs < 86400000) return `vor ${Math.floor(diffMs / 3600000)}h`;
-    return `vor ${Math.floor(diffMs / 86400000)}d`;
-  }
-
   function updateLegendPlacement() {
     const legend = document.getElementById('map-legend');
     const legendAnchor = document.getElementById('map-legend-anchor');
@@ -1611,7 +1602,7 @@ const {
       timeCell.style.cssText = 'padding: 14px 10px; color: var(--text-2); font-size: 0.9rem;';
       const relativeSpan = document.createElement('span');
       relativeSpan.style.color = 'var(--text-3)';
-      relativeSpan.textContent = getRelativeTime(item.timestampLocal);
+      relativeSpan.textContent = window.LH2GPXMapUtils.getRelativeTime(item.timestampLocal);
       timeCell.append(relativeSpan, ` • ${timeText}`);
 
       const coordCell = document.createElement('td');

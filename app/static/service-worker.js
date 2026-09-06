@@ -14,7 +14,7 @@
 // gecacht: So können sessionabhängige oder veraltete Seiten keine
 // Deployment-Probleme verursachen. Bei Offline-Navigationen gibt es nur den
 // neutralen Fallback — siehe OFFLINE_HTML unten.
-const CACHE_VERSION = "lh2gpx-shell-v2";
+const CACHE_VERSION = "lh2gpx-shell-v3";
 
 // Statische Assets, die für die Live-Karte unterwegs auch bei Empfangslücken
 // verfügbar bleiben sollen. HTML-Seiten gehören ausdrücklich nicht hierher.
@@ -25,6 +25,7 @@ const SHELL_URLS = [
   "/static/vendor/maplibre-gl/maplibre-gl.js",
   "/static/vendor/maplibre-gl/maplibre-gl.css",
   "/static/vendor/dexie.js",
+  "/static/js/map-page-utils.js",
   "/static/js/map-page.js",
   "/static/manifest.json",
   "/static/apple-touch-icon.png",

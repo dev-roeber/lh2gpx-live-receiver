@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS geofences (
     center_latitude REAL,
     center_longitude REAL,
     radius_m REAL,
+    hysteresis_m REAL NOT NULL DEFAULT 0.0 CHECK (hysteresis_m >= 0.0),
     polygon_geojson TEXT,
     created_at_utc TEXT NOT NULL,
     updated_at_utc TEXT NOT NULL,

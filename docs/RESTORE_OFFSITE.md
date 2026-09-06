@@ -75,6 +75,38 @@ Das Skript prüft die SHA-256-Datei und verwendet ausschließlich
 `pg_restore --list`. Es führt weder `psql` noch `pg_restore` gegen einen
 Server aus.
 
+## Verifizierter Restore-Test
+
+Der vorhandene LH2GPX-Stand kann zusätzlich in ein isoliertes temporäres Ziel
+restore-getestet werden:
+
+```bash
+scripts/test-lh2gpx-restore.py \
+  "$HOME/ki-backups/lh2gpx-live-receiver/lh2gpx-<timestamp>.tar.gz"
+```
+
+Der Test führt zuerst den vollständigen Offline-Validator aus und extrahiert
+danach nur erlaubte reguläre Dateien unter einem automatisch verwalteten
+System-Tempverzeichnis. Dort werden Manifest, SQLite-`quick_check`, erwartete
+Kern-Tabellen, Punktzahlen und der Dawarich-Sync-Cursor read-only geprüft. Das
+Produktivverzeichnis, die laufende SQLite-Datei, systemd und PostgreSQL werden
+nicht als Restore-Ziel verwendet.
+
+Der Test-Tempordner wird nach dem Prozessende automatisch entfernt; es werden
+dabei keine Produktivdaten oder Backuparchive gelöscht.
+
+Betriebsprüfung ohne Zustandsänderung:
+
+```bash
+systemctl --user is-active lh2gpx-live-receiver.service
+systemctl --user is-active lh2gpx-dawarich-sync.service
+stat "$HOME/services/lh2gpx-live-receiver/data/receiver.sqlite3"
+```
+
+Vor und nach dem Test müssen Dateigröße und Änderungszeit der Produktiv-
+SQLite-Datei unverändert sein. Der Test selbst darf keine `systemctl`-,
+`curl`-, `psql`-, Upload- oder Löschoperation ausführen.
+
 ## Sicherer Restore-Ablauf
 
 1. Backupgeneration, SHA-256-Dateien und Manifest zunächst offline validieren.

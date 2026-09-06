@@ -24,6 +24,10 @@ Diese Datei beschreibt den **aktuellen** Restbestand nach dem inzwischen deutlic
 
 ## Tokenisierte GeoJSON-Share-Links — strikt deaktiviert
 
+Die verbindliche Spezifikation und Testmatrix steht in
+[`docs/GEOJSON_SHARE_LINKS.md`](GEOJSON_SHARE_LINKS.md). Die dort festgelegten
+sicheren Defaults gelten als Zielvertrag, sind aber noch nicht implementiert.
+
 Im aktuellen Stand existiert **keine Share-Link-Route**, kein Share-Token,
 keine Share-Datenbanktabelle und kein öffentlich erreichbarer GeoJSON-Link.
 Der vorhandene GeoJSON-Export bleibt ausschließlich über die geschützte
