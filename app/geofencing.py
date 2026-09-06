@@ -92,10 +92,12 @@ class GeofenceEngine:
         *,
         enabled: bool = False,
         process_historical: bool = False,
+        manage_transaction: bool = True,
     ) -> None:
         self.connection = connection
         self.enabled = enabled
         self.process_historical = process_historical
+        self.manage_transaction = manage_transaction
 
     def evaluate_point(self, point: GeofencePoint, *, historical: bool = False) -> list[GeofenceEvent]:
         if not self.enabled or (historical and not self.process_historical):
@@ -107,13 +109,18 @@ class GeofenceEngine:
         if not self.enabled:
             return []
         events: list[GeofenceEvent] = []
-        with self.connection:
+        def evaluate_all() -> None:
             for geofence in geofences:
                 if not geofence.enabled:
                     continue
                 event = self._evaluate_one(point, geofence)
                 if event is not None:
                     events.append(event)
+        if self.manage_transaction:
+            with self.connection:
+                evaluate_all()
+        else:
+            evaluate_all()
         return events
 
     def _enabled_circles(self) -> list[CircleGeofence]:

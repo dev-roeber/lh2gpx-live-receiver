@@ -15,6 +15,7 @@ from typing import Any, Callable, Iterator
 from zoneinfo import ZoneInfo
 
 from .config import Settings
+from .geofencing import GeofenceEngine, GeofencePoint
 from .models import LiveLocationRequest, PointFilters, RequestFilters, RequestMetadata, payload_to_json
 from .storage_filters import (
     _append_bbox_filter,
@@ -242,6 +243,7 @@ class ReceiverStorage:
             self._update_point_rollups(connection, point_rows)
             self._update_timeline_day_markers(connection, point_rows)
             self._update_session_track_rollups(connection, point_rows)
+            self._evaluate_new_geofences(connection, payload, metadata.request_id)
 
         return {
             "requestId": metadata.request_id,
@@ -254,6 +256,36 @@ class ReceiverStorage:
             "firstPointTimestampUtc": isoformat_utc(first_ts),
             "lastPointTimestampUtc": isoformat_utc(last_ts),
         }
+
+    def _evaluate_new_geofences(
+        self,
+        connection: sqlite3.Connection,
+        payload: LiveLocationRequest,
+        request_id: str,
+    ) -> None:
+        """Evaluate only this ingest batch when geofencing is explicitly on.
+
+        The engine runs inside the ingest transaction and therefore cannot
+        observe historical points or leave a partially committed transition.
+        Returned transitions are deliberately not broadcast: notification and
+        push delivery are a separate, not-yet-enabled concern.
+        """
+        if not self.settings.geofencing_enabled:
+            return
+        engine = GeofenceEngine(connection, enabled=True, process_historical=False, manage_transaction=False)
+        subject_key = str(payload.sessionID)
+        for index, point in enumerate(payload.points):
+            engine.evaluate_point(
+                GeofencePoint(
+                    subject_key=subject_key,
+                    point_source="receiver",
+                    point_key=f"{request_id}:{index}",
+                    timestamp_utc=point.timestamp,
+                    latitude=point.latitude,
+                    longitude=point.longitude,
+                ),
+                historical=False,
+            )
 
     def record_failure(
         self,
@@ -2576,7 +2608,28 @@ class ReceiverStorage:
                     connection.rollback()
                     raise StorageWriteError(str(exc)) from exc
 
+    @staticmethod
+    def _migrate_legacy_geofence_schema(connection: sqlite3.Connection) -> None:
+        """Preserve the pre-engine foundation before creating the v1 schema."""
+        row = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='geofences'"
+        ).fetchone()
+        if not row:
+            return
+        columns = {item[1] for item in connection.execute("PRAGMA table_info(geofences)").fetchall()}
+        if "geofence_id" in columns:
+            return
+        for table in ("geofences", "geofence_states", "geofence_events"):
+            exists = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+            ).fetchone()
+            if exists:
+                connection.execute(f"ALTER TABLE {table} RENAME TO {table}_legacy_v0")
+        for index in ("idx_geofences_enabled", "idx_geofence_events_lookup"):
+            connection.execute(f"DROP INDEX IF EXISTS {index}")
+
     def _apply_migrations(self, connection: sqlite3.Connection) -> None:
+        self._migrate_legacy_geofence_schema(connection)
         connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS schema_metadata (
@@ -2645,48 +2698,67 @@ class ReceiverStorage:
                 last_error TEXT
             );
 
-            -- Geofencing foundation only.  These tables are deliberately
-            -- inert: no existing points are evaluated and no notifications
-            -- are emitted until the feature is explicitly implemented.
+            -- Geofencing engine schema. Existing GPS points are never
+            -- evaluated by this migration; only new opt-in ingest batches
+            -- may update the subject state and transition ledger.
             CREATE TABLE IF NOT EXISTS geofences (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                center_latitude REAL NOT NULL CHECK (center_latitude >= -90 AND center_latitude <= 90),
-                center_longitude REAL NOT NULL CHECK (center_longitude >= -180 AND center_longitude <= 180),
-                radius_m REAL NOT NULL CHECK (radius_m > 0),
+                geofence_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 200),
+                geometry_type TEXT NOT NULL CHECK (geometry_type IN ('circle', 'polygon')),
                 enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
-                notify_enter INTEGER NOT NULL DEFAULT 0 CHECK (notify_enter IN (0, 1)),
-                notify_exit INTEGER NOT NULL DEFAULT 0 CHECK (notify_exit IN (0, 1)),
-                created_by TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                center_latitude REAL,
+                center_longitude REAL,
+                radius_m REAL,
+                hysteresis_m REAL NOT NULL DEFAULT 0.0 CHECK (hysteresis_m >= 0.0),
+                polygon_geojson TEXT,
+                created_at_utc TEXT NOT NULL,
+                updated_at_utc TEXT NOT NULL,
+                CHECK (
+                    (geometry_type = 'circle' AND center_latitude IS NOT NULL AND center_longitude IS NOT NULL
+                     AND center_latitude BETWEEN -90.0 AND 90.0 AND center_longitude BETWEEN -180.0 AND 180.0
+                     AND radius_m IS NOT NULL AND radius_m > 0.0 AND radius_m <= 1000000.0
+                     AND polygon_geojson IS NULL)
+                    OR
+                    (geometry_type = 'polygon' AND center_latitude IS NULL AND center_longitude IS NULL
+                     AND radius_m IS NULL AND polygon_geojson IS NOT NULL AND length(trim(polygon_geojson)) > 0)
+                )
             );
 
-            CREATE TABLE IF NOT EXISTS geofence_states (
-                geofence_id INTEGER NOT NULL REFERENCES geofences(id) ON DELETE CASCADE,
+            CREATE TABLE IF NOT EXISTS geofence_subject_state (
+                geofence_id TEXT NOT NULL REFERENCES geofences(geofence_id) ON DELETE CASCADE,
                 subject_key TEXT NOT NULL,
-                inside INTEGER NOT NULL DEFAULT 0 CHECK (inside IN (0, 1)),
-                last_point_id INTEGER REFERENCES gps_points(id) ON DELETE SET NULL,
-                last_evaluated_at TEXT,
-                last_distance_m REAL,
+                is_inside INTEGER NOT NULL CHECK (is_inside IN (0, 1)),
+                last_point_source TEXT NOT NULL CHECK (last_point_source IN ('receiver', 'dawarich')),
+                last_point_key TEXT NOT NULL,
+                last_point_timestamp_utc TEXT NOT NULL,
+                last_latitude REAL NOT NULL,
+                last_longitude REAL NOT NULL,
+                updated_at_utc TEXT NOT NULL,
                 PRIMARY KEY (geofence_id, subject_key)
             );
 
-            CREATE TABLE IF NOT EXISTS geofence_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                geofence_id INTEGER NOT NULL REFERENCES geofences(id) ON DELETE CASCADE,
+            CREATE TABLE IF NOT EXISTS geofence_transitions (
+                transition_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                geofence_id TEXT NOT NULL REFERENCES geofences(geofence_id) ON DELETE CASCADE,
                 subject_key TEXT NOT NULL,
-                point_id INTEGER REFERENCES gps_points(id) ON DELETE SET NULL,
-                event_type TEXT NOT NULL CHECK (event_type IN ('enter', 'exit')),
-                occurred_at TEXT NOT NULL,
-                notification_status TEXT NOT NULL DEFAULT 'not_sent',
-                UNIQUE (geofence_id, subject_key, point_id, event_type)
+                point_source TEXT NOT NULL CHECK (point_source IN ('receiver', 'dawarich')),
+                point_key TEXT NOT NULL,
+                transition TEXT NOT NULL CHECK (transition IN ('enter', 'exit')),
+                point_timestamp_utc TEXT NOT NULL,
+                latitude REAL NOT NULL,
+                longitude REAL NOT NULL,
+                detected_at_utc TEXT NOT NULL,
+                UNIQUE (geofence_id, subject_key, point_source, point_key, transition)
             );
 
             CREATE INDEX IF NOT EXISTS idx_geofences_enabled
-                ON geofences(enabled, updated_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_geofence_events_lookup
-                ON geofence_events(geofence_id, subject_key, occurred_at DESC);
+                ON geofences(enabled, updated_at_utc DESC);
+            CREATE INDEX IF NOT EXISTS idx_geofence_subject_state_subject
+                ON geofence_subject_state(subject_key, updated_at_utc DESC);
+            CREATE INDEX IF NOT EXISTS idx_geofence_transitions_geofence_time
+                ON geofence_transitions(geofence_id, point_timestamp_utc DESC);
+            CREATE INDEX IF NOT EXISTS idx_geofence_transitions_subject_time
+                ON geofence_transitions(subject_key, point_timestamp_utc DESC);
 
             CREATE TABLE IF NOT EXISTS point_rollups (
                 scope_type TEXT NOT NULL,

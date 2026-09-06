@@ -35,6 +35,7 @@ Receiver- und Operator-Server für optionale Live-Location-Uploads aus der `Loca
 - **Backup-Baustein:** [docs/BACKUP_RETENTION.md](docs/BACKUP_RETENTION.md) dokumentiert einen lokalen, nicht-destruktiven SQLite-Snapshot mit Integritätsprüfung, Manifest, SHA-256 und reinem Retention-Report. Der User-Timer ist installiert und aktiviert; ein echter Snapshot-Test wurde am 2026-09-06 erfolgreich durchgeführt.
 - **Restore-/Offsite-Validierung:** [docs/RESTORE_OFFSITE.md](docs/RESTORE_OFFSITE.md) beschreibt den verifizierten Restore-Ablauf, Datenschutzregeln und die offline arbeitenden Validatoren für LH2GPX-Archive und Dawarich-Dumps. Es gibt weiterhin keinen Netzwerk-Upload und kein automatisches Pruning.
 - Der isolierte LH2GPX-Restore-Test kann mit `scripts/test-lh2gpx-restore.py` gegen ein lokales Archiv ausgeführt werden; er verwendet ausschließlich ein temporäres Ziel und verändert keine Produktivpfade.
+- Die nicht aktivierte Storage-Box-/Offsite-Checkliste steht in [docs/OFFSITE_BACKUP_CHECKLIST.md](docs/OFFSITE_BACKUP_CHECKLIST.md); sie enthält keine Übertragungs- oder Löschautomatik.
 
 ## Root cause des bisherigen HTTP-500
 

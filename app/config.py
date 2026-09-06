@@ -71,6 +71,11 @@ class Settings:
     # Reserved foundation switch.  No runtime geofence evaluation is wired
     # until this feature is deliberately implemented and enabled.
     geofencing_enabled: bool = False
+    # Reserved Web Push foundation flags. No subscription or delivery path is
+    # wired until the feature is explicitly implemented and enabled.
+    web_push_enabled: bool = False
+    vapid_public_key: str | None = None
+    vapid_private_key_file: Path | None = None
 
     @property
     def auth_required(self) -> bool:
@@ -134,6 +139,13 @@ class Settings:
             dawarich_db_password=os.getenv("DAWARICH_DB_PASSWORD", "").strip() or None,
             dawarich_sync_enabled=_read_bool_env("DAWARICH_SYNC_ENABLED", default=False),
             geofencing_enabled=_read_bool_env("GEOFENCING_ENABLED", default=False),
+            web_push_enabled=_read_bool_env("WEB_PUSH_ENABLED", default=False),
+            vapid_public_key=os.getenv("VAPID_PUBLIC_KEY", "").strip() or None,
+            vapid_private_key_file=(
+                Path(os.getenv("VAPID_PRIVATE_KEY_FILE", "").strip()).expanduser()
+                if os.getenv("VAPID_PRIVATE_KEY_FILE", "").strip()
+                else None
+            ),
         )
 
     def with_persistent_overrides(self) -> "Settings":
@@ -258,6 +270,9 @@ class Settings:
             "trustProxyHeaders": self.trust_proxy_headers,
             "dawarichSyncEnabled": self.dawarich_sync_enabled,
             "geofencingEnabled": self.geofencing_enabled,
+            "webPushEnabled": self.web_push_enabled,
+            "vapidPublicKeyConfigured": bool(self.vapid_public_key),
+            "vapidPrivateKeyFileConfigured": bool(self.vapid_private_key_file),
             "dawarichDbHost": self.dawarich_db_host,
             "dawarichDbPort": self.dawarich_db_port,
             "dawarichDbName": self.dawarich_db_name,

@@ -143,6 +143,11 @@ Authentifizierungsschlüssel.
 
 ## Offsite-Plan, noch nicht aktiviert
 
+Die ausführliche, abhakbare Betriebsanweisung steht in
+[docs/OFFSITE_BACKUP_CHECKLIST.md](OFFSITE_BACKUP_CHECKLIST.md). Sie enthält
+bewusst nur Vorbereitungs-, Validierungs- und Restore-Schritte; sie aktiviert
+kein Ziel und führt keine Übertragung oder Löschung aus.
+
 Die Storage Box ist unter `/mnt/storagebox` erreichbar, aber ein dedizierter
 Backup-Unterpfad ist noch nicht als verbindliches Ziel festgelegt. Vor jeder
 Aktivierung müssen daher entschieden und dokumentiert werden:

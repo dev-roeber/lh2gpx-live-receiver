@@ -90,10 +90,10 @@ def test_geofencing_storage_foundation_is_inert_by_default(tmp_path: Path) -> No
                 "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'geofence%'"
             ).fetchall()
         }
-        assert tables == {"geofences", "geofence_states", "geofence_events"}
+        assert tables == {"geofences", "geofence_subject_state", "geofence_transitions"}
         assert connection.execute("SELECT COUNT(*) FROM geofences").fetchone()[0] == 0
-        assert connection.execute("SELECT COUNT(*) FROM geofence_states").fetchone()[0] == 0
-        assert connection.execute("SELECT COUNT(*) FROM geofence_events").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM geofence_subject_state").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM geofence_transitions").fetchone()[0] == 0
 
 
 def test_sync_state_preserves_initial_state_and_explicit_error_updates(tmp_path: Path) -> None:

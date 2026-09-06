@@ -143,6 +143,15 @@ Dateipfade, Filterdetails oder Standortdaten enthalten.
 
 ## Testmatrix vor einer Aktivierung
 
+### Bereits festgeschriebener deaktivierter Zustand
+
+Die aktuelle Testsuite prüft bereits, dass ohne explizite Aktivierung keine
+Share-Route registriert ist und keine Admin-Share-Endpunkte vorhanden sind.
+Da die Implementierung absichtlich noch fehlt, gibt es derzeit keinen
+`GEOJSON_SHARING_ENABLED`-Schalter im Anwendungscode. Die Tabelle unten
+definiert den verbindlichen Testvertrag für den späteren Schalter und die
+spätere Rate-Limit-Implementierung; sie ist noch kein aktivierter Codepfad.
+
 ### Konfiguration und Aktivierung
 
 | Test | Erwartung |
@@ -224,4 +233,3 @@ Eine spätere Aktivierung ist erst zulässig, wenn:
 4. Snapshot-, Ablauf- und Bereinigungsjobs produktiv getestet wurden;
 5. ein Admin-Recovery- und Widerrufsprozess vorhanden ist;
 6. eine explizite Aktivierungsänderung von `false` vorliegt.
-

@@ -49,6 +49,17 @@ def test_health_endpoint_returns_service_status(tmp_path: Path) -> None:
     }
 
 
+def test_geojson_sharing_is_not_registered_by_default(tmp_path: Path, monkeypatch) -> None:
+    """The pre-implementation state must not expose a share capability."""
+    monkeypatch.delenv("GEOJSON_SHARING_ENABLED", raising=False)
+    client = make_client(tmp_path)
+
+    route_paths = {getattr(route, "path", "") for route in client.app.routes}
+
+    assert "/share/geojson/{opaque_token}" not in route_paths
+    assert not any("geojson-shares" in path for path in route_paths)
+
+
 def test_health_exposes_safe_dawarich_sync_summary(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     client.app.state.settings = replace(client.app.state.settings, dawarich_sync_enabled=True)
@@ -335,6 +346,58 @@ def test_spatial_tile_keys_are_persisted(tmp_path: Path) -> None:
     assert row is not None
     assert row[0] is not None
     assert row[1] is not None
+
+
+def test_geofencing_disabled_does_not_process_new_ingest(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    client.post("/live-location", json=valid_payload())
+
+    with sqlite3.connect(tmp_path / "data" / "receiver.sqlite3") as connection:
+        assert connection.execute("SELECT COUNT(*) FROM geofence_subject_state").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM geofence_transitions").fetchone()[0] == 0
+
+
+def test_enabled_geofencing_evaluates_only_new_ingest_points(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    client.post("/live-location", json=valid_payload())
+    storage = client.app.state.storage
+
+    with sqlite3.connect(storage.sqlite_path) as connection:
+        connection.execute(
+            """INSERT INTO geofences
+               (geofence_id, name, geometry_type, enabled, center_latitude,
+                center_longitude, radius_m, hysteresis_m, created_at_utc, updated_at_utc)
+               VALUES (?, ?, 'circle', 1, ?, ?, ?, 0, ?, ?)""",
+            ("home", "Home", 52.5200, 13.4050, 100.0, "2026-09-06T12:00:00Z", "2026-09-06T12:00:00Z"),
+        )
+        assert connection.execute("SELECT COUNT(*) FROM geofence_transitions").fetchone()[0] == 0
+
+    storage.settings = replace(storage.settings, geofencing_enabled=True)
+    payload = valid_payload()
+    payload["points"] = [
+        {
+            "latitude": 52.5200,
+            "longitude": 13.4050,
+            "timestamp": "2026-09-06T12:01:00Z",
+            "horizontalAccuracyM": 5.0,
+        },
+        {
+            "latitude": 52.5220,
+            "longitude": 13.4050,
+            "timestamp": "2026-09-06T12:02:00Z",
+            "horizontalAccuracyM": 5.0,
+        },
+    ]
+
+    response = client.post("/live-location", json=payload)
+
+    assert response.status_code == 202
+    with sqlite3.connect(storage.sqlite_path) as connection:
+        transitions = connection.execute(
+            "SELECT transition, point_source FROM geofence_transitions ORDER BY transition_id"
+        ).fetchall()
+        assert transitions == [("enter", "receiver"), ("exit", "receiver")]
+        assert connection.execute("SELECT COUNT(*) FROM geofence_subject_state").fetchone()[0] == 1
 
 
 def test_request_and_session_detail_endpoints(tmp_path: Path) -> None:
