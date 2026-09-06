@@ -76,6 +76,9 @@ class Settings:
     web_push_enabled: bool = False
     vapid_public_key: str | None = None
     vapid_private_key_file: Path | None = None
+    # Reserved GeoJSON sharing foundation. No share route is registered while
+    # this remains false.
+    geojson_sharing_enabled: bool = False
 
     @property
     def auth_required(self) -> bool:
@@ -146,6 +149,7 @@ class Settings:
                 if os.getenv("VAPID_PRIVATE_KEY_FILE", "").strip()
                 else None
             ),
+            geojson_sharing_enabled=_read_bool_env("GEOJSON_SHARING_ENABLED", default=False),
         )
 
     def with_persistent_overrides(self) -> "Settings":
@@ -273,6 +277,7 @@ class Settings:
             "webPushEnabled": self.web_push_enabled,
             "vapidPublicKeyConfigured": bool(self.vapid_public_key),
             "vapidPrivateKeyFileConfigured": bool(self.vapid_private_key_file),
+            "geojsonSharingEnabled": self.geojson_sharing_enabled,
             "dawarichDbHost": self.dawarich_db_host,
             "dawarichDbPort": self.dawarich_db_port,
             "dawarichDbName": self.dawarich_db_name,

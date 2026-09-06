@@ -186,6 +186,7 @@ from .map_payloads import (
 )
 from .models import LiveLocationRequest, PointFilters, RequestFilters, RequestMetadata
 from .routers.map_api import MapApiDependencies, register_map_api_routes
+from .routers.geofences import register_geofence_routes
 from .storage import ReceiverStorage, StorageError, isoformat_utc
 
 
@@ -1004,6 +1005,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             map_data_page_size_max=_MAP_DATA_PAGE_SIZE_MAX,
         ),
     )
+    register_geofence_routes(app)
 
     @app.get("/api/points/{point_id}", dependencies=[Depends(require_admin_access)])
     async def api_point_detail(request: Request, point_id: int) -> dict[str, Any]:

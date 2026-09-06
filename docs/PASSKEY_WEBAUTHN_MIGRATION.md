@@ -21,6 +21,26 @@ Ziel ist ein zusätzlicher phishing-resistenter Loginweg. Der Passwortlogin blei
 
 ## 2. RP-ID und Origin
 
+### Produktionsprüfung am 2026-09-06
+
+Read-only verifiziert:
+
+- `dashboard.service`, `ytdl-webui.service` und
+  `lh2gpx-live-receiver.service` sind aktiv.
+- Dashboard-Health ist lokal unter `/api/health` erreichbar; die Loginseite
+  ist unter `/login` erreichbar.
+- Die Receiver-Karte ist lokal unter `/dashboard/map` erreichbar.
+- Dashboard und ytdl verwenden byte-identische produktive Kopien von
+  `auth_shared.py`.
+- In den geprüften systemd-Units und der Receiver-Umgebung sind keine
+  Passkey-/WebAuthn-Aktivierungswerte gesetzt.
+- Es wurde keine WebAuthn-Abhängigkeit, Ceremony oder Credential-Datenbank
+  durch diese Prüfung angelegt.
+
+Der lokale Dashboard-Health-Aufruf ohne Session wird erwartungsgemäß durch
+die Auth-Schicht geschützt; der explizit ausgenommene API-Pfad ist
+`/api/health`. Der Receiver-Health-/Map-Pfad hat davon getrennte Regeln.
+
 ### Produktion
 
 - RP-ID: `devroeber.tail71a8bc.ts.net`
