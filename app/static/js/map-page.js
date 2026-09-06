@@ -462,6 +462,10 @@ const {
 
   function scheduleNextMapUpdate(delay = POLLING_INTERVAL) {
     clearTimeout(updateTimer);
+    if (document.hidden) {
+      nextRefreshTime = 0;
+      return;
+    }
     if (!Number.isFinite(delay) || delay <= 0) return;
     nextRefreshTime = Date.now() + delay;
     updateTimer = setTimeout(() => {
@@ -1534,6 +1538,7 @@ const {
       bytes: document.getElementById('map-loading-bytes'),
       percent: document.getElementById('map-loading-percent'),
       bar: document.getElementById('map-loading-bar'),
+      progress: document.getElementById('map-loading-track'),
       syncPill: document.getElementById('map-sync-pill'),
       syncPillText: document.getElementById('map-sync-pill-text'),
     };
@@ -1672,6 +1677,7 @@ const {
     if (stage !== 'error') {
       const percent = computeLoadingPercent(stage, loadedBytes, totalBytes, serverTiming);
       ui.percent.textContent = `${percent}%`;
+      if (ui.progress) ui.progress.setAttribute('aria-valuenow', String(percent));
       updateLoadingEta(percent);
     }
     if (ui.retry) ui.retry.style.display = stage === 'error' ? 'inline-flex' : 'none';
@@ -1682,6 +1688,7 @@ const {
     } else if (stage === 'error') {
       ui.bytes.textContent = 'Aktualisierung abgebrochen';
       ui.percent.textContent = '—';
+      if (ui.progress) ui.progress.removeAttribute('aria-valuenow');
       if (ui.eta) ui.eta.textContent = 'ETA nicht verfügbar';
     }
     updateLoadingPhaseChips(stage, serverTiming);
@@ -1735,6 +1742,7 @@ const {
       ui.card.dataset.indeterminate = '0';
       const overallPercent = computeLoadingPercent('download', loaded, total, serverTiming);
       ui.percent.textContent = `${overallPercent}%`;
+      if (ui.progress) ui.progress.setAttribute('aria-valuenow', String(overallPercent));
       setLoadingStage('download', loaded >= total ? 'Download abgeschlossen, Daten werden übernommen…' : 'Antwort wird heruntergeladen…', { loadedBytes: loaded, totalBytes: total, serverTiming });
       ui.bar.style.opacity = '1';
       ui.bar.style.width = `${overallPercent}%`;
@@ -1744,6 +1752,7 @@ const {
     } else {
       ui.card.dataset.indeterminate = loaded > 0 ? '1' : '0';
       ui.percent.textContent = `${computeLoadingPercent(loaded > 0 ? 'download' : 'connect', loaded, total, serverTiming)}%`;
+      if (ui.progress) ui.progress.setAttribute('aria-valuenow', ui.percent.textContent.replace('%', ''));
       setLoadingStage(loaded > 0 ? 'download' : 'connect', loaded > 0 ? 'Datenstrom aktiv…' : 'Verbindung wird aufgebaut…', { loadedBytes: loaded, totalBytes: total, serverTiming });
       ui.bar.style.opacity = loaded > 0 ? '0.9' : '1';
       ui.bar.style.width = `${computeLoadingPercent(loaded > 0 ? 'download' : 'connect', loaded, total, serverTiming)}%`;
@@ -1823,6 +1832,7 @@ const {
   }
 
   async function updateMap() {
+    if (document.hidden) return;
     if (mapUpdateInFlight) {
       pendingMapRefresh = true;
       return;
@@ -2612,6 +2622,10 @@ const {
 
   function scheduleWebSocketReconnect() {
     if (socketReconnectScheduled || socketReconnectTimer) return;
+    if (document.hidden) {
+      setWebSocketStatus('pausiert – Tab verborgen', 'info', 60000);
+      return;
+    }
     const exponentialDelay = Math.min(
       SOCKET_RECONNECT_MAX_MS,
       SOCKET_RECONNECT_BASE_MS * (2 ** Math.min(socketReconnectAttempt, 5))
@@ -2640,6 +2654,7 @@ const {
   }
 
   function initWebSocket() {
+    if (document.hidden) return;
     if (!('WebSocket' in window)) {
       console.warn('WebSocket im Browser nicht verfügbar.');
       setWebSocketStatus('nicht verfügbar', 'error', 60000);
@@ -3203,5 +3218,28 @@ const {
     setupMobileFilterToggle();
     showIOSBanner();
     initMap();
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        clearTimeout(updateTimer);
+        updateTimer = null;
+        nextRefreshTime = 0;
+        if (socketReconnectTimer) {
+          clearTimeout(socketReconnectTimer);
+          socketReconnectTimer = null;
+          socketReconnectScheduled = false;
+        }
+        if (socket) {
+          const pausedSocket = socket;
+          socket = null;
+          pausedSocket.close(1000, 'Tab verborgen');
+        }
+        setWebSocketStatus('pausiert – Tab verborgen', 'info', 60000);
+        return;
+      }
+      setWebSocketStatus('aktualisiere nach Rückkehr…', 'info', 5000);
+      initWebSocket();
+      updateMap();
+    });
   });
   window.addEventListener('resize', setupMobileFilterToggle);
