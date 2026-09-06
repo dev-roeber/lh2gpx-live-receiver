@@ -76,18 +76,28 @@ class ReceiverStorage:
         self._timezone = ZoneInfo(settings.local_timezone)
 
     def startup(self) -> None:
-        try:
-            self._prepare_filesystem()
-            with self._connect() as connection:
-                self._apply_migrations(connection)
-                self._maybe_import_legacy_ndjson(connection)
-                self._remove_orphaned_dawarich_mappings(connection)
-                connection.commit()
-            self._ready = True
-            self._last_error = None
-        except Exception as exc:
-            self._ready = False
-            self._last_error = str(exc)
+        for attempt in range(4):
+            try:
+                self._prepare_filesystem()
+                with self._connect() as connection:
+                    self._apply_migrations(connection)
+                    self._maybe_import_legacy_ndjson(connection)
+                    self._remove_orphaned_dawarich_mappings(connection)
+                    connection.commit()
+                self._ready = True
+                self._last_error = None
+                return
+            except sqlite3.OperationalError as exc:
+                locked = "locked" in str(exc).lower()
+                if not locked or attempt == 3:
+                    self._ready = False
+                    self._last_error = str(exc)
+                    return
+                time.sleep(0.5 * (attempt + 1))
+            except Exception as exc:
+                self._ready = False
+                self._last_error = str(exc)
+                return
 
     def readiness(self) -> ReadinessState:
         writable = self._is_writable()
@@ -2545,7 +2555,7 @@ class ReceiverStorage:
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self.sqlite_path, check_same_thread=False)
+        connection = sqlite3.connect(self.sqlite_path, timeout=30, check_same_thread=False)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=NORMAL")

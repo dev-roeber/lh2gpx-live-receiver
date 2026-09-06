@@ -27,7 +27,9 @@ systemctl --user status lh2gpx-dawarich-sync.service
 journalctl --user -u lh2gpx-dawarich-sync.service -f
 ```
 
-Die Vorlage liegt unter `systemd/user/lh2gpx-dawarich-sync.service`. Die produktive Unit ist als `~/.config/systemd/user/lh2gpx-dawarich-sync.service` installiert und liest `/home/sebastian/Secrets/dawarich.env`; diese Datei ist nicht versioniert. Der verwendete PostgreSQL-Account `lh2gpx_sync` ist kein Superuser und darf weder Datenbanken noch Rollen anlegen. Die bestehende Secret-Datei enthält neben den Datenbankwerten weitere Dawarich-Betriebsgeheimnisse; eine weitere Aufteilung in eine dedizierte Sync-Secret-Datei ist ein offener Härtungsschritt.
+Die Vorlage liegt unter `systemd/user/lh2gpx-dawarich-sync.service`. Die produktive Unit ist als `~/.config/systemd/user/lh2gpx-dawarich-sync.service` installiert. Für den Sync wird ausschließlich die nicht versionierte Datei `/home/sebastian/Secrets/lh2gpx-dawarich-sync.env` mit restriktiven Rechten (`0600`, Eigentümer `sebastian`) geladen. Sie enthält nur `DAWARICH_DB_PASSWORD`; die nicht geheimen Verbindungsdaten bleiben direkt in der versionierten Unit dokumentiert. Die übrigen Dawarich-Betriebsgeheimnisse aus `/home/sebastian/Secrets/dawarich.env` werden vom Sync-Dienst nicht mehr geladen. Der verwendete PostgreSQL-Account `lh2gpx_sync` ist kein Superuser und darf weder Datenbanken noch Rollen anlegen.
+
+Die Datei darf nicht versioniert oder in Logs ausgegeben werden. Nach einer Änderung an der Datei genügt `systemctl --user restart lh2gpx-dawarich-sync.service`; bei Änderungen an der Unit ist vorher `systemctl --user daemon-reload` erforderlich.
 
 ## Datenkonsistenz
 

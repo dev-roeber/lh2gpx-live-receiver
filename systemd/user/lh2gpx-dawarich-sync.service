@@ -7,7 +7,7 @@ Requires=dawarich-db.service
 [Service]
 WorkingDirectory=%h/services/lh2gpx-live-receiver
 EnvironmentFile=%h/services/lh2gpx-live-receiver/.env
-EnvironmentFile=%h/Secrets/dawarich.env
+EnvironmentFile=%h/Secrets/lh2gpx-dawarich-sync.env
 Environment=DAWARICH_DB_HOST=127.0.0.1
 Environment=DAWARICH_DB_PORT=5433
 Environment=DAWARICH_DB_NAME=dawarich_production
