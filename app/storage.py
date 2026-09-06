@@ -41,6 +41,12 @@ _DEFAULT_ROUTE_TIME_GAP_MIN = 15
 _DEFAULT_STOP_MIN_DURATION_MIN = 5
 _DEFAULT_STOP_RADIUS_M = 100
 
+# This receiver is a single-user, single-device live tracker. Geofence
+# hysteresis state is keyed on a fixed logical subject rather than the
+# per-upload sessionID, so entering/exiting a zone stays consistent across
+# app restarts and new recording sessions.
+_GEOFENCE_SUBJECT_KEY = "primary"
+
 
 class StorageError(RuntimeError):
     public_message = "Storage unavailable."
@@ -273,7 +279,10 @@ class ReceiverStorage:
         if not self.settings.geofencing_enabled:
             return
         engine = GeofenceEngine(connection, enabled=True, process_historical=False, manage_transaction=False)
-        subject_key = str(payload.sessionID)
+        # This receiver tracks a single subject (one device, one person), so a
+        # fixed subject_key keeps inside/outside hysteresis continuous across
+        # session boundaries instead of resetting per sessionID.
+        subject_key = _GEOFENCE_SUBJECT_KEY
         for index, point in enumerate(payload.points):
             engine.evaluate_point(
                 GeofencePoint(

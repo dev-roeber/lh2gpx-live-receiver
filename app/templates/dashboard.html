@@ -337,6 +337,227 @@
 </article>
 {% endif %}
 
+{# ── Geofences ────────────────────────────────────────────── #}
+{% if config_summary.geofencingEnabled %}
+<article class="panel table-panel" id="geofence-panel">
+  <div class="panel-header">
+    <div>
+      <p class="eyebrow">Geofencing</p>
+      <h3>Zonen &amp; Übergänge</h3>
+    </div>
+    <span id="geofence-status" class="status-badge info" style="display: none;"></span>
+  </div>
+
+  <div id="geofence-list" class="geofence-list">
+    <p class="text-muted">Lade Zonen…</p>
+  </div>
+
+  <div class="panel-header compact" style="margin-top: 20px;">
+    <div><h4 style="margin: 0;">Neue Kreiszone anlegen</h4></div>
+  </div>
+  <form id="geofence-form" class="geofence-form">
+    <div class="input-grid">
+      <div class="input-group">
+        <label for="gf_geofence_id">Geofence-ID</label>
+        <input type="text" id="gf_geofence_id" name="geofence_id" placeholder="z.B. home" required maxlength="100">
+      </div>
+      <div class="input-group">
+        <label for="gf_name">Name</label>
+        <input type="text" id="gf_name" name="name" placeholder="z.B. Zuhause" required maxlength="200">
+      </div>
+      <div class="input-group">
+        <label for="gf_center_latitude">Breitengrad</label>
+        <input type="number" id="gf_center_latitude" name="center_latitude" step="any" min="-90" max="90" required>
+      </div>
+      <div class="input-group">
+        <label for="gf_center_longitude">Längengrad</label>
+        <input type="number" id="gf_center_longitude" name="center_longitude" step="any" min="-180" max="180" required>
+      </div>
+      <div class="input-group">
+        <label for="gf_radius_m">Radius (m)</label>
+        <input type="number" id="gf_radius_m" name="radius_m" step="any" min="1" max="1000000" required>
+      </div>
+      <div class="input-group">
+        <label for="gf_hysteresis_m">Hysterese (m)</label>
+        <input type="number" id="gf_hysteresis_m" name="hysteresis_m" step="any" min="0" max="1000000" value="0">
+      </div>
+    </div>
+    <div class="panel-footer">
+      <button type="submit" class="button-link primary">Zone anlegen (deaktiviert)</button>
+    </div>
+  </form>
+</article>
+
+<script>
+(function () {
+  const listEl = document.getElementById('geofence-list');
+  const statusEl = document.getElementById('geofence-status');
+  const formEl = document.getElementById('geofence-form');
+  if (!listEl || !formEl) return;
+
+  function showStatus(text, tone) {
+    statusEl.textContent = text;
+    statusEl.className = 'status-badge ' + (tone || 'info');
+    statusEl.style.display = 'inline-block';
+    setTimeout(() => { statusEl.style.display = 'none'; }, 4000);
+  }
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+  }
+
+  async function fetchTransitions(geofenceId) {
+    try {
+      const response = await fetch(`/api/geofences/${encodeURIComponent(geofenceId)}/transitions?limit=5`);
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.transitions || [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function renderTransitions(transitions) {
+    if (!transitions.length) {
+      return '<p class="text-muted small">Noch keine Übergänge erfasst.</p>';
+    }
+    const rows = transitions.map((t) => `
+      <div class="dist-row">
+        <span class="status-badge ${t.transition === 'enter' ? 'ok' : 'warn'}" style="min-width: 52px; text-align: center;">${escapeHtml(t.transition)}</span>
+        <span class="text-muted small">${escapeHtml(t.pointTimestampUtc)}</span>
+        <span class="text-muted small">${t.latitude.toFixed(5)}, ${t.longitude.toFixed(5)}</span>
+      </div>`).join('');
+    return `<div class="dist-list">${rows}</div>`;
+  }
+
+  async function renderGeofences() {
+    listEl.innerHTML = '<p class="text-muted">Lade Zonen…</p>';
+    let geofences = [];
+    try {
+      const response = await fetch('/api/geofences');
+      if (!response.ok) throw new Error('Laden fehlgeschlagen');
+      const data = await response.json();
+      geofences = data.geofences || [];
+    } catch (e) {
+      listEl.innerHTML = '<p class="text-muted">Fehler beim Laden der Zonen.</p>';
+      return;
+    }
+
+    if (!geofences.length) {
+      listEl.innerHTML = '<p class="text-muted">Noch keine Geofences angelegt.</p>';
+      return;
+    }
+
+    listEl.innerHTML = '';
+    for (const gf of geofences) {
+      const card = document.createElement('div');
+      card.className = 'geofence-card';
+      card.innerHTML = `
+        <div class="geofence-card-header">
+          <div>
+            <strong>${escapeHtml(gf.name)}</strong>
+            <span class="text-muted small">${escapeHtml(gf.geofenceId)}</span>
+          </div>
+          <span class="status-badge ${gf.enabled ? 'ok' : 'tone-muted'}">${gf.enabled ? 'aktiv' : 'deaktiviert'}</span>
+        </div>
+        <div class="geofence-card-meta text-muted small">
+          Radius ${gf.radiusM} m · Hysterese ${gf.hysteresisM} m · ${gf.centerLatitude.toFixed(5)}, ${gf.centerLongitude.toFixed(5)}
+        </div>
+        <div class="geofence-transitions"></div>
+        <div class="geofence-card-actions">
+          <button type="button" class="button-link secondary geofence-toggle" data-id="${escapeHtml(gf.geofenceId)}" data-enabled="${gf.enabled}">
+            ${gf.enabled ? 'Deaktivieren' : 'Aktivieren'}
+          </button>
+          <button type="button" class="button-link destructive geofence-delete" data-id="${escapeHtml(gf.geofenceId)}">Löschen</button>
+        </div>`;
+      listEl.appendChild(card);
+      fetchTransitions(gf.geofenceId).then((transitions) => {
+        card.querySelector('.geofence-transitions').innerHTML = renderTransitions(transitions);
+      });
+    }
+
+    listEl.querySelectorAll('.geofence-toggle').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const enabled = btn.dataset.enabled === 'true';
+        try {
+          const response = await fetch(`/api/geofences/${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: !enabled }),
+          });
+          if (!response.ok) throw new Error('Aktualisierung fehlgeschlagen');
+          showStatus('Zone aktualisiert', 'ok');
+          renderGeofences();
+        } catch (e) {
+          showStatus('Fehler: ' + e.message, 'crit');
+        }
+      });
+    });
+
+    listEl.querySelectorAll('.geofence-delete').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        if (!confirm(`Zone "${id}" wirklich löschen?`)) return;
+        try {
+          const response = await fetch(`/api/geofences/${encodeURIComponent(id)}`, { method: 'DELETE' });
+          if (!response.ok) throw new Error('Löschen fehlgeschlagen');
+          showStatus('Zone gelöscht', 'ok');
+          renderGeofences();
+        } catch (e) {
+          showStatus('Fehler: ' + e.message, 'crit');
+        }
+      });
+    });
+  }
+
+  formEl.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(formEl);
+    const body = {
+      geofence_id: formData.get('geofence_id').trim(),
+      name: formData.get('name').trim(),
+      center_latitude: parseFloat(formData.get('center_latitude')),
+      center_longitude: parseFloat(formData.get('center_longitude')),
+      radius_m: parseFloat(formData.get('radius_m')),
+      hysteresis_m: parseFloat(formData.get('hysteresis_m') || '0'),
+    };
+    try {
+      const response = await fetch('/api/geofences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({}));
+        throw new Error(detail.detail || 'Anlegen fehlgeschlagen');
+      }
+      showStatus('Zone angelegt (deaktiviert)', 'ok');
+      formEl.reset();
+      renderGeofences();
+    } catch (e) {
+      showStatus('Fehler: ' + e.message, 'crit');
+    }
+  });
+
+  renderGeofences();
+})();
+</script>
+
+<style>
+.geofence-list { display: flex; flex-direction: column; gap: 12px; }
+.geofence-card { padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); display: flex; flex-direction: column; gap: 8px; }
+.geofence-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.geofence-card-meta { line-height: 1.4; }
+.geofence-card-actions { display: flex; gap: 8px; }
+.geofence-form { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+.geofence-form .input-group input { padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); color: inherit; font-family: inherit; }
+.geofence-form .input-group label { font-size: 0.78rem; color: var(--text-2); font-weight: 600; }
+</style>
+{% endif %}
+
 {# ── Quick Actions ────────────────────────────────────────── #}
 <section class="quick-actions-section">
   <p class="eyebrow">Schnellzugriff</p>

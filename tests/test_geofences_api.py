@@ -56,6 +56,58 @@ def test_admin_api_manages_disabled_by_default_circle_geofences(tmp_path: Path) 
     assert test_client.get("/api/geofences").json()["geofences"] == []
 
 
+def test_live_location_enter_transition_is_visible_via_transitions_endpoint(tmp_path: Path) -> None:
+    test_client = client(tmp_path, enabled=True)
+    created = test_client.post("/api/geofences", json=BODY)
+    assert created.status_code == 201
+    enabled = test_client.patch("/api/geofences/home", json={"enabled": True})
+    assert enabled.status_code == 200
+
+    payload = {
+        "source": "LocationHistory2GPX-iOS",
+        "sessionID": "123e4567-e89b-12d3-a456-426614174000",
+        "captureMode": "foregroundWhileInUse",
+        "sentAt": "2026-09-06T12:00:10Z",
+        "points": [
+            {
+                "latitude": 52.52,
+                "longitude": 13.405,
+                "timestamp": "2026-09-06T12:00:00Z",
+                "horizontalAccuracyM": 5.0,
+            }
+        ],
+    }
+    ingest = test_client.post("/live-location", json=payload)
+    assert ingest.status_code == 202
+
+    transitions = test_client.get("/api/geofences/home/transitions")
+    assert transitions.status_code == 200
+    body = transitions.json()
+    assert body["geofenceId"] == "home"
+    assert len(body["transitions"]) == 1
+    entry = body["transitions"][0]
+    assert entry["transition"] == "enter"
+    assert entry["pointTimestampUtc"] == "2026-09-06T12:00:00Z"
+    assert entry["latitude"] == 52.52
+    assert entry["longitude"] == 13.405
+
+    with sqlite3.connect(test_client.app.state.storage.sqlite_path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM geofence_transitions WHERE geofence_id = 'home' AND transition = 'enter'"
+        ).fetchone()[0] == 1
+
+
+def test_transitions_endpoint_requires_enabled_flag_and_valid_geofence(tmp_path: Path) -> None:
+    test_client = client(tmp_path, enabled=True)
+    test_client.post("/api/geofences", json=BODY)
+    missing = test_client.get("/api/geofences/does-not-exist/transitions")
+    assert missing.status_code == 404
+
+    disabled_client = client(tmp_path)
+    disabled = disabled_client.get("/api/geofences/home/transitions")
+    assert disabled.status_code == 404
+
+
 def test_only_circle_geofences_are_exposed_and_validation_is_server_side(tmp_path: Path) -> None:
     test_client = client(tmp_path, enabled=True)
     invalid = dict(BODY, center_latitude=91)

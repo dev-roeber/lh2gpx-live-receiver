@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Request, status
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..auth import require_admin_access
@@ -166,6 +166,47 @@ def register_geofence_routes(app: FastAPI) -> None:
             connection.commit()
             row = connection.execute("SELECT * FROM geofences WHERE geofence_id = ?", (geofence_id,)).fetchone()
             return {"requestId": request.state.request_id, "geofence": _serialize(row)}
+        finally:
+            connection.close()
+
+    @app.get("/api/geofences/{geofence_id}/transitions", dependencies=[Depends(require_admin_access)])
+    async def list_geofence_transitions(
+        geofence_id: str,
+        request: Request,
+        limit: int = Query(default=20, ge=1, le=500),
+    ) -> dict[str, Any]:
+        _enabled(request)
+        if not _ID_PATTERN.fullmatch(geofence_id):
+            raise HTTPException(status_code=400, detail="Ungültige Geofence-ID")
+        connection = _connection(request)
+        try:
+            exists = connection.execute(
+                "SELECT 1 FROM geofences WHERE geofence_id = ?", (geofence_id,)
+            ).fetchone()
+            if exists is None:
+                raise HTTPException(status_code=404, detail="Geofence nicht gefunden")
+            rows = connection.execute(
+                """SELECT transition, point_timestamp_utc, latitude, longitude, detected_at_utc
+                     FROM geofence_transitions
+                    WHERE geofence_id = ?
+                    ORDER BY transition_id DESC
+                    LIMIT ?""",
+                (geofence_id, limit),
+            ).fetchall()
+            return {
+                "requestId": request.state.request_id,
+                "geofenceId": geofence_id,
+                "transitions": [
+                    {
+                        "transition": row["transition"],
+                        "pointTimestampUtc": row["point_timestamp_utc"],
+                        "latitude": row["latitude"],
+                        "longitude": row["longitude"],
+                        "detectedAtUtc": row["detected_at_utc"],
+                    }
+                    for row in rows
+                ],
+            }
         finally:
             connection.close()
 

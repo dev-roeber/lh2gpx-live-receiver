@@ -560,7 +560,6 @@
     queryImportSession: {{ query_import_session | tojson }},
   };
 </script>
-<!-- map-page.js contract: labels: ['layer-line-labels'] | !layerDataLoaded.labels | updateLayerVisibility('labels', labelsActive) -->
-<script src="/static/js/map-page-utils.js"></script>
-<script src="/static/js/map-page.js"></script>
+<!-- map-page contract: labels: ['layer-line-labels'] | !layerDataLoaded.labels | updateLayerVisibility('labels', labelsActive) -->
+<script type="module" src="/static/js/map/app.js"></script>
 {% endblock %}
