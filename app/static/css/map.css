@@ -173,6 +173,33 @@
               transform var(--motion-duration-slow, 280ms) var(--motion-ease-emphasized, ease);
 }
 
+/* Unified status zone: compact, calm and readable above the map. */
+.map-status-stack {
+  display: grid;
+  gap: 8px;
+  margin-bottom: clamp(10px, 1.4vw, 18px);
+}
+
+.map-status-stack .map-status-strip {
+  margin: 0 !important;
+  min-height: 38px;
+  padding: 8px 12px !important;
+  border: 1px solid color-mix(in srgb, var(--border, rgba(255,255,255,.1)) 90%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-1, #1c1c1e) 88%, transparent);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .12);
+}
+
+.map-status-stack .map-processing-strip {
+  border-color: color-mix(in srgb, var(--blue, #0a84ff) 22%, var(--border, rgba(255,255,255,.1)));
+  background: color-mix(in srgb, var(--blue-dim, rgba(10,132,255,.14)) 42%, var(--surface-1, #1c1c1e));
+}
+
+@media (max-width: 767px) {
+  .map-status-stack { gap: 6px; margin-bottom: 8px; }
+  .map-status-stack .map-status-strip { font-size: .72rem !important; }
+}
+
 #point-detail-panel:not([hidden]),
 .point-detail-panel:not([hidden]) {
   transform: translate3d(0, 0, 0) scale(1);

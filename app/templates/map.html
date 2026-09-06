@@ -7,7 +7,8 @@
     <h2>Interaktive Karte</h2>
   </div>
 </div>
-<div id="map-refresh-bar" style="display:flex;align-items:center;gap:12px;margin:-8px 0 14px 0;font-size:0.78rem;color:var(--text-3);flex-wrap:wrap;">
+<div class="map-status-stack" aria-label="Kartenstatus">
+<div id="map-refresh-bar" class="map-status-strip" style="display:flex;align-items:center;gap:12px;margin:-8px 0 14px 0;font-size:0.78rem;color:var(--text-3);flex-wrap:wrap;">
   <span>Aktualisiert: <strong id="mbar-ago" style="color:var(--text-2);">—</strong></span>
   <span style="color:var(--separator);">|</span>
   <span>Nächste: <strong id="mbar-next" style="color:var(--text-2);">—</strong></span>
@@ -20,7 +21,7 @@
   <span style="color:var(--separator);">|</span>
   <span>Heute: <strong id="mbar-daily" style="color:var(--text-2);">—</strong></span>
 </div>
-<div id="map-processing-bar" style="display:flex;align-items:center;gap:8px;margin:-2px 0 14px 0;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--surface-1);font-size:0.78rem;color:var(--text-3);flex-wrap:wrap;">
+<div id="map-processing-bar" class="map-status-strip map-processing-strip" style="display:flex;align-items:center;gap:8px;margin:-2px 0 14px 0;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--surface-1);font-size:0.78rem;color:var(--text-3);flex-wrap:wrap;">
   <span>Server-Verarbeitung:</span>
   <strong id="processing-status-label" style="color:var(--text-2);">—</strong>
   <span style="color:var(--separator);">|</span>
@@ -29,6 +30,7 @@
   <span>Fehlend: <strong id="processing-remaining" style="color:var(--text-2);">—</strong></span>
   <span style="color:var(--separator);">|</span>
   <span>ETA: <strong id="processing-eta" style="color:var(--text-2);">—</strong></span>
+</div>
 </div>
 
 <link rel="stylesheet" href="/static/vendor/maplibre-gl/maplibre-gl.css" />
