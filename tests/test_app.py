@@ -368,6 +368,55 @@ def test_dashboard_requires_shared_session_or_local_access(tmp_path: Path, monke
     assert "<form" not in redirect.text
 
 
+def _write_shared_session(tmp_path: Path, *, role: str, expires: float | None = None) -> str:
+    database = tmp_path / "sessions.db"
+    session_id = f"session-{role}"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE sessions (session_id TEXT PRIMARY KEY, username TEXT NOT NULL, role TEXT NOT NULL, expires REAL NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO sessions (session_id, username, role, expires) VALUES (?, ?, ?, ?)",
+            (session_id, "test-user", role, expires if expires is not None else time.time() + 3600),
+        )
+        connection.commit()
+    return session_id
+
+
+def test_remote_user_session_cannot_access_admin_endpoint(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("DASHBOARD_SESSIONS_DB", str(tmp_path / "sessions.db"))
+    session_id = _write_shared_session(tmp_path, role="user")
+    client = make_client(tmp_path, remote_client=("203.0.113.5", 51234))
+    client.cookies.set("ytdl_session", session_id)
+
+    response = client.get("/api/stats")
+
+    assert response.status_code == 403
+    assert response.json()["error"]["detail"] == "Dashboard requires the shared dashboard login or local (loopback) access."
+
+
+def test_remote_admin_session_can_access_admin_endpoint(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("DASHBOARD_SESSIONS_DB", str(tmp_path / "sessions.db"))
+    session_id = _write_shared_session(tmp_path, role="admin")
+    client = make_client(tmp_path, remote_client=("203.0.113.5", 51234))
+    client.cookies.set("ytdl_session", session_id)
+
+    response = client.get("/api/stats")
+
+    assert response.status_code == 200
+
+
+def test_expired_admin_session_does_not_grant_admin_access(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("DASHBOARD_SESSIONS_DB", str(tmp_path / "sessions.db"))
+    session_id = _write_shared_session(tmp_path, role="admin", expires=time.time() - 1)
+    client = make_client(tmp_path, remote_client=("203.0.113.5", 51234))
+    client.cookies.set("ytdl_session", session_id)
+
+    response = client.get("/api/stats")
+
+    assert response.status_code == 403
+
+
 def test_login_route_always_redirects_to_dashboard_login(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("DASHBOARD_LOGIN_URL", "https://dashboard.example.com/login")
     client = make_client(tmp_path)

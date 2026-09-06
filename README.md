@@ -32,6 +32,7 @@ Receiver- und Operator-Server für optionale Live-Location-Uploads aus der `Loca
 - **Deutsche Oberfläche:** Alle Dashboard-Seiten vollständig auf Deutsch lokalisiert.
 - **iOS-Vollbild:** Native `requestFullscreen()` nicht auf iOS verfügbar → CSS-Fallback (`position:fixed; 100vw/100dvh`) per ⛶-Button. Einmaliger "Zum Home-Bildschirm"-Banner mit Anleitung. Android nutzt denselben Vollbild-Layoutpfad jetzt auch im nativen Fullscreen.
 - **Dawarich-Sync (Produktivbetrieb):** `lh2gpx-dawarich-sync.service` liest Änderungen aus Dawarichs PostgreSQL/PostGIS-Quelle über eine dauerhafte Trigger-Outbox und aktualisiert die lokale SQLite-Spiegelung inkrementell. Dawarich bleibt die führende Quelle; Inserts, Updates und Deletes werden verarbeitet. Die produktive Detaildokumentation steht in [docs/DAWARICH_SYNC.md](docs/DAWARICH_SYNC.md).
+- **Backup-Baustein:** [docs/BACKUP_RETENTION.md](docs/BACKUP_RETENTION.md) dokumentiert einen lokalen, nicht-destruktiven SQLite-Snapshot mit Integritätsprüfung, Manifest, SHA-256 und reinem Retention-Report. Die systemd-Vorlage ist noch nicht installiert oder aktiviert.
 
 ## Root cause des bisherigen HTTP-500
 

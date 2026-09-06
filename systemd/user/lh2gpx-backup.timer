@@ -1,0 +1,11 @@
+[Unit]
+Description=LH2GPX-Datensnapshot alle sechs Stunden
+
+[Timer]
+OnCalendar=*-*-* 00/6:15:00
+Persistent=true
+RandomizedDelaySec=15min
+Unit=lh2gpx-backup.service
+
+[Install]
+WantedBy=timers.target

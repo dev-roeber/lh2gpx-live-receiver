@@ -178,38 +178,6 @@
   #timeline-toolbar { gap: 6px !important; }
 }
 
-/* Final P2 precedence layer: kept at EOF so legacy rules and template
-   inline positioning cannot undo the responsive sheet treatment. */
-@media (max-width: 767px) {
-  #map-filter-toggle-btn { display: block !important; }
-
-  #map-filter-panel:not(.collapsed) {
-    position: fixed !important;
-    left: max(8px, env(safe-area-inset-left)) !important;
-    right: max(8px, env(safe-area-inset-right)) !important;
-    bottom: max(8px, env(safe-area-inset-bottom)) !important;
-    z-index: 1200 !important;
-    width: auto !important;
-    max-height: min(86dvh, 720px) !important;
-    overflow-y: auto;
-    padding: max(16px, env(safe-area-inset-top)) 16px 16px !important;
-    border-radius: var(--map-sheet-radius, 22px) !important;
-    box-shadow: var(--map-sheet-shadow, 0 18px 55px rgba(0,0,0,.38)) !important;
-    background: var(--map-overlay-surface, var(--surface-1)) !important;
-  }
-
-  #map-filter-panel.collapsed { display: none !important; }
-
-  #map-timeline-container {
-    left: max(8px, env(safe-area-inset-left)) !important;
-    right: max(8px, env(safe-area-inset-right)) !important;
-    bottom: max(8px, env(safe-area-inset-bottom)) !important;
-    width: auto !important;
-    max-width: none !important;
-    transform: none !important;
-  }
-}
-
 /* ── Template cleanup: status and timeline presentation ─────
    These rules replace the former inline declarations while keeping the
    overlay dimensions fluid across map and viewport sizes. */

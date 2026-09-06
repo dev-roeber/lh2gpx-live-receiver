@@ -30,7 +30,7 @@ def direct_remote_addr(request: Request) -> str:
     return request.client.host if request.client else ""
 
 
-def validate_shared_dashboard_session(request: Request) -> str | None:
+def validate_shared_dashboard_session(request: Request) -> dict[str, object] | None:
     """Validate the session created by the central dashboard login.
 
     The cookie is host-scoped (not port-scoped), so it is available to the
@@ -44,12 +44,12 @@ def validate_shared_dashboard_session(request: Request) -> str | None:
     try:
         with sqlite3.connect(database, timeout=2) as connection:
             row = connection.execute(
-                "SELECT username, expires FROM sessions WHERE session_id = ?",
+                "SELECT username, role, expires FROM sessions WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
             if row is None:
                 return None
-            username, expires = row
+            username, role, expires = row
             if float(expires) < time.time():
                 connection.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
                 connection.commit()
@@ -60,7 +60,13 @@ def validate_shared_dashboard_session(request: Request) -> str | None:
                 (time.time() + 14 * 24 * 3600, session_id),
             )
             connection.commit()
-            return str(username) if username else None
+            if not username or not role:
+                return None
+            return {
+                "username": str(username),
+                "role": str(role),
+                "expires": float(expires),
+            }
     except (OSError, sqlite3.Error, TypeError, ValueError):
         return None
 
@@ -87,7 +93,8 @@ async def apply_rate_limit(request: Request) -> None:
 
 
 async def require_admin_access(request: Request) -> None:
-    if validate_shared_dashboard_session(request):
+    session = validate_shared_dashboard_session(request)
+    if session and session.get("role") == "admin":
         return
 
     if is_local_operator_request(
