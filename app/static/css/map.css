@@ -83,4 +83,287 @@
   #map-timeline-ctrl > button {
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
   }
+
+  /* Filter behaves as a bottom sheet on phones; the existing collapsed class
+     remains the single source of truth for open/closed state. */
+  .map-filter-panel:not(.collapsed) {
+    position: fixed;
+    left: max(8px, env(safe-area-inset-left));
+    right: max(8px, env(safe-area-inset-right));
+    bottom: 0;
+    z-index: 1050;
+    width: auto;
+    max-height: min(78dvh, 680px);
+    overflow-y: auto;
+    margin: 0;
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -18px 48px rgba(0, 0, 0, .42);
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+  }
+
+  #map-timeline-card {
+    padding: 10px 12px !important;
+    border-radius: 18px !important;
+  }
+
+  #timeline-toolbar { gap: 6px !important; }
+}
+
+/* Final P2 precedence layer: kept at EOF so legacy rules and template
+   inline positioning cannot undo the responsive sheet treatment. */
+@media (max-width: 767px) {
+  #map-filter-toggle-btn { display: block !important; }
+
+  #map-filter-panel:not(.collapsed) {
+    position: fixed !important;
+    left: max(8px, env(safe-area-inset-left)) !important;
+    right: max(8px, env(safe-area-inset-right)) !important;
+    bottom: max(8px, env(safe-area-inset-bottom)) !important;
+    z-index: 1200 !important;
+    width: auto !important;
+    max-height: min(86dvh, 720px) !important;
+    overflow-y: auto;
+    padding: max(16px, env(safe-area-inset-top)) 16px 16px !important;
+    border-radius: var(--map-sheet-radius, 22px) !important;
+    box-shadow: var(--map-sheet-shadow, 0 18px 55px rgba(0,0,0,.38)) !important;
+    background: var(--map-overlay-surface, var(--surface-1)) !important;
+  }
+
+  #map-filter-panel.collapsed { display: none !important; }
+
+  #map-timeline-container {
+    left: max(8px, env(safe-area-inset-left)) !important;
+    right: max(8px, env(safe-area-inset-right)) !important;
+    bottom: max(8px, env(safe-area-inset-bottom)) !important;
+    width: auto !important;
+    max-width: none !important;
+    transform: none !important;
+  }
+}
+
+/* ── P2: unified map workspace ──────────────────────────────
+   The DOM and inline styles remain unchanged. These rules provide a
+   consistent control rail, compact timeline and sheet treatment. */
+#map-wrap {
+  --map-control-inset: clamp(10px, 1.25vw, 18px);
+  --map-panel-border: color-mix(in srgb, var(--border) 82%, transparent);
+}
+
+#map-quick-ctrl,
+#map-layer-ctrl,
+#map-timeline-ctrl {
+  right: var(--map-control-inset) !important;
+  width: max-content;
+}
+
+#map-quick-ctrl > button,
+#map-layer-ctrl > button,
+#map-timeline-ctrl > button {
+  min-height: 44px;
+  padding: 9px 13px;
+  border: 1px solid var(--map-panel-border);
+  border-radius: var(--map-control-radius);
+  background: var(--map-overlay-surface);
+  color: var(--text-1, var(--text));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.26);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  transition: background 160ms ease, border-color 160ms ease,
+              transform 160ms ease, box-shadow 160ms ease;
+}
+
+#map-quick-ctrl > button:hover,
+#map-layer-ctrl > button:hover,
+#map-timeline-ctrl > button:hover {
+  background: color-mix(in srgb, var(--surface-2) 92%, transparent);
+  border-color: color-mix(in srgb, var(--mint) 42%, var(--border));
+  transform: translateY(-1px);
+}
+
+#map-quick-ctrl > button:active,
+#map-layer-ctrl > button:active,
+#map-timeline-ctrl > button:active {
+  transform: translateY(0);
+}
+
+#mqc-panel,
+#mlc-panel {
+  margin-top: var(--map-control-rail-gap);
+  border: 1px solid var(--map-panel-border);
+  border-radius: var(--map-control-radius);
+  background: var(--map-overlay-surface);
+  box-shadow: var(--map-sheet-shadow);
+  backdrop-filter: blur(20px) saturate(155%);
+  -webkit-backdrop-filter: blur(20px) saturate(155%);
+}
+
+#mqc-panel {
+  padding: clamp(12px, 1.1vw, 16px);
+  width: min(300px, calc(100vw - 2 * var(--map-control-inset)));
+}
+
+#mlc-panel {
+  min-width: min(220px, calc(100vw - 2 * var(--map-control-inset)));
+  padding: 10px 12px;
+}
+
+.mqc-row + .mqc-row,
+.mlc-row + .mlc-row { margin-top: 8px; }
+
+.mqc-select,
+.mqc-btn,
+.mqc-toggle,
+.mlc-lbl {
+  min-height: 40px;
+  border-radius: 10px;
+}
+
+.mqc-select,
+.mqc-btn,
+.mqc-toggle {
+  font-size: clamp(0.78rem, 0.35vw + 0.68rem, 0.88rem);
+}
+
+.mlc-lbl {
+  min-height: 40px;
+  padding: 7px 8px;
+  border-radius: 9px;
+}
+
+.mlc-lbl:hover { background: color-mix(in srgb, var(--surface-2) 80%, transparent); }
+
+#map-timeline-container {
+  width: min(680px, calc(100% - 2 * var(--map-control-inset))) !important;
+  max-width: calc(100% - 2 * var(--map-control-inset));
+  z-index: 740;
+}
+
+#map-timeline-card {
+  border: 1px solid var(--map-panel-border) !important;
+  border-radius: var(--map-sheet-radius) !important;
+  padding: clamp(12px, 1.25vw, 18px) !important;
+  background: var(--map-overlay-surface) !important;
+  box-shadow: var(--map-sheet-shadow) !important;
+  backdrop-filter: blur(20px) saturate(155%);
+  -webkit-backdrop-filter: blur(20px) saturate(155%);
+}
+
+#timeline-toolbar {
+  gap: clamp(6px, 0.7vw, 10px) !important;
+}
+
+#timeline-toolbar .mqc-btn,
+#timeline-toolbar .mqc-select {
+  min-height: 40px;
+  border-radius: 10px;
+}
+
+#timeline-play-btn {
+  width: 44px !important;
+  height: 44px !important;
+  flex: 0 0 44px;
+  box-shadow: 0 6px 18px rgba(48, 209, 88, 0.22);
+}
+
+#map-timeline-slider { min-height: 28px; }
+
+/* Filter is a quiet, full-height inspector on larger screens. */
+@media (min-width: 768px) {
+  .map-filter-panel {
+    border: 1px solid var(--map-panel-border) !important;
+    border-radius: var(--map-sheet-radius) !important;
+    box-shadow: var(--map-sheet-shadow);
+    background: var(--map-overlay-surface) !important;
+    backdrop-filter: blur(18px) saturate(145%);
+    -webkit-backdrop-filter: blur(18px) saturate(145%);
+  }
+
+  .map-filter-panel .fp-hide-btn,
+  #fp-show-btn {
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 12px;
+  }
+}
+
+/* Mobile: the filter becomes a near-full-width bottom sheet. The existing
+   .collapsed class remains authoritative, so no feature is removed. */
+@media (max-width: 767px) {
+  #map-filter-toggle-btn {
+    display: block !important;
+    min-height: 44px;
+    width: 100%;
+    margin: 0;
+    border: 1px solid var(--map-panel-border);
+    border-radius: 14px;
+    background: var(--map-overlay-surface);
+    color: var(--text-1, var(--text));
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.2);
+  }
+
+  #map-filter-panel:not(.collapsed) {
+    position: fixed;
+    left: max(8px, env(safe-area-inset-left));
+    right: max(8px, env(safe-area-inset-right));
+    bottom: max(8px, env(safe-area-inset-bottom));
+    z-index: 1200;
+    width: auto;
+    max-height: min(86dvh, 720px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: max(16px, env(safe-area-inset-top)) 16px 16px;
+    border: 1px solid var(--map-panel-border) !important;
+    border-radius: var(--map-sheet-radius) !important;
+    background: var(--map-overlay-surface) !important;
+    box-shadow: var(--map-sheet-shadow);
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+  }
+
+  #map-filter-panel.collapsed { display: none; }
+
+  #map-filter-panel .fp-section-label:first-child {
+    margin-top: 2px;
+    padding-top: 0;
+  }
+
+  #map-filter-panel .filter-actions,
+  #map-filter-panel .button-link { width: 100%; }
+
+  #map-timeline-container {
+    left: max(8px, env(safe-area-inset-left)) !important;
+    right: max(8px, env(safe-area-inset-right));
+    bottom: max(8px, env(safe-area-inset-bottom)) !important;
+    width: auto !important;
+    max-width: none;
+    transform: none !important;
+  }
+
+  #map-timeline-card {
+    width: 100%;
+    max-height: min(48dvh, 430px);
+    overflow-y: auto;
+    padding: 12px !important;
+  }
+
+  #timeline-toolbar { justify-content: flex-start !important; }
+  #timeline-toolbar .mqc-btn,
+  #timeline-toolbar .mqc-select { flex: 1 1 auto; }
+
+  #map-quick-ctrl,
+  #map-layer-ctrl,
+  #map-timeline-ctrl {
+    right: max(8px, env(safe-area-inset-right)) !important;
+  }
+
+  #map-quick-ctrl > button,
+  #map-layer-ctrl > button,
+  #map-timeline-ctrl > button { min-width: 44px; }
+}
+
+@media (max-width: 420px) {
+  #mqc-panel { width: calc(100vw - 2 * var(--map-control-inset)); }
+  #timeline-toolbar .mqc-btn,
+  #timeline-toolbar .mqc-select { flex-basis: calc(50% - 4px); }
+  #timeline-settings-row { row-gap: 10px !important; }
 }

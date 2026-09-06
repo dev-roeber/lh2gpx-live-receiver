@@ -39,14 +39,14 @@
 <div class="map-page-container">
   <button id="map-filter-toggle-btn" class="map-filter-toggle" style="display: none;" aria-expanded="false" aria-controls="map-filter-panel">Filteroptionen ▼</button>
 
-  <div class="map-filter-panel" id="map-filter-panel">
+  <div class="map-filter-panel" id="map-filter-panel" role="region" aria-label="Filteroptionen">
     <div style="display:flex;justify-content:flex-end;margin:-6px -6px 0 0;">
       <button id="fp-hide-btn" class="fp-hide-btn" title="Menü ausblenden" aria-label="Filtermenü ausblenden" onclick="toggleFilterPanel(false)">◀</button>
     </div>
 
     <p class="fp-section-label">Session / Import</p>
     <div class="filter-group fp-row">
-      <input type="checkbox" id="session-filter-toggle">
+      <input type="checkbox" id="session-filter-toggle" aria-label="Session-Filter aktivieren">
       <label for="session-filter-toggle" class="fp-check-label">Session</label>
       <select id="session-select-dropdown" disabled class="fp-dropdown fp-inactive" aria-label="Session auswählen">
         <option value="">Alle Sessions</option>
@@ -56,7 +56,7 @@
       </select>
     </div>
     <div class="filter-group fp-row">
-      <input type="checkbox" id="import-filter-toggle">
+      <input type="checkbox" id="import-filter-toggle" aria-label="Import-Filter aktivieren">
       <label for="import-filter-toggle" class="fp-check-label">Import</label>
       <select id="import-select-dropdown" disabled class="fp-dropdown fp-inactive" aria-label="Import auswählen">
         <option value="">Alle Importe</option>
@@ -171,7 +171,7 @@
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
               <button id="timeline-start-btn" class="mqc-btn" aria-label="Zum Anfang springen" style="padding:6px 9px;font-size:0.72rem;">⏮</button>
               <button id="timeline-prev-btn" class="mqc-btn" aria-label="Zurückspringen" style="padding:6px 9px;font-size:0.72rem;">◀</button>
-              <button id="timeline-live-btn" class="mqc-btn" style="padding:6px 10px;font-size:0.72rem;">Jetzt</button>
+              <button id="timeline-live-btn" class="mqc-btn" aria-label="Zur aktuellen Zeit springen" style="padding:6px 10px;font-size:0.72rem;">Jetzt</button>
               <button id="timeline-next-btn" class="mqc-btn" aria-label="Vorwärtsspringen" style="padding:6px 9px;font-size:0.72rem;">▶</button>
               <button id="timeline-end-btn" class="mqc-btn" aria-label="Zum Ende springen" style="padding:6px 9px;font-size:0.72rem;">⏭</button>
               <select id="timeline-speed-select" class="mqc-select" aria-label="Wiedergabegeschwindigkeit" style="width:auto;min-width:84px;padding:6px 8px;font-size:0.72rem;">
@@ -213,14 +213,14 @@
 
       {# Karten-Menü — floating oben rechts über dem Layer-Menü #}
       <div id="map-quick-ctrl" style="z-index:720;">
-        <button id="mqc-btn" title="Kartensteuerung ein-/ausblenden" aria-haspopup="true" aria-expanded="false" aria-controls="mqc-panel">☰ Karte</button>
-        <div id="mqc-panel">
+        <button id="mqc-btn" title="Kartensteuerung ein-/ausblenden" aria-label="Kartenmenü ein- oder ausblenden" aria-haspopup="true" aria-expanded="false" aria-controls="mqc-panel">☰ Karte</button>
+        <div id="mqc-panel" role="region" aria-label="Kartenoptionen">
           {# Standort-Auswahl-Menü (Glassmorphismus) #}
           <div id="location-selection-menu" style="display:none;position:absolute;right:0;top:calc(100% + 8px);background:rgba(28,28,30,0.85);backdrop-filter:blur(15px);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:8px;width:190px;box-shadow:0 8px 24px rgba(0,0,0,0.4);flex-direction:column;gap:4px;z-index:730;">
-             <button class="mqc-btn" style="width:100%;text-align:left;justify-content:flex-start;padding:10px 12px;" onclick="locateBrowserPosition(); toggleLocationMenu(false);">
+             <button class="mqc-btn" aria-label="Eigenen Browser-Standort anzeigen" style="width:100%;text-align:left;justify-content:flex-start;padding:10px 12px;" onclick="locateBrowserPosition(); toggleLocationMenu(false);">
                <span style="margin-right:8px;">◎</span> Mein Standort
              </button>
-             <button class="mqc-btn" style="width:100%;text-align:left;justify-content:flex-start;padding:10px 12px;" onclick="focusLatestPoint(); toggleLocationMenu(false);">
+             <button class="mqc-btn" aria-label="Zum neuesten GPS-Punkt springen" style="width:100%;text-align:left;justify-content:flex-start;padding:10px 12px;" onclick="focusLatestPoint(); toggleLocationMenu(false);">
                <span style="margin-right:8px;">🏁</span> Neuester Punkt
              </button>
           </div>
@@ -276,11 +276,11 @@
             </select>
           </div>
           <div class="mqc-actions">
-            <button id="refresh-map-btn" class="mqc-btn" title="Jetzt laden">
+            <button id="refresh-map-btn" class="mqc-btn" title="Jetzt laden" aria-label="Kartendaten jetzt aktualisieren">
               <span id="btn-text">↻</span><span id="btn-spinner" style="display:none;">⌛</span>
               <span>Refresh</span>
             </button>
-            <button id="browser-location-btn" class="mqc-btn" title="Aktuellen Browser-Standort abrufen" aria-haspopup="true" aria-expanded="false" aria-controls="location-selection-menu">◎ <span>Standort</span></button>
+            <button id="browser-location-btn" class="mqc-btn" title="Aktuellen Browser-Standort abrufen" aria-label="Standortmenü öffnen" aria-haspopup="true" aria-expanded="false" aria-controls="location-selection-menu">◎ <span>Standort</span></button>
             <button id="legend-toggle-btn" class="mqc-btn" title="Legende ein-/ausblenden" aria-pressed="true">ℹ <span>Legende</span></button>
             <button id="dark-mode-btn" class="mqc-btn" title="Darkmode umschalten" aria-pressed="false">🌙 <span>Dark</span></button>
             <button id="pitch-toggle-btn" class="mqc-btn" title="3D-Ansicht umschalten" aria-pressed="false">🧊 <span>3D</span></button>
@@ -299,8 +299,8 @@
 
       {# Layer-Control — floating auf der Karte (oben rechts) #}
       <div id="map-layer-ctrl" style="z-index:710;">
-        <button id="mlc-btn" title="Layer ein-/ausblenden" aria-haspopup="true" aria-expanded="false" aria-controls="mlc-panel" onclick="this.setAttribute('aria-expanded', document.getElementById('map-layer-ctrl').classList.toggle('mlc-open'))">⊞ Layer</button>
-        <div id="mlc-panel">
+        <button id="mlc-btn" title="Layer ein-/ausblenden" aria-label="Layer-Menü ein- oder ausblenden" aria-haspopup="true" aria-expanded="false" aria-controls="mlc-panel" onclick="this.setAttribute('aria-expanded', document.getElementById('map-layer-ctrl').classList.toggle('mlc-open'))">⊞ Layer</button>
+        <div id="mlc-panel" role="region" aria-label="Kartenlayer">
           <div class="mlc-row"><label class="mlc-lbl" title="Dichteverteilung aller Punkte als Wärmebild"><input type="checkbox" id="heatmap-toggle"> Heatmap</label></div>
           <div class="mlc-row"><label class="mlc-lbl" title="Jeden GPS-Punkt als Kreis anzeigen"><input type="checkbox" id="points-toggle" checked> Punkte</label></div>
           <div class="mlc-row"><label class="mlc-lbl" title="Bewegungspfad als farbige Linie pro Segment"><input type="checkbox" id="polyline-toggle" checked> Linien</label></div>
@@ -326,7 +326,7 @@
       </div>
 
       <div id="map-timeline-ctrl" style="z-index:705;">
-        <button id="mtc-btn" title="Timeline ein-/ausblenden" aria-pressed="false">◴ Timeline</button>
+        <button id="mtc-btn" title="Timeline ein-/ausblenden" aria-label="Timeline ein- oder ausblenden" aria-pressed="false">◴ Timeline</button>
       </div>
 
     </div>
