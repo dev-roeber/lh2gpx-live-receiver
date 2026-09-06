@@ -130,46 +130,62 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k)))
-    )
-  );
-  self.clients.claim();
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(
+      keys.filter((key) => key !== CACHE_VERSION).map((key) => caches.delete(key))
+    );
+    await self.clients.claim();
+  })());
 });
 
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
+  // Nur gleich-origin Requests behandeln. Fremde Ressourcen und ihre
+  // Antworten dürfen nicht in den lokalen App-Cache gelangen.
+  if (!isSameOrigin(url)) return;
+
   // Live-/Ingest-/Steuerdaten NIE aus dem Cache bedienen.
   if (isNeverCache(url.pathname)) return;
 
   if (event.request.method !== "GET") return;
-  if (!isSameOrigin(url)) return;
 
   const isNavigation = event.request.mode === "navigate";
 
-  // Network-first mit Cache-Fallback: online immer die aktuelle Version
-  // holen (und den Shell-Cache dabei auffrischen), nur bei Netzwerkfehler
-  // (offline) auf die zuletzt bekannte Version zurückfallen. Schlägt auch
-  // das fehl (z.B. Route nie zuvor besucht) und es handelt sich um eine
-  // HTML-Navigation, wird die Offline-Fallback-Seite gezeigt.
+  // Andere GET-Endpunkte bleiben vollständig beim Browser und werden weder
+  // gecacht noch bei Fehlern durch Response.error() überschrieben.
+  if (!isNavigation && !isShellCacheable(url.pathname)) return;
+
+  // Navigationen sind network-only: Keine HTML-Seite wird aus dem Cache
+  // bedient. Bei Offline-Navigationen erscheint der neutrale Fallback.
+  // Statische Assets sind network-first und fallen nur bei echtem
+  // Netzwerkfehler auf den versionierten Asset-Cache zurück.
   event.respondWith(
-    fetch(event.request)
+    fetch(new Request(event.request, { cache: "no-store" }))
       .then((response) => {
-        if (isShellCacheable(url.pathname) && canCacheResponse(response)) {
+        if (!isNavigation && canCacheResponse(response) && isShellCacheable(url.pathname)) {
           const copy = response.clone();
-          caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, copy));
+          caches.open(CACHE_VERSION)
+            .then((cache) => cache.put(event.request, copy))
+            .catch(() => {
+              // Quota-/Cachefehler dürfen die aktuelle Netzwerkantwort nicht
+              // beeinflussen.
+            });
         }
         return response;
       })
       .catch(() =>
-        caches.match(event.request).then((cached) => {
+        caches.open(CACHE_VERSION).then((cache) => cache.match(event.request)).then((cached) => {
           if (cached) return cached;
           if (isNavigation) {
             return new Response(OFFLINE_HTML, {
               status: 200,
-              headers: { "Content-Type": "text/html; charset=utf-8" },
+              headers: {
+                "Cache-Control": "no-store",
+                "Content-Type": "text/html; charset=utf-8",
+                "X-Content-Type-Options": "nosniff",
+              },
             });
           }
           return Response.error();
