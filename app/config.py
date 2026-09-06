@@ -68,6 +68,9 @@ class Settings:
     dawarich_db_user: str = "dawarich"
     dawarich_db_password: str | None = None
     dawarich_sync_enabled: bool = False
+    # Reserved foundation switch.  No runtime geofence evaluation is wired
+    # until this feature is deliberately implemented and enabled.
+    geofencing_enabled: bool = False
 
     @property
     def auth_required(self) -> bool:
@@ -130,6 +133,7 @@ class Settings:
             dawarich_db_user=_read_non_empty_env("DAWARICH_DB_USER", default="dawarich"),
             dawarich_db_password=os.getenv("DAWARICH_DB_PASSWORD", "").strip() or None,
             dawarich_sync_enabled=_read_bool_env("DAWARICH_SYNC_ENABLED", default=False),
+            geofencing_enabled=_read_bool_env("GEOFENCING_ENABLED", default=False),
         )
 
     def with_persistent_overrides(self) -> "Settings":
@@ -253,6 +257,7 @@ class Settings:
             "rateLimitRequestsPerMinute": self.rate_limit_requests_per_minute,
             "trustProxyHeaders": self.trust_proxy_headers,
             "dawarichSyncEnabled": self.dawarich_sync_enabled,
+            "geofencingEnabled": self.geofencing_enabled,
             "dawarichDbHost": self.dawarich_db_host,
             "dawarichDbPort": self.dawarich_db_port,
             "dawarichDbName": self.dawarich_db_name,

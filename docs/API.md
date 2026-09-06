@@ -61,6 +61,18 @@
 - `GET /api/import/status/{task_id}`
 - `POST /api/storage/vacuum`
 
+## Tokenisierte GeoJSON-Share-Links
+
+Derzeit nicht implementiert. Es gibt keine öffentliche Share-Route und keine
+Möglichkeit, GeoJSON per Bearer-Link abzurufen. GeoJSON-Exporte bleiben auf
+die geschützte Operator-API und die geschützte Kartenoberfläche beschränkt.
+
+Eine spätere Share-Funktion benötigt vor der Implementierung verbindliche
+Entscheidungen zu Ersteller-/Abrufberechtigung, Ablauf, Widerruf, Abruflimit,
+Snapshot-vs.-Live-Scope, Größenlimit, Metadatenreduktion und Tailnet-vs.-
+öffentlicher Erreichbarkeit. Bis dahin werden keine Share-Tokens erzeugt und
+keine Standortdaten veröffentlicht.
+
 ## Punkte- und Request-Filter
 
 - `date_from`

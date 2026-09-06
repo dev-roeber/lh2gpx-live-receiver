@@ -33,6 +33,7 @@ Receiver- und Operator-Server für optionale Live-Location-Uploads aus der `Loca
 - **iOS-Vollbild:** Native `requestFullscreen()` nicht auf iOS verfügbar → CSS-Fallback (`position:fixed; 100vw/100dvh`) per ⛶-Button. Einmaliger "Zum Home-Bildschirm"-Banner mit Anleitung. Android nutzt denselben Vollbild-Layoutpfad jetzt auch im nativen Fullscreen.
 - **Dawarich-Sync (Produktivbetrieb):** `lh2gpx-dawarich-sync.service` liest Änderungen aus Dawarichs PostgreSQL/PostGIS-Quelle über eine dauerhafte Trigger-Outbox und aktualisiert die lokale SQLite-Spiegelung inkrementell. Dawarich bleibt die führende Quelle; Inserts, Updates und Deletes werden verarbeitet. Die produktive Detaildokumentation steht in [docs/DAWARICH_SYNC.md](docs/DAWARICH_SYNC.md).
 - **Backup-Baustein:** [docs/BACKUP_RETENTION.md](docs/BACKUP_RETENTION.md) dokumentiert einen lokalen, nicht-destruktiven SQLite-Snapshot mit Integritätsprüfung, Manifest, SHA-256 und reinem Retention-Report. Der User-Timer ist installiert und aktiviert; ein echter Snapshot-Test wurde am 2026-09-06 erfolgreich durchgeführt.
+- **Restore-/Offsite-Validierung:** [docs/RESTORE_OFFSITE.md](docs/RESTORE_OFFSITE.md) beschreibt den verifizierten Restore-Ablauf, Datenschutzregeln und die offline arbeitenden Validatoren für LH2GPX-Archive und Dawarich-Dumps. Es gibt weiterhin keinen Netzwerk-Upload und kein automatisches Pruning.
 
 ## Root cause des bisherigen HTTP-500
 

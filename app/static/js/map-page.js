@@ -673,6 +673,11 @@ const {
 
   function scheduleNextMapUpdate(delay = POLLING_INTERVAL) {
     clearTimeout(updateTimer);
+    if (liveTransport !== 'polling') {
+      updateTimer = null;
+      nextRefreshTime = 0;
+      return;
+    }
     if (document.hidden) {
       nextRefreshTime = 0;
       return;
@@ -2985,6 +2990,11 @@ const {
   let socketReconnectTimer = null;
   let socketReconnectAttempt = 0;
   let socketReconnectScheduled = false;
+  let sseSource = null;
+  let sseReconnectTimer = null;
+  let sseReconnectAttempt = 0;
+  let sseReconnectScheduled = false;
+  let liveTransport = 'polling';
 
   const SOCKET_RECONNECT_BASE_MS = 1000;
   const SOCKET_RECONNECT_MAX_MS = 30000;
@@ -2994,12 +3004,107 @@ const {
     showSyncPill(`Live: ${text}`, mode, durationMs);
   }
 
-  function scheduleWebSocketReconnect() {
-    if (socketReconnectScheduled || socketReconnectTimer) return;
-    if (document.hidden) {
-      setWebSocketStatus('pausiert – Tab verborgen', 'info', 60000);
+  function stopPollingFallback() {
+    clearTimeout(updateTimer);
+    updateTimer = null;
+    nextRefreshTime = 0;
+  }
+
+  function startPollingFallback() {
+    liveTransport = 'polling';
+    scheduleNextMapUpdate(2000);
+  }
+
+  function handleLiveEvent(event) {
+    let data;
+    try {
+      data = JSON.parse(event.data);
+    } catch (error) {
+      console.warn('Ungültige SSE-Nachricht ignoriert:', error);
       return;
     }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return;
+    if (event.type === 'resync_required') {
+      invalidateMapClientCacheForStructuralChange();
+      updateMapMeta({ force: true }).catch(() => {});
+    } else if (event.type === 'import_completed' || event.type === 'session_deleted') {
+      invalidateMapClientCacheForStructuralChange();
+      updateMapMeta({ force: true }).catch(() => {});
+    }
+    debouncedMapRefresh();
+  }
+
+  function scheduleSseReconnect() {
+    if (sseReconnectScheduled || sseReconnectTimer || document.hidden) return;
+    const exponentialDelay = Math.min(
+      SOCKET_RECONNECT_MAX_MS,
+      SOCKET_RECONNECT_BASE_MS * (2 ** Math.min(sseReconnectAttempt, 5))
+    );
+    const jitter = 0.75 + (Math.random() * 0.5);
+    const delay = Math.round(exponentialDelay * jitter);
+    sseReconnectAttempt += 1;
+    sseReconnectScheduled = true;
+    sseReconnectTimer = setTimeout(() => {
+      sseReconnectTimer = null;
+      sseReconnectScheduled = false;
+      initSSE();
+    }, delay);
+  }
+
+  function closeSSE() {
+    if (sseReconnectTimer) {
+      clearTimeout(sseReconnectTimer);
+      sseReconnectTimer = null;
+    }
+    sseReconnectScheduled = false;
+    if (sseSource) {
+      sseSource.close();
+      sseSource = null;
+    }
+  }
+
+  function initSSE() {
+    if (document.hidden || !('EventSource' in window)) {
+      if (!('EventSource' in window)) {
+        setWebSocketStatus('SSE nicht verfügbar – WebSocket', 'info', 5000);
+        startPollingFallback();
+      }
+      initWebSocket();
+      return;
+    }
+    if (sseSource) return;
+    const source = new EventSource('/events/map');
+    sseSource = source;
+    setWebSocketStatus('SSE verbindet…', 'info', 3000);
+    ['new_location', 'import_completed', 'session_deleted', 'resync_required'].forEach((eventName) => {
+      source.addEventListener(eventName, handleLiveEvent);
+    });
+    source.onopen = () => {
+      if (sseSource !== source) return;
+      liveTransport = 'sse';
+      sseReconnectAttempt = 0;
+      setWebSocketStatus('SSE live', 'noop', 2500);
+      stopPollingFallback();
+      if (socket) {
+        const fallbackSocket = socket;
+        socket = null;
+        fallbackSocket.close(1000, 'SSE aktiv');
+      }
+    };
+    source.onerror = () => {
+      if (sseSource !== source) return;
+      sseSource = null;
+      source.close();
+      setWebSocketStatus('SSE getrennt – WebSocket-Fallback', 'error', 5000);
+      startPollingFallback();
+      initWebSocket();
+      scheduleSseReconnect();
+    };
+  }
+
+  function scheduleWebSocketReconnect() {
+    if (socketReconnectScheduled || socketReconnectTimer) return;
+    if (document.hidden || sseSource) return;
     const exponentialDelay = Math.min(
       SOCKET_RECONNECT_MAX_MS,
       SOCKET_RECONNECT_BASE_MS * (2 ** Math.min(socketReconnectAttempt, 5))
@@ -3013,7 +3118,7 @@ const {
     socketReconnectTimer = setTimeout(() => {
       socketReconnectTimer = null;
       socketReconnectScheduled = false;
-      initWebSocket();
+      initSSE();
     }, delay);
   }
 
@@ -3029,9 +3134,11 @@ const {
 
   function initWebSocket() {
     if (document.hidden) return;
+    if (sseSource) return;
     if (!('WebSocket' in window)) {
       console.warn('WebSocket im Browser nicht verfügbar.');
       setWebSocketStatus('nicht verfügbar', 'error', 60000);
+      startPollingFallback();
       return;
     }
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -3046,6 +3153,8 @@ const {
       // A successful connection resets the backoff for the next outage.
       socketReconnectAttempt = 0;
       setWebSocketStatus('verbunden', 'noop', 2500);
+      liveTransport = 'websocket';
+      stopPollingFallback();
     };
 
     connection.onmessage = (event) => {
@@ -3076,6 +3185,7 @@ const {
       if (socket !== connection) return;
       socket = null;
       console.warn('WebSocket geschlossen. Reconnect wird geplant.');
+      if (liveTransport === 'websocket') startPollingFallback();
       scheduleWebSocketReconnect();
     };
 
@@ -3097,7 +3207,7 @@ const {
     const recovery = document.getElementById('map-init-recovery');
     if (recovery) recovery.hidden = true;
     try {
-      initWebSocket();
+      initSSE();
     
     MAP_MAX_POINTS = clampMapMaxPoints(MAP_MAX_POINTS);
     
@@ -3695,11 +3805,13 @@ const {
           socket = null;
           pausedSocket.close(1000, 'Tab verborgen');
         }
+        closeSSE();
+        liveTransport = 'polling';
         setWebSocketStatus('pausiert – Tab verborgen', 'info', 60000);
         return;
       }
       setWebSocketStatus('aktualisiere nach Rückkehr…', 'info', 5000);
-      initWebSocket();
+      initSSE();
       updateMap();
     });
   });

@@ -2645,6 +2645,49 @@ class ReceiverStorage:
                 last_error TEXT
             );
 
+            -- Geofencing foundation only.  These tables are deliberately
+            -- inert: no existing points are evaluated and no notifications
+            -- are emitted until the feature is explicitly implemented.
+            CREATE TABLE IF NOT EXISTS geofences (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                center_latitude REAL NOT NULL CHECK (center_latitude >= -90 AND center_latitude <= 90),
+                center_longitude REAL NOT NULL CHECK (center_longitude >= -180 AND center_longitude <= 180),
+                radius_m REAL NOT NULL CHECK (radius_m > 0),
+                enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+                notify_enter INTEGER NOT NULL DEFAULT 0 CHECK (notify_enter IN (0, 1)),
+                notify_exit INTEGER NOT NULL DEFAULT 0 CHECK (notify_exit IN (0, 1)),
+                created_by TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS geofence_states (
+                geofence_id INTEGER NOT NULL REFERENCES geofences(id) ON DELETE CASCADE,
+                subject_key TEXT NOT NULL,
+                inside INTEGER NOT NULL DEFAULT 0 CHECK (inside IN (0, 1)),
+                last_point_id INTEGER REFERENCES gps_points(id) ON DELETE SET NULL,
+                last_evaluated_at TEXT,
+                last_distance_m REAL,
+                PRIMARY KEY (geofence_id, subject_key)
+            );
+
+            CREATE TABLE IF NOT EXISTS geofence_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                geofence_id INTEGER NOT NULL REFERENCES geofences(id) ON DELETE CASCADE,
+                subject_key TEXT NOT NULL,
+                point_id INTEGER REFERENCES gps_points(id) ON DELETE SET NULL,
+                event_type TEXT NOT NULL CHECK (event_type IN ('enter', 'exit')),
+                occurred_at TEXT NOT NULL,
+                notification_status TEXT NOT NULL DEFAULT 'not_sent',
+                UNIQUE (geofence_id, subject_key, point_id, event_type)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_geofences_enabled
+                ON geofences(enabled, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_geofence_events_lookup
+                ON geofence_events(geofence_id, subject_key, occurred_at DESC);
+
             CREATE TABLE IF NOT EXISTS point_rollups (
                 scope_type TEXT NOT NULL,
                 scope_key TEXT NOT NULL,
