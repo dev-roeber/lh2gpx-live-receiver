@@ -688,6 +688,44 @@
 
 #map-timeline-slider { min-height: 28px; }
 
+/* Recovery state stays outside the map canvas so initialization failures
+   remain understandable and retryable without inline presentation rules. */
+.map-init-recovery {
+  position: absolute;
+  inset: 1rem;
+  z-index: 1400;
+  display: grid;
+  place-items: center;
+  padding: clamp(1rem, 4vw, 3rem);
+  border: 1px solid color-mix(in srgb, #ff453a 42%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--surface-2, #171717) 94%, #ff453a);
+  color: var(--text-1, #fff);
+  text-align: center;
+}
+
+.map-init-recovery[hidden] { display: none; }
+
+.map-init-recovery-content {
+  max-width: 34rem;
+  display: grid;
+  gap: .75rem;
+  justify-items: center;
+}
+
+.map-init-recovery-title { font-size: clamp(1.05rem, 2vw, 1.35rem); }
+
+.map-init-recovery-message {
+  margin: 0;
+  color: var(--text-2, #b8b8b8);
+  line-height: 1.5;
+}
+
+.map-init-recovery-retry {
+  min-height: 44px;
+  padding: .7rem 1rem;
+}
+
 /* Filter is a quiet, full-height inspector on larger screens. */
 @media (min-width: 768px) {
   .map-filter-panel {
