@@ -81,6 +81,9 @@ def _process_events(conn: psycopg.Connection, storage: ReceiverStorage, cursor: 
 
 def run() -> None:
     settings = Settings.from_env()
+    if not settings.dawarich_sync_enabled:
+        LOGGER.info("Dawarich sync is disabled by DAWARICH_SYNC_ENABLED")
+        return
     storage = ReceiverStorage(settings)
     storage.startup()
     if not storage.readiness().is_ready:

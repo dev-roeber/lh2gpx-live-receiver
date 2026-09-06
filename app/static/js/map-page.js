@@ -1236,17 +1236,22 @@ const {
   }
 
   function renderPoints(points, latestPoint) {
-    const features = points.map(p => ({
+    const validPoints = points.filter(p => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lon))
+      && Number(p.lat) >= -90 && Number(p.lat) <= 90
+      && Number(p.lon) >= -180 && Number(p.lon) <= 180);
+    const features = validPoints.map(p => ({
       type: 'Feature',
-      geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+      geometry: { type: 'Point', coordinates: [Number(p.lon), Number(p.lat)] },
       properties: { timestamp: p.timestampLocal || p.timestampUtc, accuracy: p.accuracyM, isLatest: !!p.isLatest }
     }));
     map.getSource(SOURCE_IDS.POINTS).setData({ type: 'FeatureCollection', features: features.filter(f => !f.properties.isLatest) });
     
-    if (latestPoint) {
+    if (latestPoint && Number.isFinite(Number(latestPoint.lat)) && Number.isFinite(Number(latestPoint.lon))
+      && Number(latestPoint.lat) >= -90 && Number(latestPoint.lat) <= 90
+      && Number(latestPoint.lon) >= -180 && Number(latestPoint.lon) <= 180) {
       map.getSource(SOURCE_IDS.LATEST).setData({
         type: 'FeatureCollection',
-        features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [latestPoint.lon, latestPoint.lat] }, properties: { isLatest: true } }]
+        features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [Number(latestPoint.lon), Number(latestPoint.lat)] }, properties: { isLatest: true } }]
       });
     } else {
       map.getSource(SOURCE_IDS.LATEST).setData({ type: 'FeatureCollection', features: [] });
@@ -2843,7 +2848,7 @@ const {
               : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
           ],
           tileSize: 256,
-          attribution: '&copy; OpenStreetMap Contributors'
+          attribution: darkMode ? '&copy; OpenStreetMap Contributors &middot; &copy; CARTO' : '&copy; OpenStreetMap Contributors'
         }
       },
       layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
