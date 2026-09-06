@@ -1,0 +1,202 @@
+openapi: 3.1.0
+info:
+  title: LH2GPX Live-Receiver Contract
+  version: 1.0.0-draft
+  description: >
+    Contract-First-Vertrag zwischen der LH2GPX-iOS-App und dem
+    Web-Receiver. Siehe docs/LIVE_UPLOAD_CONTRACT.md für Begründung und
+    Migrationshinweise. Entwurfsstatus (Phase 0 des Full-Rewrites) —
+    noch nicht gegen die iOS-Seite final abgestimmt.
+
+servers:
+  - url: https://devroeber.tail71a8bc.ts.net:8443
+    description: Produktiv (Tailnet, HTTPS)
+
+paths:
+  /live-location:
+    post:
+      operationId: uploadLiveLocation
+      summary: Batch-Upload von Live-GPS-Punkten.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LiveLocationRequest'
+      responses:
+        '202':
+          description: Punkte übernommen (oder idempotent bereits vorhanden).
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: ['no-store']
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LiveLocationResponse'
+        '400':
+          description: Validierungsfehler.
+        '401':
+          description: Fehlendes/ungültiges Bearer-Token.
+        '429':
+          description: Rate-Limit überschritten.
+
+  /events/map:
+    get:
+      operationId: subscribeMapEvents
+      summary: Server-Sent-Events, einziger Live-Push-Kanal (ersetzt /ws/map).
+      security:
+        - adminSession: []
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Für History-Replay bei Reconnect.
+      responses:
+        '200':
+          description: text/event-stream mit MapEvent-Objekten.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /healthz:
+    get:
+      operationId: getHealth
+      summary: Liveness-Check.
+      responses:
+        '200':
+          description: Prozess läuft.
+
+  /readyz:
+    get:
+      operationId: getReadiness
+      summary: Readiness-Check (Storage beschreibbar).
+      responses:
+        '200':
+          description: Bereit.
+        '503':
+          description: Nicht bereit (z. B. Storage nicht beschreibbar).
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: LIVE_LOCATION_BEARER_TOKEN aus der Receiver-.env.
+    adminSession:
+      type: apiKey
+      in: cookie
+      name: ytdl_session
+      description: Zentrale Dashboard-Session (require_admin_access).
+
+  schemas:
+    LiveLocationPoint:
+      type: object
+      required: [latitude, longitude, timestamp, horizontalAccuracyM]
+      properties:
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+        timestamp:
+          type: string
+          format: date-time
+        horizontalAccuracyM:
+          type: number
+          minimum: 0
+
+    LiveLocationRequest:
+      type: object
+      required: [source, sessionID, requestID, captureMode, sentAt, points]
+      properties:
+        source:
+          type: string
+          minLength: 1
+        sessionID:
+          type: string
+          format: uuid
+        requestID:
+          type: string
+          format: uuid
+          description: >
+            Client-generiert, pro Upload-Versuch stabil (auch bei Retry
+            identisch) — Grundlage der serverseitigen Idempotenz auf
+            (sessionID, requestID). Neu ggü. dem Ist-Zustand.
+        captureMode:
+          type: string
+          minLength: 1
+        sentAt:
+          type: string
+          format: date-time
+        points:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/LiveLocationPoint'
+
+    LiveLocationResponse:
+      type: object
+      required: [status, requestId]
+      properties:
+        status:
+          type: string
+          enum: [accepted]
+        requestId:
+          type: string
+          description: Serverseitig vergebene Request-ID (unverändert ggü. Ist-Zustand).
+        echoRequestId:
+          type: string
+          format: uuid
+          description: Gespiegeltes Client-`requestID` zur Log-Korrelation.
+
+    MapEventEnvelope:
+      description: >
+        Konzeptuelles Schema der SSE-Events auf /events/map (kein JSON-Body
+        einer einzelnen HTTP-Response, sondern je Event im event-stream).
+      oneOf:
+        - $ref: '#/components/schemas/NewLocationEvent'
+        - $ref: '#/components/schemas/GeofenceTransitionEvent'
+
+    NewLocationEvent:
+      type: object
+      required: [type, sessionId]
+      properties:
+        type:
+          type: string
+          enum: [new_location]
+        sessionId:
+          type: string
+          format: uuid
+
+    GeofenceTransitionEvent:
+      type: object
+      description: Neu in Phase 1, sobald Geofencing scharf verdrahtet ist.
+      required: [type, geofenceId, subjectKey, transition, pointTimestampUtc, latitude, longitude]
+      properties:
+        type:
+          type: string
+          enum: [geofence_transition]
+        geofenceId:
+          type: string
+        subjectKey:
+          type: string
+        transition:
+          type: string
+          enum: [enter, exit]
+        pointTimestampUtc:
+          type: string
+          format: date-time
+        latitude:
+          type: number
+        longitude:
+          type: number
