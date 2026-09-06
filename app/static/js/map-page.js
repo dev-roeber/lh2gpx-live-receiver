@@ -125,9 +125,17 @@ const {
   // Render point details into the optional responsive detail panel.  Keep this
   // deliberately independent from the MapLibre popup so deployments without
   // the panel retain the original behaviour.
+  let pointDetailsRestoreFocus = null;
+
   window.showPointDetails = function showPointDetails(properties, lngLat) {
     const panel = document.getElementById('point-detail-panel');
     if (!panel) return false;
+
+    if (!panel.hidden && document.activeElement && panel.contains(document.activeElement)) {
+      pointDetailsRestoreFocus = null;
+    } else if (document.activeElement && typeof document.activeElement.focus === 'function') {
+      pointDetailsRestoreFocus = document.activeElement;
+    }
 
     const props = properties && typeof properties === 'object' ? properties : {};
     const value = (key) => {
@@ -164,6 +172,11 @@ const {
     if (!panel) return;
     panel.hidden = true;
     panel.setAttribute('aria-hidden', 'true');
+    const restore = pointDetailsRestoreFocus;
+    pointDetailsRestoreFocus = null;
+    if (restore && document.contains(restore) && typeof restore.focus === 'function') {
+      restore.focus({ preventScroll: true });
+    }
   }
 
   if (storageGet('map-route-defaults-version') !== ROUTE_DEFAULTS_VERSION) {
@@ -269,6 +282,34 @@ const {
   let darkMode = storageGet('map-dark-mode') === 'true' || false;
   let cssFsActive = false;
   let filtersExpanded = false;
+  let filterRestoreFocus = null;
+
+  function getFocusableElements(container) {
+    if (!container) return [];
+    return Array.from(container.querySelectorAll(
+      'a[href], area[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )).filter(element => !element.hidden && element.getAttribute('aria-hidden') !== 'true');
+  }
+
+  function isMobileFilter() {
+    return window.matchMedia ? window.matchMedia('(max-width: 767px)').matches : window.innerWidth <= 767;
+  }
+
+  function focusFilterPanel(event) {
+    const panel = document.getElementById('map-filter-panel');
+    if (!panel || !isMobileFilter() || !filtersExpanded) return;
+    const focusable = getFocusableElements(panel);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.key === 'Tab' && event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (event.key === 'Tab' && !event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
   let currentFetchController = null;
   let currentMetaFetchController = null;
   let lastETag = null;
@@ -685,17 +726,36 @@ const {
   }
 
   function toggleFilterPanel(show) {
-    const panel = document.querySelector('.map-filter-panel');
+    const panel = document.getElementById('map-filter-panel');
     const button = document.getElementById('fp-show-btn');
     const backdrop = document.getElementById('fp-backdrop');
     if (!panel || !button || !backdrop) return;
+    if (show && !filtersExpanded && document.activeElement && typeof document.activeElement.focus === 'function') {
+      filterRestoreFocus = document.activeElement;
+    }
     panel.classList.toggle('fp-open', show);
     backdrop.classList.toggle('fp-open', show);
+    filtersExpanded = show;
     button.dataset.open = show ? '1' : '0';
     button.textContent = show ? '✕ Filter' : '☰ Filter';
     button.setAttribute('aria-expanded', String(show));
+    panel.setAttribute('aria-hidden', String(!show));
+    panel.setAttribute('aria-modal', String(show && isMobileFilter()));
+    backdrop.setAttribute('aria-hidden', String(!show));
     storageSet('map-fp-hidden', show ? '0' : '1');
     if (map) setTimeout(() => map.resize(), 250);
+    if (show && isMobileFilter()) {
+      setTimeout(() => {
+        const closeButton = document.getElementById('fp-hide-btn');
+        (closeButton || panel).focus({ preventScroll: true });
+      }, 0);
+    } else if (!show) {
+      const restore = filterRestoreFocus;
+      filterRestoreFocus = null;
+      if (restore && document.contains(restore) && typeof restore.focus === 'function') {
+        restore.focus({ preventScroll: true });
+      }
+    }
   }
 
   function setDropdown(id, active) {
@@ -1298,6 +1358,10 @@ const {
       const coordCell = document.createElement('td');
       coordCell.style.cssText = 'padding: 14px 10px; color: var(--blue); cursor: pointer; user-select: none; border-radius: 4px; font-weight: 500;';
       coordCell.title = 'Klicken zum Kopieren';
+      coordCell.setAttribute('role', 'button');
+      coordCell.setAttribute('tabindex', '0');
+      coordCell.setAttribute('aria-label', `Koordinaten ${coordText} kopieren`);
+      coordCell.setAttribute('aria-keyshortcuts', 'Enter Space');
       coordCell.textContent = coordText;
 
       const accuracyCell = document.createElement('td');
@@ -1321,7 +1385,7 @@ const {
       requestCell.textContent = (item.requestId || 'N/A').substring(0, 12);
 
       row.append(timeCell, coordCell, accuracyCell, sourceCell, modeCell, requestCell);
-      coordCell.onclick = async (event) => {
+      const copyCoordinates = async (event) => {
         event.stopPropagation();
         try {
           await navigator.clipboard.writeText(coordText);
@@ -1331,6 +1395,13 @@ const {
         } catch (error) {
           console.warn('Clipboard write failed', error);
           window.prompt('Koordinaten kopieren:', coordText);
+        }
+      };
+      coordCell.onclick = copyCoordinates;
+      coordCell.onkeydown = (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          copyCoordinates(event);
         }
       };
       body.appendChild(row);
@@ -3055,6 +3126,15 @@ const {
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && cssFsActive) activateCssFullscreen();
+    const filterPanel = document.getElementById('map-filter-panel');
+    if (filterPanel && filtersExpanded && isMobileFilter()) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        toggleFilterPanel(false);
+        return;
+      }
+      focusFilterPanel(event);
+    }
     if (event.key === 'Escape') {
       closePointDetails();
       const fpBtn = document.getElementById('fp-show-btn');
@@ -3238,6 +3318,15 @@ const {
       const toast = document.getElementById('map-toast');
       if (toast) toast.hidden = true;
     };
+    const filterBackdrop = document.getElementById('fp-backdrop');
+    if (filterBackdrop) {
+      filterBackdrop.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          toggleFilterPanel(false);
+        }
+      });
+    }
     initMap();
 
     document.addEventListener('visibilitychange', () => {

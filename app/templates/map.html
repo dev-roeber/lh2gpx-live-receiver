@@ -8,28 +8,28 @@
   </div>
 </div>
 <div class="map-status-stack" aria-label="Kartenstatus">
-<div id="map-refresh-bar" class="map-status-strip" style="display:flex;align-items:center;gap:12px;margin:-8px 0 14px 0;font-size:0.78rem;color:var(--text-3);flex-wrap:wrap;">
-  <span>Aktualisiert: <strong id="mbar-ago" style="color:var(--text-2);">—</strong></span>
-  <span style="color:var(--separator);">|</span>
-  <span>Nächste: <strong id="mbar-next" style="color:var(--text-2);">—</strong></span>
-  <span style="color:var(--separator);">|</span>
-  <span id="mbar-progress-wrap" style="min-width:60px;max-width:140px;height:3px;background:var(--surface-2);border-radius:999px;overflow:hidden;flex-shrink:0;">
-    <span id="mbar-progress" style="display:block;height:100%;width:0%;background:var(--mint);border-radius:999px;transition:width 0.9s linear;"></span>
+<div id="map-refresh-bar" class="map-status-strip map-refresh-strip">
+  <span>Aktualisiert: <strong id="mbar-ago" class="map-status-value">—</strong></span>
+  <span class="map-status-separator">|</span>
+  <span>Nächste: <strong id="mbar-next" class="map-status-value">—</strong></span>
+  <span class="map-status-separator">|</span>
+  <span id="mbar-progress-wrap" class="map-refresh-progress-track">
+    <span id="mbar-progress" class="map-refresh-progress"></span>
   </span>
-  <span style="color:var(--separator);">|</span>
-  <span>⬇ <strong id="mbar-mbps" style="color:var(--text-2);">—</strong> MB/s</span>
-  <span style="color:var(--separator);">|</span>
-  <span>Heute: <strong id="mbar-daily" style="color:var(--text-2);">—</strong></span>
+  <span class="map-status-separator">|</span>
+  <span>⬇ <strong id="mbar-mbps" class="map-status-value">—</strong> MB/s</span>
+  <span class="map-status-separator">|</span>
+  <span>Heute: <strong id="mbar-daily" class="map-status-value">—</strong></span>
 </div>
-<div id="map-processing-bar" class="map-status-strip map-processing-strip" style="display:flex;align-items:center;gap:8px;margin:-2px 0 14px 0;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--surface-1);font-size:0.78rem;color:var(--text-3);flex-wrap:wrap;">
+<div id="map-processing-bar" class="map-status-strip map-processing-strip">
   <span>Server-Verarbeitung:</span>
-  <strong id="processing-status-label" style="color:var(--text-2);">—</strong>
-  <span style="color:var(--separator);">|</span>
-  <span id="processing-status-detail" style="color:var(--text-2);">—</span>
-  <span style="color:var(--separator);">|</span>
-  <span>Fehlend: <strong id="processing-remaining" style="color:var(--text-2);">—</strong></span>
-  <span style="color:var(--separator);">|</span>
-  <span>ETA: <strong id="processing-eta" style="color:var(--text-2);">—</strong></span>
+  <strong id="processing-status-label" class="map-status-value">—</strong>
+  <span class="map-status-separator">|</span>
+  <span id="processing-status-detail" class="map-status-value">—</span>
+  <span class="map-status-separator">|</span>
+  <span>Fehlend: <strong id="processing-remaining" class="map-status-value">—</strong></span>
+  <span class="map-status-separator">|</span>
+  <span>ETA: <strong id="processing-eta" class="map-status-value">—</strong></span>
 </div>
 </div>
 
@@ -39,14 +39,14 @@
 <script src="/static/vendor/dexie.js"></script>
 
 <div class="map-page-container">
-  <button id="map-filter-toggle-btn" class="map-filter-toggle" style="display: none;" aria-expanded="false" aria-controls="map-filter-panel">Filteroptionen ▼</button>
+  <button id="map-filter-toggle-btn" class="map-filter-toggle" aria-expanded="false" aria-controls="map-filter-panel">Filteroptionen ▼</button>
 
-  <div class="map-filter-panel" id="map-filter-panel" role="region" aria-label="Filteroptionen">
-    <div style="display:flex;justify-content:flex-end;margin:-6px -6px 0 0;">
+  <div class="map-filter-panel" id="map-filter-panel" role="dialog" aria-modal="false" aria-hidden="true" aria-labelledby="map-filter-title" tabindex="-1">
+    <div class="filter-panel-close-row">
       <button id="fp-hide-btn" class="fp-hide-btn" title="Menü ausblenden" aria-label="Filtermenü ausblenden" onclick="toggleFilterPanel(false)">◀</button>
     </div>
 
-    <p class="fp-section-label">Session / Import</p>
+    <p class="fp-section-label" id="map-filter-title">Session / Import</p>
     <div class="filter-group fp-row">
       <input type="checkbox" id="session-filter-toggle" aria-label="Session-Filter aktivieren">
       <label for="session-filter-toggle" class="fp-check-label">Session</label>
@@ -69,45 +69,45 @@
     </div>
 
     <p class="fp-section-label">Routen-Segmentierung</p>
-    <small style="color:var(--text-3);font-size:0.72rem;display:block;margin:-4px 0 6px 0;">Ab wann eine neue Route beginnt (Lücke im Track).</small>
+    <small class="filter-help filter-help-route">Ab wann eine neue Route beginnt (Lücke im Track).</small>
     <div class="filter-group fp-row fp-numrow">
       <label for="route-time-gap" class="fp-num-label" title="Zeitlücke ab der eine neue Route beginnt">Zeit (min)</label>
       <input type="number" id="route-time-gap" min="1" max="1440" class="fp-num-input">
     </div>
-    <small style="color:var(--text-3);font-size:0.72rem;margin:-2px 0 4px 0;display:block;">Pause länger als X Minuten → neues Segment.</small>
+    <small class="filter-help filter-help-after-time">Pause länger als X Minuten → neues Segment.</small>
     <div class="filter-group fp-row fp-numrow">
       <label for="route-dist-gap" class="fp-num-label" title="Distanzlücke ab der eine neue Route beginnt">Distanz (m)</label>
       <input type="number" id="route-dist-gap" min="10" class="fp-num-input">
     </div>
-    <small style="color:var(--text-3);font-size:0.72rem;margin:-2px 0 0 0;display:block;">Sprung größer als X Meter → neues Segment.</small>
+    <small class="filter-help filter-help-after-distance">Sprung größer als X Meter → neues Segment.</small>
 
     <p class="fp-section-label">Datenabruf</p>
     <div class="filter-group fp-row fp-numrow">
       <label for="map-max-points" class="fp-num-label" title="Fallback-Limit wenn noch kein Karten-Viewport verfügbar ist">Fallback-Punkte</label>
       <input type="number" id="map-max-points" min="1" class="fp-num-input">
     </div>
-    <small style="color:var(--text-3);font-size:0.72rem;margin:-2px 0 6px 0;display:block;">Im normalen Kartenbetrieb lädt der Server viewport-basiert. Dieser Wert greift nur als Fallback.</small>
+    <small class="filter-help filter-help-fallback">Im normalen Kartenbetrieb lädt der Server viewport-basiert. Dieser Wert greift nur als Fallback.</small>
 
     <p class="fp-section-label">Aktionen</p>
     <div class="filter-actions">
-      <button id="export-geojson-btn" class="button-link secondary" title="Alle aktuell geladenen Punkte als GeoJSON-Datei herunterladen" style="width:100%;">💾 GeoJSON exportieren</button>
+      <button id="export-geojson-btn" class="button-link secondary filter-action-full" title="Alle aktuell geladenen Punkte als GeoJSON-Datei herunterladen">💾 GeoJSON exportieren</button>
     </div>
 
-    <div class="fp-status-bar" style="flex-direction:column;align-items:flex-start;gap:4px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+    <div class="fp-status-bar fp-status-panel">
+      <div class="fp-status-heading">
         <span class="fp-status-label">API</span>
         <span class="status-badge" id="api-status">● OFFLINE</span>
       </div>
-      <div style="font-size:0.72rem;color:var(--text-3);line-height:1.5;">
-        <div>Punkte geladen: <span id="api-info-points" style="color:var(--text-2);">—</span></div>
-        <div>Antwortzeit: <span id="api-info-ms" style="color:var(--text-2);">—</span></div>
-        <div style="word-break:break-all;">Endpunkt: <span id="api-info-url" style="color:var(--text-2);font-family:monospace;font-size:0.68rem;">—</span></div>
+      <div class="fp-status-details">
+        <div>Punkte geladen: <span id="api-info-points" class="fp-status-value">—</span></div>
+        <div>Antwortzeit: <span id="api-info-ms" class="fp-status-value">—</span></div>
+        <div class="fp-status-endpoint">Endpunkt: <span id="api-info-url" class="fp-status-value fp-status-url">—</span></div>
       </div>
     </div>
   </div>
 
   <article class="panel map-container-wrapper">
-    <div id="map-wrap" style="position:relative;">
+    <div id="map-wrap">
       <div id="map-container"></div>
       <div id="map-toast" class="map-toast" role="status" aria-live="polite" aria-atomic="true" hidden>
         <span id="map-toast-text"></span>
@@ -154,7 +154,7 @@
         <span id="map-sync-pill-text">Synchronisiert</span>
       </div>
 
-      <aside id="point-detail-panel" class="point-detail-panel" hidden aria-labelledby="point-detail-title" aria-live="polite">
+      <aside id="point-detail-panel" class="point-detail-panel" hidden role="dialog" aria-modal="false" aria-hidden="true" aria-labelledby="point-detail-title" tabindex="-1">
         <div class="point-detail-head">
           <div><span class="eyebrow">Standort</span><h3 id="point-detail-title">GPS-Punkt</h3></div>
           <button id="point-detail-close" type="button" class="point-detail-close" aria-label="Punktdetails schließen">×</button>
@@ -168,61 +168,61 @@
 
       {# Timeline — floating am unteren Rand #}
 
-      <div id="map-timeline-container" style="display:none;position:absolute;bottom:24px;left:50%;transform:translateX(-50%);z-index:740;width:min(600px,calc(100% - 24px));max-width:calc(100% - 24px);pointer-events:none;">
-        <div id="map-timeline-card" style="background:rgba(28,28,30,0.75);backdrop-filter:blur(15px) saturate(180%);-webkit-backdrop-filter:blur(15px) saturate(180%);border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:12px 18px;box-shadow:0 12px 40px rgba(0,0,0,0.5);pointer-events:auto;display:flex;flex-direction:column;gap:8px;box-sizing:border-box;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
-            <div style="display:flex;align-items:center;gap:12px;">
-            <button id="timeline-play-btn" aria-label="Wiedergabe starten" aria-pressed="false" style="background:var(--mint);color:#000;border:none;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:1.1rem;transition:transform 0.1s active;">▶</button>
-              <div style="display:flex;flex-direction:column;">
-                <span id="timeline-current-time" style="color:var(--text-1);font-weight:600;font-size:0.85rem;font-variant-numeric:tabular-nums;">—</span>
-                <span id="timeline-current-date" style="color:var(--text-3);font-size:0.65rem;">—</span>
+      <div id="map-timeline-container" class="map-timeline-container">
+        <div id="map-timeline-card" class="map-timeline-card">
+          <div class="timeline-header">
+            <div class="timeline-heading">
+            <button id="timeline-play-btn" aria-label="Wiedergabe starten" aria-pressed="false">▶</button>
+              <div class="timeline-current">
+                <span id="timeline-current-time">—</span>
+                <span id="timeline-current-date">—</span>
               </div>
             </div>
-            <div style="text-align:right;display:flex;flex-direction:column;gap:1px;">
-              <span id="timeline-mode-label" style="display:inline-flex;align-self:flex-end;align-items:center;gap:4px;color:var(--blue);background:rgba(10,132,255,0.14);border:1px solid rgba(10,132,255,0.24);border-radius:999px;padding:2px 8px;font-size:0.58rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;">Live</span>
-              <span id="timeline-info-points" style="color:var(--mint);font-weight:600;font-size:0.75rem;">0 Punkte</span>
-              <span id="timeline-source-label" style="color:var(--text-3);font-size:0.6rem;text-transform:uppercase;letter-spacing:0.05em;">Sichtbarer Bereich</span>
+            <div class="timeline-summary">
+              <span id="timeline-mode-label">Live</span>
+              <span id="timeline-info-points">0 Punkte</span>
+              <span id="timeline-source-label">Sichtbarer Bereich</span>
             </div>
           </div>
 
-          <div id="timeline-toolbar" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-              <button id="timeline-start-btn" class="mqc-btn" aria-label="Zum Anfang springen" style="padding:6px 9px;font-size:0.72rem;">⏮</button>
-              <button id="timeline-prev-btn" class="mqc-btn" aria-label="Zurückspringen" style="padding:6px 9px;font-size:0.72rem;">◀</button>
-              <button id="timeline-live-btn" class="mqc-btn" aria-label="Zur aktuellen Zeit springen" style="padding:6px 10px;font-size:0.72rem;">Jetzt</button>
-              <button id="timeline-next-btn" class="mqc-btn" aria-label="Vorwärtsspringen" style="padding:6px 9px;font-size:0.72rem;">▶</button>
-              <button id="timeline-end-btn" class="mqc-btn" aria-label="Zum Ende springen" style="padding:6px 9px;font-size:0.72rem;">⏭</button>
-              <select id="timeline-speed-select" class="mqc-select" aria-label="Wiedergabegeschwindigkeit" style="width:auto;min-width:84px;padding:6px 8px;font-size:0.72rem;">
+          <div id="timeline-toolbar">
+            <div class="timeline-toolbar-group">
+              <button id="timeline-start-btn" class="mqc-btn timeline-step-btn" aria-label="Zum Anfang springen">⏮</button>
+              <button id="timeline-prev-btn" class="mqc-btn timeline-step-btn" aria-label="Zurückspringen">◀</button>
+              <button id="timeline-live-btn" class="mqc-btn timeline-live-btn" aria-label="Zur aktuellen Zeit springen">Jetzt</button>
+              <button id="timeline-next-btn" class="mqc-btn timeline-step-btn" aria-label="Vorwärtsspringen">▶</button>
+              <button id="timeline-end-btn" class="mqc-btn timeline-step-btn" aria-label="Zum Ende springen">⏭</button>
+              <select id="timeline-speed-select" class="mqc-select timeline-speed-select" aria-label="Wiedergabegeschwindigkeit">
                 <option value="0.5">0.5x</option>
                 <option value="1">1x</option>
                 <option value="2">2x</option>
                 <option value="4">4x</option>
               </select>
-              <select id="timeline-step-select" class="mqc-select" aria-label="Schrittweite" style="width:auto;min-width:108px;padding:6px 8px;font-size:0.72rem;">
+              <select id="timeline-step-select" class="mqc-select timeline-step-select" aria-label="Schrittweite">
                 <option value="points:1">1 Punkt</option>
                 <option value="points:5">5 Punkte</option>
                 <option value="seconds:30">30 Sek</option>
                 <option value="seconds:300">5 Min</option>
               </select>
             </div>
-            <select id="timeline-source-select" class="mqc-select" aria-label="Datenquelle für Timeline" style="width:auto;min-width:136px;padding:6px 8px;font-size:0.72rem;">
+            <select id="timeline-source-select" class="mqc-select timeline-source-select" aria-label="Datenquelle für Timeline">
               <option value="viewport">Quelle: Ansicht</option>
               <option value="filter">Quelle: Filter</option>
             </select>
           </div>
-          <div id="timeline-settings-row" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--text-3);font-size:0.66rem;">
-            <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="timeline-replay-live-toggle"> Echtzeit-Replay</label>
-            <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="timeline-autofollow-toggle"> Auto-Follow</label>
+          <div id="timeline-settings-row">
+            <label class="timeline-setting"><input type="checkbox" id="timeline-replay-live-toggle"> Echtzeit-Replay</label>
+            <label class="timeline-setting"><input type="checkbox" id="timeline-autofollow-toggle"> Auto-Follow</label>
           </div>
           
-          <div style="position:relative;height:24px;display:flex;align-items:center;">
+          <div class="timeline-slider-wrap">
             <input type="range" id="map-timeline-slider" min="0" max="1000" value="1000" aria-label="Zeitachse"
-              style="width:100%;height:6px;appearance:none;-webkit-appearance:none;background:rgba(255,255,255,0.1);border-radius:999px;outline:none;cursor:pointer;--thumb-color:var(--mint);">
+              class="timeline-slider">
           </div>
-          <div id="timeline-marker-strip" style="position:relative;height:10px;"></div>
-          <div id="timeline-activity-strip" style="display:flex;align-items:flex-end;gap:2px;height:18px;opacity:0.95;"></div>
+          <div id="timeline-marker-strip" class="timeline-marker-strip"></div>
+          <div id="timeline-activity-strip" class="timeline-activity-strip"></div>
           
-          <div style="display:flex;justify-content:space-between;font-size:0.65rem;color:var(--text-3);font-variant-numeric:tabular-nums;">
+          <div class="timeline-labels">
             <span id="timeline-start-label">—</span>
             <span id="timeline-end-label">—</span>
           </div>
@@ -532,7 +532,7 @@
 </article>
 </div>
 <button id="fp-show-btn" title="Filter ein-/ausblenden" aria-expanded="false" aria-controls="map-filter-panel" onclick="toggleFilterPanel(this.dataset.open!=='1')">☰ Filter</button>
-<div id="fp-backdrop" aria-hidden="true" onclick="toggleFilterPanel(false)"></div>
+<div id="fp-backdrop" role="button" tabindex="0" aria-label="Filtermenü schließen" aria-hidden="true" onclick="toggleFilterPanel(false)"></div>
 
 <script>
   window.MAP_BOOTSTRAP = {

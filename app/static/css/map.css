@@ -141,6 +141,173 @@
   }
 }
 
+/* ── Template cleanup: status and timeline presentation ─────
+   These rules replace the former inline declarations while keeping the
+   overlay dimensions fluid across map and viewport sizes. */
+.map-refresh-strip,
+.map-processing-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  color: var(--text-3);
+  font-size: clamp(.72rem, .15vw + .68rem, .78rem);
+}
+
+.map-refresh-strip { gap: 12px; }
+.map-processing-strip { gap: 8px; }
+.map-status-value { color: var(--text-2); }
+.map-status-separator { color: var(--separator); }
+.map-refresh-progress-track {
+  min-width: 60px;
+  max-width: 140px;
+  height: 3px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+.map-refresh-progress {
+  display: block;
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--mint);
+  transition: width .9s linear;
+}
+
+.map-processing-strip {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-1);
+}
+
+.filter-panel-close-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: -6px -6px 0 0;
+}
+.filter-help {
+  display: block;
+  color: var(--text-3);
+  font-size: .72rem;
+}
+.filter-help-route { margin: -4px 0 6px; }
+.filter-help-after-time { margin: -2px 0 4px; }
+.filter-help-after-distance { margin: -2px 0 0; }
+.filter-help-fallback { margin: -2px 0 6px; }
+.filter-action-full { width: 100%; }
+.fp-status-panel {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.fp-status-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+.fp-status-details {
+  color: var(--text-3);
+  font-size: .72rem;
+  line-height: 1.5;
+}
+.fp-status-endpoint { word-break: break-all; }
+.fp-status-url {
+  font-family: monospace;
+  font-size: .68rem;
+}
+
+#map-wrap { position: relative; }
+
+.map-timeline-container {
+  display: none;
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  z-index: 740;
+  width: min(680px, calc(100% - 2 * var(--map-control-inset)));
+  max-width: calc(100% - 24px);
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+.map-timeline-card {
+  display: flex;
+  box-sizing: border-box;
+  flex-direction: column;
+  gap: 8px;
+  padding: clamp(12px, 1.25vw, 18px);
+  pointer-events: auto;
+  border: 1px solid var(--map-panel-border);
+  border-radius: var(--map-sheet-radius);
+  background: var(--map-overlay-surface);
+  box-shadow: var(--map-sheet-shadow);
+  backdrop-filter: blur(20px) saturate(155%);
+  -webkit-backdrop-filter: blur(20px) saturate(155%);
+}
+.timeline-header,
+#timeline-toolbar,
+.timeline-toolbar-group,
+#timeline-settings-row,
+.timeline-slider-wrap,
+.timeline-labels {
+  display: flex;
+  align-items: center;
+}
+.timeline-header {
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+.timeline-heading,
+.timeline-toolbar-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.timeline-heading { gap: 12px; }
+.timeline-current { display: flex; flex-direction: column; }
+.timeline-current-time,
+#timeline-current-time { color: var(--text-1); font-size: .85rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+#timeline-current-date { color: var(--text-3); font-size: .65rem; }
+.timeline-summary { display: flex; flex-direction: column; gap: 1px; text-align: right; }
+#timeline-mode-label {
+  display: inline-flex;
+  align-self: flex-end;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid rgba(10,132,255,.24);
+  border-radius: 999px;
+  color: var(--blue);
+  background: rgba(10,132,255,.14);
+  font-size: .58rem;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+#timeline-info-points { color: var(--mint); font-size: .75rem; font-weight: 600; }
+#timeline-source-label { color: var(--text-3); font-size: .6rem; letter-spacing: .05em; text-transform: uppercase; }
+#timeline-toolbar { justify-content: space-between; gap: clamp(6px, .7vw, 10px); flex-wrap: wrap; }
+.timeline-step-btn { padding: 6px 9px; font-size: .72rem; }
+.timeline-live-btn { padding: 6px 10px; font-size: .72rem; }
+.timeline-speed-select { width: auto; min-width: 84px; padding: 6px 8px; font-size: .72rem; }
+.timeline-step-select { width: auto; min-width: 108px; padding: 6px 8px; font-size: .72rem; }
+.timeline-source-select { width: auto; min-width: 136px; padding: 6px 8px; font-size: .72rem; }
+#timeline-settings-row { gap: 10px; flex-wrap: wrap; color: var(--text-3); font-size: .66rem; }
+.timeline-setting { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.timeline-slider-wrap { position: relative; height: 24px; }
+.timeline-slider { width: 100%; height: 6px; appearance: none; -webkit-appearance: none; border-radius: 999px; outline: none; cursor: pointer; background: rgba(255,255,255,.1); --thumb-color: var(--mint); }
+.timeline-marker-strip { position: relative; height: 10px; }
+.timeline-activity-strip { display: flex; align-items: flex-end; gap: 2px; height: 18px; opacity: .95; }
+.timeline-labels { justify-content: space-between; color: var(--text-3); font-size: .65rem; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 767px) {
+  .map-refresh-strip { gap: 8px; }
+  .map-status-separator { display: none; }
+  .map-timeline-container { bottom: max(8px, env(safe-area-inset-bottom)); }
+  .map-timeline-card { width: 100%; max-height: min(48dvh, 430px); overflow-y: auto; padding: 12px; }
+  #timeline-toolbar { justify-content: flex-start; }
+  #timeline-toolbar .mqc-btn,
+  #timeline-toolbar .mqc-select { flex: 1 1 auto; }
+}
+
 /* ── Point details: adaptive inspector / bottom sheet ────────
    The panel is already present in map.html and is opened by removing the
    native hidden attribute.  Keep the component self-contained so it can be
