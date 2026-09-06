@@ -109,6 +109,10 @@
   <article class="panel map-container-wrapper">
     <div id="map-wrap" style="position:relative;">
       <div id="map-container"></div>
+      <div id="map-toast" class="map-toast" role="status" aria-live="polite" aria-atomic="true" hidden>
+        <span id="map-toast-text"></span>
+        <button id="map-toast-close" type="button" aria-label="Meldung schließen">×</button>
+      </div>
       <div id="map-loading-overlay" role="status" aria-live="polite" aria-atomic="false">
         <div id="map-loading-card">
           <div class="map-loading-header">

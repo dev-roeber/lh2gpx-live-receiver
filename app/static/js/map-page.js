@@ -400,7 +400,7 @@ const {
     if (latest && map) {
       map.flyTo({ center: [latest.lon, latest.lat], zoom: 17, speed: 1.2, essential: true });
     } else {
-      alert('Kein aktueller Punkt gefunden.');
+      showToast('Kein aktueller Punkt gefunden.', 'error');
     }
   }
 
@@ -927,7 +927,7 @@ const {
   async function exportGeoJSON() {
     const response = await fetchWithRetry(buildGeoJsonExportUrl(), { credentials: 'same-origin' });
     if (!response.ok) {
-      alert('GeoJSON-Export fehlgeschlagen.');
+      showToast('GeoJSON-Export fehlgeschlagen.', 'error');
       return;
     }
     const payload = await response.json();
@@ -1462,7 +1462,7 @@ const {
     const button = document.getElementById('browser-location-btn');
     if (!button) return;
     if (!navigator.geolocation) {
-      alert('Der Browser unterstützt keine Standortabfrage.');
+      showToast('Der Browser unterstützt keine Standortabfrage.', 'error');
       return;
     }
 
@@ -1497,7 +1497,7 @@ const {
         let msg = 'Standortabfrage fehlgeschlagen.';
         if (error.code === 1) msg = 'Standortfreigabe im Browser verweigert.';
         else if (error.code === 3) msg = 'Zeitüberschreitung (bitte erneut versuchen).';
-        alert(msg);
+        showToast(msg, 'error');
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
@@ -1723,6 +1723,21 @@ const {
     loadingSyncPillTimer = setTimeout(() => {
       ui.syncPill.classList.remove('is-visible');
     }, durationMs);
+  }
+
+  let mapToastTimer = null;
+  function showToast(message, mode = 'error', durationMs = 5000) {
+    const toast = document.getElementById('map-toast');
+    const text = document.getElementById('map-toast-text');
+    if (!toast || !text) {
+      showSyncPill(message, mode, durationMs);
+      return;
+    }
+    clearTimeout(mapToastTimer);
+    text.textContent = message;
+    toast.dataset.mode = mode;
+    toast.hidden = false;
+    mapToastTimer = setTimeout(() => { toast.hidden = true; }, durationMs);
   }
 
   function wait(ms) {
@@ -3217,6 +3232,12 @@ const {
     toggleFilterPanel(storageGet('map-fp-hidden', '0') !== '1');
     setupMobileFilterToggle();
     showIOSBanner();
+    const toastClose = document.getElementById('map-toast-close');
+    if (toastClose) toastClose.onclick = () => {
+      clearTimeout(mapToastTimer);
+      const toast = document.getElementById('map-toast');
+      if (toast) toast.hidden = true;
+    };
     initMap();
 
     document.addEventListener('visibilitychange', () => {
