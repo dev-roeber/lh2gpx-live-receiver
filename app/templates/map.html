@@ -249,16 +249,16 @@
       </div>
 
       {# Karten-Menü — floating oben rechts über dem Layer-Menü #}
-      <div id="map-quick-ctrl" style="z-index:720;">
+      <div id="map-quick-ctrl" class="map-quick-control">
         <button id="mqc-btn" title="Kartensteuerung ein-/ausblenden" aria-label="Kartenmenü ein- oder ausblenden" aria-haspopup="true" aria-expanded="false" aria-controls="mqc-panel">☰ Karte</button>
         <div id="mqc-panel" role="region" aria-label="Kartenoptionen">
           {# Standort-Auswahl-Menü (Glassmorphismus) #}
-          <div id="location-selection-menu" style="display:none;position:absolute;right:0;top:calc(100% + 8px);background:rgba(28,28,30,0.85);backdrop-filter:blur(15px);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:8px;width:190px;box-shadow:0 8px 24px rgba(0,0,0,0.4);flex-direction:column;gap:4px;z-index:730;">
-             <button class="mqc-btn" aria-label="Eigenen Browser-Standort anzeigen" style="width:100%;text-align:left;justify-content:flex-start;padding:10px 12px;" onclick="locateBrowserPosition(); toggleLocationMenu(false);">
-               <span style="margin-right:8px;">◎</span> Mein Standort
+          <div id="location-selection-menu" class="location-selection-menu">
+             <button class="mqc-btn location-selection-action" aria-label="Eigenen Browser-Standort anzeigen" onclick="locateBrowserPosition(); toggleLocationMenu(false);">
+               <span class="location-selection-icon">◎</span> Mein Standort
              </button>
-             <button class="mqc-btn" aria-label="Zum neuesten GPS-Punkt springen" style="width:100%;text-align:left;justify-content:flex-start;padding:10px 12px;" onclick="focusLatestPoint(); toggleLocationMenu(false);">
-               <span style="margin-right:8px;">🏁</span> Neuester Punkt
+             <button class="mqc-btn location-selection-action" aria-label="Zum neuesten GPS-Punkt springen" onclick="focusLatestPoint(); toggleLocationMenu(false);">
+               <span class="location-selection-icon">🏁</span> Neuester Punkt
              </button>
           </div>
           <div class="mqc-row">
@@ -314,7 +314,7 @@
           </div>
           <div class="mqc-actions">
             <button id="refresh-map-btn" class="mqc-btn" title="Jetzt laden" aria-label="Kartendaten jetzt aktualisieren">
-              <span id="btn-text">↻</span><span id="btn-spinner" style="display:none;">⌛</span>
+              <span id="btn-text">↻</span><span id="btn-spinner" class="map-control-spinner">⌛</span>
               <span>Refresh</span>
             </button>
             <button id="browser-location-btn" class="mqc-btn" title="Aktuellen Browser-Standort abrufen" aria-label="Standortmenü öffnen" aria-haspopup="true" aria-expanded="false" aria-controls="location-selection-menu">◎ <span>Standort</span></button>
@@ -335,7 +335,7 @@
       </div>
 
       {# Layer-Control — floating auf der Karte (oben rechts) #}
-      <div id="map-layer-ctrl" style="z-index:710;">
+      <div id="map-layer-ctrl" class="map-layer-control">
         <button id="mlc-btn" title="Layer ein-/ausblenden" aria-label="Layer-Menü ein- oder ausblenden" aria-haspopup="true" aria-expanded="false" aria-controls="mlc-panel" onclick="this.setAttribute('aria-expanded', document.getElementById('map-layer-ctrl').classList.toggle('mlc-open'))">⊞ Layer</button>
         <div id="mlc-panel" role="region" aria-label="Kartenlayer">
           <div class="mlc-row"><label class="mlc-lbl" title="Dichteverteilung aller Punkte als Wärmebild"><input type="checkbox" id="heatmap-toggle"> Heatmap</label></div>
@@ -346,14 +346,14 @@
           <div class="mlc-row"><label class="mlc-lbl" title="Liniensegmente nach Geschwindigkeit einfärben"><input type="checkbox" id="speed-toggle"> Tempo</label></div>
           <div class="mlc-row">
             <label class="mlc-lbl" title="Orte markieren wo du mindestens X Minuten geblieben bist"><input type="checkbox" id="stops-toggle" aria-controls="stops-config" aria-expanded="false"> Stops</label>
-            <div id="stops-config" style="display:none;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);">
-              <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
-                <label style="font-size:0.72rem;color:var(--text-3);flex:1;">Min. (min)</label>
-                <input type="number" id="stop-min-duration" min="1" max="120" class="fp-num-input" style="width:52px;">
+            <div id="stops-config" class="stops-config">
+              <div class="stops-config-row">
+                <label class="stops-config-label">Min. (min)</label>
+                <input type="number" id="stop-min-duration" min="1" max="120" class="fp-num-input stops-config-input">
               </div>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <label style="font-size:0.72rem;color:var(--text-3);flex:1;">Radius (m)</label>
-                <input type="number" id="stop-radius" min="10" max="1000" class="fp-num-input" style="width:52px;">
+              <div class="stops-config-row">
+                <label class="stops-config-label">Radius (m)</label>
+                <input type="number" id="stop-radius" min="10" max="1000" class="fp-num-input stops-config-input">
               </div>
             </div>
           </div>
@@ -362,14 +362,14 @@
         </div>
       </div>
 
-      <div id="map-timeline-ctrl" style="z-index:705;">
+      <div id="map-timeline-ctrl" class="map-timeline-control">
         <button id="mtc-btn" title="Timeline ein-/ausblenden" aria-label="Timeline ein- oder ausblenden" aria-pressed="false">◴ Timeline</button>
       </div>
 
     </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;flex-wrap:wrap;gap:8px;">
-      <p id="map-stats-text" class="eyebrow" style="margin:0;color:var(--text-muted);">Initialisiere Karte…</p>
-      <span id="map-points-badge" style="display:none;font-size:0.72rem;font-weight:600;color:var(--mint);background:var(--mint-dim);border:1px solid var(--mint-border);border-radius:999px;padding:2px 10px;"></span>
+    <div class="map-stats-row">
+      <p id="map-stats-text" class="eyebrow map-stats-text">Initialisiere Karte…</p>
+      <span id="map-points-badge" class="map-points-badge"></span>
     </div>
 
     <div id="map-legend-anchor"></div>

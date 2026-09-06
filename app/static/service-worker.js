@@ -1,6 +1,6 @@
 // Minimaler Service Worker für die PWA-Installation ("Zum Home-Bildschirm
-// hinzufügen" auf iOS/Android) — cached NUR die statische App-Shell
-// (Dashboard/Karten-Seiten, CSS, MapLibre-Vendor-Assets, map-page.js),
+// hinzufügen" auf iOS/Android) — cached NUR sichere statische App-Assets
+// (CSS, JavaScript, Manifest/Icon),
 // NIEMALS API-Antworten, Live-Location-Ingest oder den WebSocket-Traffic,
 // damit GPS-Live-Daten/Session-/Punktestatus immer aktuell bleiben.
 //
@@ -9,24 +9,25 @@
 // "/static/*" und Navigationen zu "/dashboard"/"/dashboard/map" würden
 // nicht kontrolliert.
 //
-// CACHE_VERSION nur erhöhen, wenn sich die Shell-Cache-Strategie selbst
-// ändert. App-spezifisch (LH2GPX hat die höchste PWA-Priorität, da primär
-// mobil unterwegs für Live-GPS-Tracking genutzt): zusätzlich eine kleine
-// Offline-Fallback-Seite für HTML-Navigationen, wenn weder Netzwerk noch
-// Cache greifen (z.B. Erstaufruf ohne Empfang) — siehe OFFLINE_HTML unten.
-const CACHE_VERSION = "lh2gpx-shell-v1";
+// CACHE_VERSION bei jeder Änderung an der gecachten Asset-Menge oder
+// Cache-Strategie erhöhen. HTML-Navigationen werden absichtlich nicht
+// gecacht: So können sessionabhängige oder veraltete Seiten keine
+// Deployment-Probleme verursachen. Bei Offline-Navigationen gibt es nur den
+// neutralen Fallback — siehe OFFLINE_HTML unten.
+const CACHE_VERSION = "lh2gpx-shell-v2";
 
-// App-Shell: Seiten + Assets, die für die Live-Karte unterwegs auch bei
-// Empfangslücken nutzbar bleiben sollen.
+// Statische Assets, die für die Live-Karte unterwegs auch bei Empfangslücken
+// verfügbar bleiben sollen. HTML-Seiten gehören ausdrücklich nicht hierher.
 const SHELL_URLS = [
-  "/dashboard",
-  "/dashboard/map",
   "/static/tokens.css",
   "/static/css/app.css",
   "/static/css/map.css",
   "/static/vendor/maplibre-gl/maplibre-gl.js",
   "/static/vendor/maplibre-gl/maplibre-gl.css",
+  "/static/vendor/dexie.js",
   "/static/js/map-page.js",
+  "/static/manifest.json",
+  "/static/apple-touch-icon.png",
 ];
 
 // Pfade, die NIE aus dem Cache bedient werden dürfen — Live-/Ingest-/
@@ -44,16 +45,42 @@ function isNeverCache(pathname) {
   return NEVER_CACHE_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
+function isSameOrigin(url) {
+  return url.origin === self.location.origin;
+}
+
 function isShellCacheable(pathname) {
   if (isNeverCache(pathname)) return false;
+  return SHELL_URLS.includes(pathname) || pathname.startsWith("/static/vendor/maplibre-gl/");
+}
+
+function hasSensitiveCacheHeaders(response) {
+  const cacheControl = response.headers.get("Cache-Control") || "";
+  const vary = response.headers.get("Vary") || "";
   return (
-    SHELL_URLS.includes(pathname) ||
-    pathname.startsWith("/static/vendor/maplibre-gl/") ||
-    pathname === "/static/tokens.css" ||
-    pathname === "/static/css/app.css" ||
-    pathname === "/static/css/map.css" ||
-    pathname === "/static/js/map-page.js"
+    /(?:^|,)\s*(?:no-store|private)\b/i.test(cacheControl) ||
+    /(?:^|,)\s*cookie\s*(?:,|$)/i.test(vary) ||
+    response.headers.has("Set-Cookie") ||
+    response.headers.has("WWW-Authenticate")
   );
+}
+
+function canCacheResponse(response) {
+  // Nur erfolgreiche, gleich-origin Antworten aus dem eigenen Server cachen.
+  // Opaque/CORS-Antworten und explizit private Antworten bleiben draußen.
+  return response && response.ok && response.type === "basic" && !hasSensitiveCacheHeaders(response);
+}
+
+async function cacheShellAsset(cache, pathname) {
+  try {
+    const response = await fetch(new Request(pathname, {
+      cache: "no-store",
+      credentials: "same-origin",
+    }));
+    if (canCacheResponse(response)) await cache.put(pathname, response);
+  } catch {
+    // Einzelne fehlende Assets dürfen die Installation nicht verhindern.
+  }
 }
 
 // Offline-Fallback für HTML-Navigationen ohne Netzwerk UND ohne Treffer im
@@ -95,11 +122,9 @@ const OFFLINE_HTML = `<!doctype html>
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => cache.addAll(SHELL_URLS)).catch(() => {
-      // Erstinstallation darf nicht am Netzwerk scheitern (z.B. Server
-      // kurzzeitig nicht erreichbar) — Service Worker installiert sich
-      // trotzdem, füllt den Cache beim nächsten erfolgreichen Fetch nach.
-    })
+    caches.open(CACHE_VERSION).then((cache) =>
+      Promise.all(SHELL_URLS.map((pathname) => cacheShellAsset(cache, pathname)))
+    )
   );
   self.skipWaiting();
 });
@@ -120,6 +145,7 @@ self.addEventListener("fetch", (event) => {
   if (isNeverCache(url.pathname)) return;
 
   if (event.request.method !== "GET") return;
+  if (!isSameOrigin(url)) return;
 
   const isNavigation = event.request.mode === "navigate";
 
@@ -131,7 +157,7 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        if (response.ok && isShellCacheable(url.pathname)) {
+        if (isShellCacheable(url.pathname) && canCacheResponse(response)) {
           const copy = response.clone();
           caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, copy));
         }
