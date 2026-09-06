@@ -12,6 +12,7 @@ Environment=DAWARICH_DB_HOST=127.0.0.1
 Environment=DAWARICH_DB_PORT=5433
 Environment=DAWARICH_DB_NAME=dawarich_production
 Environment=DAWARICH_DB_USER=lh2gpx_sync
+Environment=DAWARICH_SYNC_ENABLED=true
 ExecStart=%h/services/lh2gpx-live-receiver/.venv/bin/python -m app.dawarich_sync
 Restart=always
 RestartSec=5
