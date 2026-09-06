@@ -193,6 +193,9 @@ const {
   
   let db = null;
   let localMirrorAvailable = false;
+  const LOCAL_MIRROR_MAX_POINTS = 50000;
+  const LOCAL_MIRROR_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+  let localMirrorPruneInFlight = false;
   try {
     if (typeof window.Dexie === 'function' && typeof window.indexedDB !== 'undefined') {
       db = new Dexie('MapReceiverDB');
@@ -203,12 +206,33 @@ const {
       db.version(2).stores({
         points: 'id, timestampUtc, sessionId, [sessionId+timestampUtc]'
       });
+      // Version 3 keeps the browser mirror bounded; old points are pruned
+      // opportunistically after successful writes.
+      db.version(3).stores({
+        points: 'id, timestampUtc, sessionId, [sessionId+timestampUtc]'
+      });
       localMirrorAvailable = true;
     }
   } catch (error) {
     console.warn('Lokaler Browser-Mirror deaktiviert:', error);
     db = null;
     localMirrorAvailable = false;
+  }
+
+  async function pruneLocalMirror() {
+    if (!localMirrorAvailable || !db || localMirrorPruneInFlight) return;
+    localMirrorPruneInFlight = true;
+    try {
+      const cutoff = new Date(Date.now() - LOCAL_MIRROR_MAX_AGE_MS).toISOString();
+      await db.points.where('timestampUtc').below(cutoff).delete();
+      const overflowIds = await db.points.orderBy('timestampUtc').reverse()
+        .offset(LOCAL_MIRROR_MAX_POINTS).primaryKeys();
+      if (overflowIds.length) await db.points.bulkDelete(overflowIds);
+    } catch (error) {
+      console.warn('Lokaler Browser-Mirror konnte nicht bereinigt werden:', error);
+    } finally {
+      localMirrorPruneInFlight = false;
+    }
   }
 
   async function savePointsLocally(points) {
@@ -223,9 +247,11 @@ const {
         timestampLocal: p.timestampLocal,
         accuracyM: p.accuracyM,
         source: p.source,
-        sessionId: p.session_id || p.sessionId
+        sessionId: p.session_id || p.sessionId,
+        cachedAt: Date.now()
       }));
       await db.points.bulkPut(toSave);
+      void pruneLocalMirror();
     } catch (error) {
       console.warn('Fehler beim lokalen Speichern:', error);
     }
