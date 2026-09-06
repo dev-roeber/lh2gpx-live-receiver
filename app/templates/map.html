@@ -96,7 +96,10 @@
     <div class="local-mirror-panel" aria-labelledby="local-mirror-title">
       <div class="local-mirror-heading">
         <span class="fp-section-label" id="local-mirror-title">Lokaler Kartenspeicher</span>
-        <output id="local-mirror-count" class="local-mirror-count" aria-live="polite">—</output>
+        <div class="local-mirror-metrics" aria-live="polite">
+          <output id="local-mirror-count" class="local-mirror-count">—</output>
+          <output id="local-mirror-storage" class="local-mirror-storage">Speicher: —</output>
+        </div>
       </div>
       <p id="local-mirror-status" class="filter-help" role="status">Status wird gelesen…</p>
       <button id="local-mirror-clear-btn" class="button-link secondary filter-action-full" type="button" disabled aria-describedby="local-mirror-status">Lokalen Kartenspeicher leeren</button>

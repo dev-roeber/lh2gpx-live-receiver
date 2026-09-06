@@ -216,6 +216,19 @@
   font-size: .82rem;
   font-weight: 700;
 }
+.local-mirror-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 4px 10px;
+  text-align: right;
+}
+.local-mirror-storage {
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  font-size: .72rem;
+}
 .local-mirror-panel button[aria-busy="true"] { opacity: .7; }
 .fp-status-panel {
   flex-direction: column;

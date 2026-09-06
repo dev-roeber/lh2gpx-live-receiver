@@ -291,11 +291,40 @@ const {
 
   async function updateLocalMirrorStatus() {
     const countEl = document.getElementById('local-mirror-count');
+    const storageEl = document.getElementById('local-mirror-storage');
     const statusEl = document.getElementById('local-mirror-status');
     const clearBtn = document.getElementById('local-mirror-clear-btn');
     if (!countEl || !statusEl || !clearBtn) return;
+    const formatStorageBytes = (bytes) => {
+      if (!Number.isFinite(bytes) || bytes < 0) return null;
+      if (bytes < 1024) return `${Math.round(bytes)} B`;
+      const units = ['KiB', 'MiB', 'GiB', 'TiB'];
+      let value = bytes;
+      let unit = 'B';
+      for (const nextUnit of units) {
+        value /= 1024;
+        unit = nextUnit;
+        if (value < 1024 || nextUnit === units[units.length - 1]) break;
+      }
+      return `${value.toLocaleString('de-DE', { maximumFractionDigits: value >= 100 ? 0 : 1 })} ${unit}`;
+    };
+    const updateStorageEstimate = async () => {
+      if (!storageEl) return;
+      try {
+        const estimate = navigator.storage && typeof navigator.storage.estimate === 'function'
+          ? await navigator.storage.estimate()
+          : null;
+        const used = formatStorageBytes(estimate && estimate.usage);
+        const quota = formatStorageBytes(estimate && estimate.quota);
+        storageEl.textContent = used && quota ? `Speicher: ~${used} / ~${quota}` : 'Speicher: nicht verfügbar';
+      } catch (error) {
+        storageEl.textContent = 'Speicher: nicht verfügbar';
+        console.warn('Browser-Speicherbelegung konnte nicht gelesen werden:', error);
+      }
+    };
     if (!localMirrorAvailable || !db) {
       countEl.textContent = 'nicht verfügbar';
+      if (storageEl) storageEl.textContent = 'Speicher: nicht verfügbar';
       statusEl.textContent = 'Lokaler Kartenspeicher ist in diesem Browser nicht verfügbar.';
       clearBtn.disabled = true;
       return;
@@ -305,8 +334,10 @@ const {
       countEl.textContent = count.toLocaleString('de-DE');
       statusEl.textContent = `${count.toLocaleString('de-DE')} Punkte lokal gespeichert (max. ${LOCAL_MIRROR_MAX_POINTS.toLocaleString('de-DE')}, 14 Tage).`;
       clearBtn.disabled = localMirrorClearInFlight || count === 0;
+      void updateStorageEstimate();
     } catch (error) {
       countEl.textContent = 'unbekannt';
+      if (storageEl) storageEl.textContent = 'Speicher: nicht verfügbar';
       statusEl.textContent = 'Status des lokalen Kartenspeichers konnte nicht gelesen werden.';
       clearBtn.disabled = true;
       console.warn('Status des lokalen Kartenspeichers konnte nicht gelesen werden:', error);
