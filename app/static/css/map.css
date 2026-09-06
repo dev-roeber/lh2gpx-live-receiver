@@ -141,6 +141,179 @@
   }
 }
 
+/* ── Point details: adaptive inspector / bottom sheet ────────
+   The panel is already present in map.html and is opened by removing the
+   native hidden attribute.  Keep the component self-contained so it can be
+   enhanced later without changing the map or data code. */
+#point-detail-panel,
+.point-detail-panel {
+  --point-detail-width: clamp(280px, 26vw, 388px);
+  --point-detail-inset: clamp(12px, 1.4vw, 22px);
+  position: absolute;
+  inset: var(--point-detail-inset) var(--point-detail-inset) auto auto;
+  z-index: 900;
+  width: var(--point-detail-width);
+  max-width: calc(100% - 2 * var(--point-detail-inset));
+  max-height: calc(100% - 2 * var(--point-detail-inset));
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: clamp(16px, 1.6vw, 24px);
+  color: var(--text, #fff);
+  background: color-mix(in srgb, var(--surface-1, #1c1c1e) 94%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border, rgba(255,255,255,.12)) 90%, transparent);
+  border-radius: clamp(16px, 1.5vw, 24px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .38), 0 2px 10px rgba(0, 0, 0, .2);
+  backdrop-filter: blur(24px) saturate(155%);
+  -webkit-backdrop-filter: blur(24px) saturate(155%);
+  transform: translate3d(18px, 0, 0) scale(.98);
+  transform-origin: top right;
+  opacity: 0;
+  transition: opacity var(--motion-duration-standard, 180ms) var(--motion-ease-standard, ease),
+              transform var(--motion-duration-slow, 280ms) var(--motion-ease-emphasized, ease);
+}
+
+#point-detail-panel:not([hidden]),
+.point-detail-panel:not([hidden]) {
+  transform: translate3d(0, 0, 0) scale(1);
+  opacity: 1;
+}
+
+#point-detail-panel::before,
+.point-detail-panel::before {
+  content: "";
+  display: block;
+  width: 34px;
+  height: 4px;
+  margin: -4px auto 14px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text, #fff) 28%, transparent);
+}
+
+.point-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.point-detail-head .eyebrow {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--mint, #30d158);
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .12em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+#point-detail-title,
+.point-detail-panel h3 {
+  margin: 0;
+  color: var(--text, #fff);
+  font-size: clamp(1rem, .35vw + .9rem, 1.2rem);
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.point-detail-close {
+  display: inline-grid;
+  flex: 0 0 44px;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: -8px -8px 0 0;
+  padding: 0;
+  color: var(--text-2, rgba(255,255,255,.65));
+  background: color-mix(in srgb, var(--surface-2, #2c2c2e) 75%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border, rgba(255,255,255,.12)) 80%, transparent);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1.6rem;
+  line-height: 1;
+  transition: color var(--motion-duration-fast, 120ms) ease,
+              background var(--motion-duration-fast, 120ms) ease,
+              transform var(--motion-duration-fast, 120ms) ease;
+}
+
+.point-detail-close:hover {
+  color: var(--text, #fff);
+  background: var(--surface-3, #3a3a3c);
+  transform: scale(1.04);
+}
+
+.point-detail-close:focus-visible {
+  outline: 2px solid var(--mint, #30d158);
+  outline-offset: 3px;
+}
+
+.point-detail-fields {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--border, rgba(255,255,255,.12)) 75%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border, rgba(255,255,255,.12)) 75%, transparent);
+  border-radius: 14px;
+}
+
+.point-detail-fields > div {
+  display: grid;
+  grid-template-columns: minmax(88px, .8fr) minmax(0, 1.4fr);
+  gap: 12px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--surface-2, #2c2c2e) 72%, transparent);
+}
+
+.point-detail-fields dt {
+  color: var(--text-2, rgba(255,255,255,.58));
+  font-size: .78rem;
+  font-weight: 600;
+}
+
+.point-detail-fields dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text, #fff);
+  font-size: .84rem;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+@media (max-width: 767px) {
+  #point-detail-panel,
+  .point-detail-panel {
+    position: fixed;
+    inset: auto max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+    z-index: 1300;
+    width: auto;
+    max-width: none;
+    max-height: min(72dvh, 600px);
+    padding: 14px 16px max(16px, env(safe-area-inset-bottom));
+    border-radius: 24px 24px 16px 16px;
+    transform: translate3d(0, 24px, 0);
+    transform-origin: bottom center;
+  }
+
+  #point-detail-panel::before,
+  .point-detail-panel::before {
+    margin-top: 0;
+  }
+
+  .point-detail-head { margin-bottom: 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #point-detail-panel,
+  .point-detail-panel,
+  .point-detail-close {
+    transition: none;
+  }
+}
+
 /* ── P2: unified map workspace ──────────────────────────────
    The DOM and inline styles remain unchanged. These rules provide a
    consistent control rail, compact timeline and sheet treatment. */

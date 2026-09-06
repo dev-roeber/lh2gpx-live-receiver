@@ -45,6 +45,50 @@ const {
     setTimeout(fn, 0);
   }
 
+  // Render point details into the optional responsive detail panel.  Keep this
+  // deliberately independent from the MapLibre popup so deployments without
+  // the panel retain the original behaviour.
+  window.showPointDetails = function showPointDetails(properties, lngLat) {
+    const panel = document.getElementById('point-detail-panel');
+    if (!panel) return false;
+
+    const props = properties && typeof properties === 'object' ? properties : {};
+    const value = (key) => {
+      const item = props[key];
+      return item === null || item === undefined ? '' : String(item);
+    };
+    const setText = (id, text, fallback = '—') => {
+      const element = document.getElementById(id);
+      if (element) element.textContent = text || fallback;
+    };
+
+    const timestamp = value('timestamp') || value('point_timestamp') || value('timestampLocal');
+    const accuracyNumber = Number(props.accuracy ?? props.accuracyM);
+    const accuracy = Number.isFinite(accuracyNumber) ? `±${Math.round(accuracyNumber)} m` : '';
+    const lng = lngLat && typeof lngLat === 'object' ? Number(lngLat.lng) : Number(lngLat?.[0]);
+    const lat = lngLat && typeof lngLat === 'object' ? Number(lngLat.lat) : Number(lngLat?.[1]);
+    const coordinates = Number.isFinite(lat) && Number.isFinite(lng)
+      ? `${lat.toFixed(6)}, ${lng.toFixed(6)}`
+      : '';
+
+    setText('point-detail-time', timestamp);
+    setText('point-detail-accuracy', accuracy);
+    setText('point-detail-coordinates', coordinates);
+    panel.hidden = false;
+    panel.setAttribute('aria-hidden', 'false');
+
+    const closeButton = document.getElementById('point-detail-close');
+    if (closeButton) closeButton.focus({ preventScroll: true });
+    return true;
+  };
+
+  function closePointDetails() {
+    const panel = document.getElementById('point-detail-panel');
+    if (!panel) return;
+    panel.hidden = true;
+    panel.setAttribute('aria-hidden', 'true');
+  }
+
   if (storageGet('map-route-defaults-version') !== ROUTE_DEFAULTS_VERSION) {
     if (!storageGet('map-route-time-gap') || storageGet('map-route-time-gap') === '5') {
       storageSet('map-route-time-gap', '15');
@@ -2860,6 +2904,9 @@ const {
     // Popups
     map.on('click', 'layer-points', (e) => {
       const p = e.features[0].properties;
+      if (document.getElementById('point-detail-panel')) {
+        window.showPointDetails(p, e.lngLat);
+      }
       const content = document.createElement('div');
       const title = document.createElement('strong');
       title.textContent = 'GPS-Punkt';
@@ -2880,6 +2927,10 @@ const {
   }
 
   document.addEventListener('click', (event) => {
+    const pointPanel = document.getElementById('point-detail-panel');
+    if (pointPanel && event.target === pointPanel) closePointDetails();
+    if (event.target.closest?.('#point-detail-close')) closePointDetails();
+
     const locMenu = document.getElementById('location-selection-menu');
     if (locMenu && !locMenu.contains(event.target)) toggleLocationMenu(false);
 
@@ -2898,6 +2949,7 @@ const {
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && cssFsActive) activateCssFullscreen();
     if (event.key === 'Escape') {
+      closePointDetails();
       const fpBtn = document.getElementById('fp-show-btn');
       if (fpBtn && fpBtn.dataset.open === '1') toggleFilterPanel(false);
     }

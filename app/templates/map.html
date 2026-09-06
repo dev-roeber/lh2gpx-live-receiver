@@ -148,6 +148,18 @@
         <span id="map-sync-pill-text">Synchronisiert</span>
       </div>
 
+      <aside id="point-detail-panel" class="point-detail-panel" hidden aria-labelledby="point-detail-title" aria-live="polite">
+        <div class="point-detail-head">
+          <div><span class="eyebrow">Standort</span><h3 id="point-detail-title">GPS-Punkt</h3></div>
+          <button id="point-detail-close" type="button" class="point-detail-close" aria-label="Punktdetails schließen">×</button>
+        </div>
+        <dl class="point-detail-fields">
+          <div><dt>Zeit</dt><dd id="point-detail-time">—</dd></div>
+          <div><dt>Genauigkeit</dt><dd id="point-detail-accuracy">—</dd></div>
+          <div><dt>Koordinaten</dt><dd id="point-detail-coordinates">—</dd></div>
+        </dl>
+      </aside>
+
       {# Timeline — floating am unteren Rand #}
 
       <div id="map-timeline-container" style="display:none;position:absolute;bottom:24px;left:50%;transform:translateX(-50%);z-index:740;width:min(600px,calc(100% - 24px));max-width:calc(100% - 24px);pointer-events:none;">
