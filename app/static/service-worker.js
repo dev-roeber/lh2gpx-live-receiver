@@ -124,7 +124,9 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_VERSION).then((cache) =>
       Promise.all(SHELL_URLS.map((pathname) => cacheShellAsset(cache, pathname)))
-    )
+    ).catch(() => {
+      // Ein vorübergehender Cache-/Quota-Fehler darf die App nicht blockieren.
+    })
   );
   self.skipWaiting();
 });
@@ -167,7 +169,9 @@ self.addEventListener("fetch", (event) => {
         if (!isNavigation && canCacheResponse(response) && isShellCacheable(url.pathname)) {
           const copy = response.clone();
           caches.open(CACHE_VERSION)
-            .then((cache) => cache.put(event.request, copy))
+            // Query-Varianten derselben statischen Datei nicht unbegrenzt
+            // anhäufen; der Pfad ist der kanonische Cache-Key.
+            .then((cache) => cache.put(url.pathname, copy))
             .catch(() => {
               // Quota-/Cachefehler dürfen die aktuelle Netzwerkantwort nicht
               // beeinflussen.
@@ -176,20 +180,23 @@ self.addEventListener("fetch", (event) => {
         return response;
       })
       .catch(() =>
-        caches.open(CACHE_VERSION).then((cache) => cache.match(event.request)).then((cached) => {
-          if (cached) return cached;
-          if (isNavigation) {
-            return new Response(OFFLINE_HTML, {
-              status: 200,
-              headers: {
-                "Cache-Control": "no-store",
-                "Content-Type": "text/html; charset=utf-8",
-                "X-Content-Type-Options": "nosniff",
-              },
-            });
-          }
-          return Response.error();
-        })
+        caches.open(CACHE_VERSION)
+          .then((cache) => cache.match(url.pathname))
+          .catch(() => null)
+          .then((cached) => {
+            if (cached) return cached;
+            if (isNavigation) {
+              return new Response(OFFLINE_HTML, {
+                status: 200,
+                headers: {
+                  "Cache-Control": "no-store",
+                  "Content-Type": "text/html; charset=utf-8",
+                  "X-Content-Type-Options": "nosniff",
+                },
+              });
+            }
+            return Response.error();
+          })
       )
   );
 });
