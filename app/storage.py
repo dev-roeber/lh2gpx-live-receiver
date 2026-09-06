@@ -81,6 +81,8 @@ class ReceiverStorage:
             with self._connect() as connection:
                 self._apply_migrations(connection)
                 self._maybe_import_legacy_ndjson(connection)
+                self._remove_orphaned_dawarich_mappings(connection)
+                connection.commit()
             self._ready = True
             self._last_error = None
         except Exception as exc:
@@ -997,6 +999,12 @@ class ReceiverStorage:
         received_iso = isoformat_utc(now)
         inserted = updated = invalid = 0
         with self._locked_transaction() as connection:
+            # external_points deliberately has no foreign key because its
+            # target may be rebuilt independently.  Remove dangling mirror
+            # rows before processing new CDC data; an incoming point is then
+            # inserted deterministically below instead of relying on a stale
+            # receiver_point_id.
+            self._remove_orphaned_dawarich_mappings(connection)
             connection.execute(
                 """INSERT OR IGNORE INTO ingest_requests (
                     request_id, received_at_utc, sent_at_utc, source, session_id,
@@ -1074,6 +1082,29 @@ class ReceiverStorage:
                 self._rebuild_spatial_tiles(connection)
                 self._rebuild_all_session_track_rollups(connection)
         return {"inserted": inserted, "updated": updated, "invalid": invalid}
+
+    @staticmethod
+    def _remove_orphaned_dawarich_mappings(connection: sqlite3.Connection) -> int:
+        """Remove Dawarich mappings whose receiver point no longer exists.
+
+        The mapping table intentionally does not use a foreign key, so a
+        manually removed or otherwise lost ``gps_points`` row could leave a
+        stale mirror reference behind.  Deleting such a mapping is the only
+        deterministic repair without the original Dawarich payload; a later
+        CDC upsert can recreate both rows.
+        """
+        cursor = connection.execute(
+            """
+            DELETE FROM external_points
+            WHERE provider = 'dawarich'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM gps_points
+                  WHERE gps_points.id = external_points.receiver_point_id
+              )
+            """
+        )
+        return max(cursor.rowcount, 0)
 
     def rebuild_derived_data(self) -> None:
         self._require_ready()

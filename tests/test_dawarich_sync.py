@@ -124,3 +124,65 @@ def test_sync_state_is_monotonic_for_concurrent_out_of_order_writes(tmp_path: Pa
     state = storage.get_dawarich_sync_state()
     assert state["last_event_id"] == 901
     assert state["last_error"] in {"event 12", "event 450", "event 37", "event 901", "event 88", "event 640", "event 3", "event 777"}
+
+
+def _dawarich_point(point_id: int) -> dict:
+    return {
+        "id": point_id,
+        "user_id": 1,
+        "latitude": 51.0,
+        "longitude": 7.0,
+        "timestamp": 1_725_600_000,
+        "accuracy": 5,
+        "updated_at": None,
+        "payload_hash": f"hash-{point_id}",
+    }
+
+
+def test_startup_removes_orphaned_dawarich_mappings(tmp_path: Path) -> None:
+    storage = _storage(tmp_path)
+    storage.upsert_dawarich_points([_dawarich_point(10)])
+
+    with storage._locked_transaction() as connection:
+        valid_mapping = connection.execute(
+            "SELECT receiver_point_id FROM external_points WHERE provider='dawarich' AND external_id='10'"
+        ).fetchone()[0]
+        connection.execute(
+            "INSERT INTO external_points(provider, external_id, receiver_point_id, dawarich_user_id) VALUES (?, ?, ?, ?)",
+            ("dawarich", "999", 999999, "1"),
+        )
+
+    restarted = ReceiverStorage(storage.settings)
+    restarted.startup()
+    assert restarted.readiness().is_ready
+
+    with restarted._connect() as connection:
+        mappings = connection.execute(
+            "SELECT external_id, receiver_point_id FROM external_points WHERE provider='dawarich' ORDER BY external_id"
+        ).fetchall()
+
+    assert [(row["external_id"], row["receiver_point_id"]) for row in mappings] == [("10", valid_mapping)]
+
+
+def test_upsert_recreates_mapping_after_receiver_point_was_removed(tmp_path: Path) -> None:
+    storage = _storage(tmp_path)
+    point = _dawarich_point(20)
+    storage.upsert_dawarich_points([point])
+
+    with storage._locked_transaction() as connection:
+        receiver_point_id = connection.execute(
+            "SELECT receiver_point_id FROM external_points WHERE provider='dawarich' AND external_id='20'"
+        ).fetchone()[0]
+        connection.execute("DELETE FROM gps_points WHERE id = ?", (receiver_point_id,))
+
+    result = storage.upsert_dawarich_points([point])
+    assert result == {"inserted": 1, "updated": 0, "invalid": 0}
+
+    with storage._connect() as connection:
+        mapping = connection.execute(
+            "SELECT receiver_point_id FROM external_points WHERE provider='dawarich' AND external_id='20'"
+        ).fetchone()
+        assert mapping is not None
+        assert connection.execute(
+            "SELECT 1 FROM gps_points WHERE id = ?", (mapping["receiver_point_id"],)
+        ).fetchone() is not None

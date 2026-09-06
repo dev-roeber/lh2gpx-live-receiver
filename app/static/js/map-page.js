@@ -1356,6 +1356,38 @@ const {
     return coords;
   }
 
+  // Backend data is normally well-formed, but a single bad point must not
+  // make MapLibre reject the complete source update. Coordinates in the
+  // layer payloads are [latitude, longitude]; GeoJSON uses [longitude,
+  // latitude]. Keep the conversion in one place so every render path applies
+  // the same finite/range checks.
+  function isCoordinateValue(value) {
+    return (typeof value === 'number' || typeof value === 'string')
+      && (typeof value !== 'string' || value.trim() !== '');
+  }
+
+  function validGeometryPoint(lat, lon) {
+    if (!isCoordinateValue(lat) || !isCoordinateValue(lon)) return null;
+    const latitude = Number(lat);
+    const longitude = Number(lon);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)
+      || latitude < -90 || latitude > 90
+      || longitude < -180 || longitude > 180) return null;
+    return [longitude, latitude];
+  }
+
+  function validGeometryPair(pair) {
+    return Array.isArray(pair) && pair.length >= 2
+      ? validGeometryPoint(pair[0], pair[1])
+      : null;
+  }
+
+  function validLineCoordinates(coords) {
+    if (!Array.isArray(coords)) return null;
+    const valid = coords.map(validGeometryPair).filter(Boolean);
+    return valid.length >= 2 ? valid : null;
+  }
+
   function renderPoints(points, latestPoint) {
     const validPoints = points.filter(p => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lon))
       && Number(p.lat) >= -90 && Number(p.lat) <= 90
@@ -1380,57 +1412,82 @@ const {
   }
 
   function renderHeatmap(entries) {
-    const features = entries.map(e => ({
+    const features = (Array.isArray(entries) ? entries : []).map(e => {
+      const coordinates = Array.isArray(e) ? validGeometryPoint(e[0], e[1]) : null;
+      if (!coordinates) return null;
+      return {
       type: 'Feature',
-      geometry: { type: 'Point', coordinates: [e[1], e[0]] },
+      geometry: { type: 'Point', coordinates },
       properties: { weight: e[2] || 0.5 }
-    }));
+      };
+    }).filter(Boolean);
     map.getSource(SOURCE_IDS.HEATMAP).setData({ type: 'FeatureCollection', features });
   }
 
   function renderPolylines(segments) {
-    const features = segments.map(s => ({
-      type: 'Feature',
-      geometry: { type: 'LineString', coordinates: s.coords.map(c => [c[1], c[0]]) },
-      properties: { color: s.color, label: `${s.startLabel} - ${s.endLabel}` }
-    }));
+    const features = (Array.isArray(segments) ? segments : []).map(s => {
+      const coordinates = s && validLineCoordinates(s.coords);
+      if (!coordinates) return null;
+      return {
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates },
+        properties: { color: s.color, label: `${s.startLabel} - ${s.endLabel}` }
+      };
+    }).filter(Boolean);
     map.getSource(SOURCE_IDS.LINES).setData({ type: 'FeatureCollection', features });
   }
 
   function renderAccuracy(entries) {
-    const features = entries.map(e => ({
-      type: 'Feature',
-      geometry: { type: 'Polygon', coordinates: [buildCirclePolygon(e.lon, e.lat, e.radius)] },
-      properties: { radius_m: e.radius }
-    }));
+    const features = (Array.isArray(entries) ? entries : []).map(e => {
+      const point = e && validGeometryPoint(e.lat, e.lon);
+      const radius = e ? Number(e.radius) : NaN;
+      if (!point || !Number.isFinite(radius) || radius <= 0) return null;
+      const coordinates = buildCirclePolygon(point[0], point[1], radius);
+      if (coordinates.length < 4) return null;
+      return {
+        type: 'Feature',
+        geometry: { type: 'Polygon', coordinates: [coordinates] },
+        properties: { radius_m: e.radius }
+      };
+    }).filter(Boolean);
     map.getSource(SOURCE_IDS.ACCURACY).setData({ type: 'FeatureCollection', features });
   }
 
   function renderSpeed(entries) {
-    const features = entries.map(e => ({
-      type: 'Feature',
-      geometry: { type: 'LineString', coordinates: e.coords.map(c => [c[1], c[0]]) },
-      properties: { color: e.color, kmh: e.kmh }
-    }));
+    const features = (Array.isArray(entries) ? entries : []).map(e => {
+      const coordinates = e && validLineCoordinates(e.coords);
+      if (!coordinates) return null;
+      return {
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates },
+        properties: { color: e.color, kmh: e.kmh }
+      };
+    }).filter(Boolean);
     map.getSource(SOURCE_IDS.SPEED).setData({ type: 'FeatureCollection', features });
   }
 
   function renderStops(entries) {
-    const features = entries.map(e => ({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [e.lon, e.lat] },
-      properties: { label: `⏱ ${e.durationMin}min`, duration: e.durationMin }
-    }));
+    const features = (Array.isArray(entries) ? entries : []).map(e => {
+      const coordinates = e && validGeometryPoint(e.lat, e.lon);
+      if (!coordinates) return null;
+      return {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates },
+        properties: { label: `⏱ ${e.durationMin}min`, duration: e.durationMin }
+      };
+    }).filter(Boolean);
     map.getSource(SOURCE_IDS.STOPS).setData({ type: 'FeatureCollection', features });
   }
 
   function renderDaytracks(entries) {
     const features = [];
-    entries.forEach(d => {
-       d.segments.forEach(coords => {
+    (Array.isArray(entries) ? entries : []).forEach(d => {
+       (d && Array.isArray(d.segments) ? d.segments : []).forEach(coords => {
+         const validCoordinates = validLineCoordinates(coords);
+         if (!validCoordinates) return;
          features.push({
            type: 'Feature',
-           geometry: { type: 'LineString', coordinates: coords.map(c => [c[1], c[0]]) },
+           geometry: { type: 'LineString', coordinates: validCoordinates },
            properties: { color: d.color, day: d.day }
          });
        });
@@ -1439,11 +1496,15 @@ const {
   }
 
   function renderSnap(entries) {
-    const features = entries.map(e => ({
-      type: 'Feature',
-      geometry: { type: 'LineString', coordinates: e.coords.map(c => [c[1], c[0]]) },
-      properties: { }
-    }));
+    const features = (Array.isArray(entries) ? entries : []).map(e => {
+      const coordinates = e && validLineCoordinates(e.coords);
+      if (!coordinates) return null;
+      return {
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates },
+        properties: { }
+      };
+    }).filter(Boolean);
     map.getSource(SOURCE_IDS.SNAP).setData({ type: 'FeatureCollection', features });
   }
 
