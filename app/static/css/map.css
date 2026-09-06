@@ -367,3 +367,33 @@
   #timeline-toolbar .mqc-select { flex-basis: calc(50% - 4px); }
   #timeline-settings-row { row-gap: 10px !important; }
 }
+
+/* Final precedence layer for legacy rules and template inline positioning. */
+@media (max-width: 767px) {
+  #map-filter-toggle-btn { display: block !important; }
+
+  #map-filter-panel:not(.collapsed) {
+    position: fixed !important;
+    left: max(8px, env(safe-area-inset-left)) !important;
+    right: max(8px, env(safe-area-inset-right)) !important;
+    bottom: max(8px, env(safe-area-inset-bottom)) !important;
+    z-index: 1200 !important;
+    width: auto !important;
+    max-height: min(86dvh, 720px) !important;
+    overflow-y: auto;
+    padding: max(16px, env(safe-area-inset-top)) 16px 16px !important;
+    border-radius: var(--map-sheet-radius, 22px) !important;
+    box-shadow: var(--map-sheet-shadow, 0 18px 55px rgba(0,0,0,.38)) !important;
+  }
+
+  #map-filter-panel.collapsed { display: none !important; }
+
+  #map-timeline-container {
+    left: max(8px, env(safe-area-inset-left)) !important;
+    right: max(8px, env(safe-area-inset-right)) !important;
+    bottom: max(8px, env(safe-area-inset-bottom)) !important;
+    width: auto !important;
+    max-width: none !important;
+    transform: none !important;
+  }
+}
