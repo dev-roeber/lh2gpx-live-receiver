@@ -182,6 +182,11 @@ _TRACK_LAYER_CACHE_TTL = 8.0
 _TIMELINE_PREVIEW_CACHE: dict[str, tuple[float, str, bytes]] = {}
 _TIMELINE_PREVIEW_CACHE_TTL = 5.0
 _MAP_DATA_PAGE_SIZE_MAX = 20_000
+# Map-data kann je nach Layern mehrere SQLite-Abfragen und Thread-Workloads
+# enthalten.  Die Admission-Grenze verhindert, dass viele langsame Requests
+# die Event-Loop-/Thread-Ressourcen bis zum Shutdown aufstauen.
+_MAP_DATA_MAX_CONCURRENT_REQUESTS = 2
+_MAP_DATA_QUEUE_TIMEOUT_SECONDS = 5.0
 _SNAP_CACHE: dict[str, tuple[float, list[list[float]] | None]] = {}
 _SNAP_CACHE_TTL = 300.0
 _POINTS_CACHE_MAX = 250
@@ -457,6 +462,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.storage = ReceiverStorage(resolved_settings)
     app.state.storage.startup()
     app.state.rate_limiter = SimpleRateLimiter(resolved_settings.rate_limit_requests_per_minute)
+    app.state.map_data_request_slots = asyncio.Semaphore(_MAP_DATA_MAX_CONCURRENT_REQUESTS)
+    app.state.map_data_queue_timeout_seconds = _MAP_DATA_QUEUE_TIMEOUT_SECONDS
     app.state.inline_import_tasks = False
     app.state.started_at_utc = datetime.now(timezone.utc)
 
@@ -505,8 +512,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
             request = Request(request.scope, receive)
 
+        is_map_data_request = request.method.upper() == "GET" and request.url.path == "/api/map-data"
+        map_data_slot_acquired = False
         try:
-            response = await call_next(request)
+            if is_map_data_request:
+                try:
+                    await asyncio.wait_for(
+                        request.app.state.map_data_request_slots.acquire(),
+                        timeout=request.app.state.map_data_queue_timeout_seconds,
+                    )
+                    map_data_slot_acquired = True
+                except TimeoutError:
+                    response = _json_error(
+                        request=request,
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="Map data is busy. Please retry shortly.",
+                        error_category="map_data_busy",
+                    )
+                    response.headers["Retry-After"] = "1"
+                    response.headers["X-Map-Admission"] = "rejected"
+                else:
+                    response = await call_next(request)
+            else:
+                response = await call_next(request)
         except Exception:
             LOGGER.exception(
                 json.dumps(
@@ -521,6 +549,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
             )
             raise
+        finally:
+            if map_data_slot_acquired:
+                request.app.state.map_data_request_slots.release()
 
         response.headers["X-Request-ID"] = request_id
         _log_request(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import sqlite3
@@ -48,6 +49,19 @@ def test_readyz_reports_storage_not_ready(tmp_path: Path) -> None:
 
     assert response.status_code == 503
     assert response.json()["status"] == "not_ready"
+
+
+def test_map_data_rejects_excessive_queue_with_retry_hint(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        client.app.state.map_data_request_slots = asyncio.Semaphore(0)
+        client.app.state.map_data_queue_timeout_seconds = 0.01
+
+        response = client.get("/api/map-data")
+
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "1"
+    assert response.headers["X-Map-Admission"] == "rejected"
+    assert response.json()["error"]["category"] == "map_data_busy"
 
 
 def test_auth_required_rejects_missing_bearer_token(tmp_path: Path) -> None:

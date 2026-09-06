@@ -305,6 +305,9 @@ const {
   let STOP_RADIUS_M = parseInt(storageGet('map-stop-radius'), 10) || 100;
 
   let map;
+  let mapReady = false;
+  let mapInitFailed = false;
+  let mapInitInProgress = false;
   let darkMode = storageGet('map-dark-mode') === 'true' || false;
   let cssFsActive = false;
   let filtersExpanded = false;
@@ -1842,6 +1845,34 @@ const {
     mapToastTimer = setTimeout(() => { toast.hidden = true; }, durationMs);
   }
 
+  function showMapRecovery(error, phase = 'Initialisierung') {
+    if (mapInitFailed) return;
+    mapInitFailed = true;
+    mapInitInProgress = false;
+    mapReady = false;
+    const recovery = document.getElementById('map-init-recovery');
+    const message = document.getElementById('map-init-recovery-message');
+    const detail = error && error.message ? String(error.message) : '';
+    if (message) {
+      message.textContent = detail
+        ? `${phase} fehlgeschlagen. ${detail} Bitte erneut versuchen.`
+        : `${phase} fehlgeschlagen. Bitte erneut versuchen.`;
+    }
+    if (recovery) recovery.hidden = false;
+    const overlay = document.getElementById('map-loading-overlay');
+    if (overlay) overlay.style.display = 'none';
+    const retry = document.getElementById('map-init-recovery-retry');
+    if (retry) retry.focus({ preventScroll: true });
+    console.error(`MapLibre ${phase} fehlgeschlagen:`, error);
+  }
+
+  function isFatalMapError(event) {
+    if (!event || !event.error) return false;
+    if (!mapReady) return true;
+    const text = String(event.error.message || event.error).toLowerCase();
+    return /webgl|context|render|style|source|layer|shader/.test(text);
+  }
+
   function wait(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
@@ -2833,7 +2864,14 @@ const {
   }
 
   function initMap() {
-    initWebSocket();
+    if (mapInitInProgress) return;
+    mapInitInProgress = true;
+    mapReady = false;
+    mapInitFailed = false;
+    const recovery = document.getElementById('map-init-recovery');
+    if (recovery) recovery.hidden = true;
+    try {
+      initWebSocket();
     
     MAP_MAX_POINTS = clampMapMaxPoints(MAP_MAX_POINTS);
     
@@ -2854,12 +2892,12 @@ const {
       layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
     };
 
-    if (typeof window.maplibregl === 'undefined' || typeof window.maplibregl.Map !== 'function') {
-      throw new Error('MapLibre konnte nicht geladen werden.');
-    }
-    if (!isWebglSupported()) {
-      throw new Error('WebGL wird auf diesem Browser/Gerät nicht unterstützt.');
-    }
+      if (typeof window.maplibregl === 'undefined' || typeof window.maplibregl.Map !== 'function') {
+        throw new Error('MapLibre konnte nicht geladen werden.');
+      }
+      if (!isWebglSupported()) {
+        throw new Error('WebGL wird auf diesem Browser/Gerät nicht unterstützt.');
+      }
 
     const mapOptions = {
       container: 'map-container',
@@ -2871,16 +2909,20 @@ const {
       antialias: !isIOS
     };
 
-    try {
-      map = new maplibregl.Map(mapOptions);
-    } catch (error) {
-      if (!isIOS) throw error;
-      console.warn('MapLibre iOS-Fallback aktiv:', error);
-      map = new maplibregl.Map(Object.assign({}, mapOptions, { pitch: 0, antialias: false }));
-      pitch3DActive = false;
-      storageSet('map-pitch-3d', '0');
-      document.getElementById('pitch-toggle-btn')?.setAttribute('aria-pressed', 'false');
-    }
+      try {
+        map = new maplibregl.Map(mapOptions);
+      } catch (error) {
+        if (!isIOS) throw error;
+        console.warn('MapLibre iOS-Fallback aktiv:', error);
+        map = new maplibregl.Map(Object.assign({}, mapOptions, { pitch: 0, antialias: false }));
+        pitch3DActive = false;
+        storageSet('map-pitch-3d', '0');
+        document.getElementById('pitch-toggle-btn')?.setAttribute('aria-pressed', 'false');
+      }
+
+      map.on('error', (event) => {
+        if (isFatalMapError(event)) showMapRecovery(event.error, mapReady ? 'Karten-Rendering' : 'Karteninitialisierung');
+      });
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-left');
     map.addControl(new maplibregl.ScaleControl({ maxWidth: 80, unit: 'metric' }));
@@ -2895,6 +2937,8 @@ const {
     }
 
     map.on('load', () => {
+      try {
+      if (mapInitFailed) return;
       // Sources initialisieren
       Object.keys(SOURCE_IDS).map(key => SOURCE_IDS[key]).forEach(id => {
         const sourceOptions = { type: 'geojson', data: { type: 'FeatureCollection', features: [] } };
@@ -2925,7 +2969,14 @@ const {
         isInitialLoad = false;
         scheduleTask(() => focusInitialGlobalLatestPoint());
       }
-      updateMap();
+        mapReady = true;
+        mapInitInProgress = false;
+        if (recovery) recovery.hidden = true;
+        updateMap();
+      } catch (error) {
+        mapInitInProgress = false;
+        showMapRecovery(error, 'Karteninitialisierung');
+      }
     });
 
     document.getElementById('map-max-points').max = String(Math.max(1, Math.min(MAP_CONFIG.pointsPageSizeMax || 2000, MAP_PAGE_SIZE_SAFE_MAX)));
@@ -2980,6 +3031,10 @@ const {
     });
 
     barTickTimer = setInterval(tickRefreshBar, 1000);
+    } catch (error) {
+      mapInitInProgress = false;
+      showMapRecovery(error, 'Karteninitialisierung');
+    }
   }
 
   function setupMapLayers() {
@@ -3349,6 +3404,34 @@ const {
       const toast = document.getElementById('map-toast');
       if (toast) toast.hidden = true;
     };
+    const mapRecoveryRetry = document.getElementById('map-init-recovery-retry');
+    if (mapRecoveryRetry) {
+      mapRecoveryRetry.addEventListener('click', () => {
+        mapRecoveryRetry.disabled = true;
+        mapRecoveryRetry.textContent = 'Wird erneut versucht…';
+        if (barTickTimer) {
+          clearInterval(barTickTimer);
+          barTickTimer = null;
+        }
+        if (socket) {
+          const failedSocket = socket;
+          socket = null;
+          failedSocket.close(1000, 'Karteninitialisierung wird wiederholt');
+        }
+        if (socketReconnectTimer) {
+          clearTimeout(socketReconnectTimer);
+          socketReconnectTimer = null;
+          socketReconnectScheduled = false;
+        }
+        try { map?.remove?.(); } catch (error) { console.warn('Fehler beim Zurücksetzen der Karte:', error); }
+        map = null;
+        setTimeout(() => {
+          mapRecoveryRetry.disabled = false;
+          mapRecoveryRetry.textContent = 'Erneut versuchen';
+          initMap();
+        }, 0);
+      });
+    }
     const filterBackdrop = document.getElementById('fp-backdrop');
     if (filterBackdrop) {
       filterBackdrop.addEventListener('keydown', (event) => {
