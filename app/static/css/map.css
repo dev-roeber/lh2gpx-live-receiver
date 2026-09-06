@@ -197,6 +197,26 @@
 .filter-help-after-distance { margin: -2px 0 0; }
 .filter-help-fallback { margin: -2px 0 6px; }
 .filter-action-full { width: 100%; }
+.local-mirror-panel {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0 2px;
+  border-top: 1px solid var(--border);
+}
+.local-mirror-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.local-mirror-heading .fp-section-label { margin: 0; }
+.local-mirror-count {
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+  font-size: .82rem;
+  font-weight: 700;
+}
+.local-mirror-panel button[aria-busy="true"] { opacity: .7; }
 .fp-status-panel {
   flex-direction: column;
   align-items: flex-start;

@@ -126,6 +126,54 @@ const {
   // deliberately independent from the MapLibre popup so deployments without
   // the panel retain the original behaviour.
   let pointDetailsRestoreFocus = null;
+  let mobileModalIsolation = null;
+
+  function clearMobileModalIsolation() {
+    if (!mobileModalIsolation) return;
+    for (const [element, state] of mobileModalIsolation.regions) {
+      if (state.hadInert) {
+        element.setAttribute('inert', '');
+        if ('inert' in element) element.inert = true;
+      } else {
+        element.removeAttribute('inert');
+        if ('inert' in element) element.inert = false;
+      }
+      if (state.ariaHidden === null) element.removeAttribute('aria-hidden');
+      else element.setAttribute('aria-hidden', state.ariaHidden);
+    }
+    mobileModalIsolation = null;
+  }
+
+  // Keep the open mobile surface and its optional backdrop interactive while
+  // making every other visible document region unavailable to assistive tech
+  // and keyboard navigation.  Walking around ancestors is important here:
+  // both surfaces live inside the map page and must not make their own parent
+  // inert by accident.
+  function isolateMobileModal(modal, extras = []) {
+    clearMobileModalIsolation();
+    if (!modal || !isMobileFilter() || modal.hidden) return;
+
+    const keep = [modal, ...extras].filter(Boolean);
+    const regions = new Map();
+    const visit = (element) => {
+      if (!(element instanceof Element) || keep.includes(element)) return;
+      const containsKeptElement = keep.some((kept) => element.contains(kept));
+      if (!containsKeptElement) {
+        regions.set(element, {
+          hadInert: element.hasAttribute('inert'),
+          ariaHidden: element.getAttribute('aria-hidden'),
+        });
+        element.setAttribute('inert', '');
+        if ('inert' in element) element.inert = true;
+        element.setAttribute('aria-hidden', 'true');
+        return;
+      }
+      Array.from(element.children).forEach(visit);
+    };
+
+    Array.from(document.body.children).forEach(visit);
+    mobileModalIsolation = { regions };
+  }
 
   window.showPointDetails = function showPointDetails(properties, lngLat) {
     const panel = document.getElementById('point-detail-panel');
@@ -161,6 +209,8 @@ const {
     setText('point-detail-coordinates', coordinates);
     panel.hidden = false;
     panel.setAttribute('aria-hidden', 'false');
+    panel.setAttribute('aria-modal', String(isMobileFilter()));
+    if (isMobileFilter()) isolateMobileModal(panel);
 
     const closeButton = document.getElementById('point-detail-close');
     if (closeButton) closeButton.focus({ preventScroll: true });
@@ -172,6 +222,8 @@ const {
     if (!panel) return;
     panel.hidden = true;
     panel.setAttribute('aria-hidden', 'true');
+    panel.setAttribute('aria-modal', 'false');
+    clearMobileModalIsolation();
     const restore = pointDetailsRestoreFocus;
     pointDetailsRestoreFocus = null;
     if (restore && document.contains(restore) && typeof restore.focus === 'function') {
@@ -196,6 +248,7 @@ const {
   const LOCAL_MIRROR_MAX_POINTS = 50000;
   const LOCAL_MIRROR_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
   let localMirrorPruneInFlight = false;
+  let localMirrorClearInFlight = false;
   try {
     if (typeof window.Dexie === 'function' && typeof window.indexedDB !== 'undefined') {
       db = new Dexie('MapReceiverDB');
@@ -232,6 +285,57 @@ const {
       console.warn('Lokaler Browser-Mirror konnte nicht bereinigt werden:', error);
     } finally {
       localMirrorPruneInFlight = false;
+      void updateLocalMirrorStatus();
+    }
+  }
+
+  async function updateLocalMirrorStatus() {
+    const countEl = document.getElementById('local-mirror-count');
+    const statusEl = document.getElementById('local-mirror-status');
+    const clearBtn = document.getElementById('local-mirror-clear-btn');
+    if (!countEl || !statusEl || !clearBtn) return;
+    if (!localMirrorAvailable || !db) {
+      countEl.textContent = 'nicht verfügbar';
+      statusEl.textContent = 'Lokaler Kartenspeicher ist in diesem Browser nicht verfügbar.';
+      clearBtn.disabled = true;
+      return;
+    }
+    try {
+      const count = await db.points.count();
+      countEl.textContent = count.toLocaleString('de-DE');
+      statusEl.textContent = `${count.toLocaleString('de-DE')} Punkte lokal gespeichert (max. ${LOCAL_MIRROR_MAX_POINTS.toLocaleString('de-DE')}, 14 Tage).`;
+      clearBtn.disabled = localMirrorClearInFlight || count === 0;
+    } catch (error) {
+      countEl.textContent = 'unbekannt';
+      statusEl.textContent = 'Status des lokalen Kartenspeichers konnte nicht gelesen werden.';
+      clearBtn.disabled = true;
+      console.warn('Status des lokalen Kartenspeichers konnte nicht gelesen werden:', error);
+    }
+  }
+
+  async function clearLocalMirror() {
+    if (!localMirrorAvailable || !db || localMirrorClearInFlight) return;
+    localMirrorClearInFlight = true;
+    const clearBtn = document.getElementById('local-mirror-clear-btn');
+    const statusEl = document.getElementById('local-mirror-status');
+    if (clearBtn) {
+      clearBtn.disabled = true;
+      clearBtn.setAttribute('aria-busy', 'true');
+    }
+    if (statusEl) statusEl.textContent = 'Lokaler Kartenspeicher wird geleert…';
+    try {
+      await db.points.clear();
+      timelinePreviewCache.clear();
+      if (statusEl) statusEl.textContent = 'Lokaler Kartenspeicher wurde geleert.';
+      showToast('Lokaler Kartenspeicher geleert.', 'success');
+    } catch (error) {
+      if (statusEl) statusEl.textContent = 'Lokaler Kartenspeicher konnte nicht geleert werden.';
+      showToast('Lokaler Kartenspeicher konnte nicht geleert werden.', 'error');
+      console.warn('Lokaler Kartenspeicher konnte nicht geleert werden:', error);
+    } finally {
+      localMirrorClearInFlight = false;
+      if (clearBtn) clearBtn.removeAttribute('aria-busy');
+      void updateLocalMirrorStatus();
     }
   }
 
@@ -252,6 +356,7 @@ const {
       }));
       await db.points.bulkPut(toSave);
       void pruneLocalMirror();
+      void updateLocalMirrorStatus();
     } catch (error) {
       console.warn('Fehler beim lokalen Speichern:', error);
     }
@@ -324,9 +429,8 @@ const {
     return window.matchMedia ? window.matchMedia('(max-width: 767px)').matches : window.innerWidth <= 767;
   }
 
-  function focusFilterPanel(event) {
-    const panel = document.getElementById('map-filter-panel');
-    if (!panel || !isMobileFilter() || !filtersExpanded) return;
+  function focusModalPanel(event, panel) {
+    if (!panel || !isMobileFilter()) return;
     const focusable = getFocusableElements(panel);
     if (!focusable.length) return;
     const first = focusable[0];
@@ -338,6 +442,12 @@ const {
       event.preventDefault();
       first.focus();
     }
+  }
+
+  function focusFilterPanel(event) {
+    const panel = document.getElementById('map-filter-panel');
+    if (!panel || !filtersExpanded) return;
+    focusModalPanel(event, panel);
   }
   let currentFetchController = null;
   let currentMetaFetchController = null;
@@ -771,6 +881,8 @@ const {
     panel.setAttribute('aria-hidden', String(!show));
     panel.setAttribute('aria-modal', String(show && isMobileFilter()));
     backdrop.setAttribute('aria-hidden', String(!show));
+    if (show && isMobileFilter()) isolateMobileModal(panel, [backdrop]);
+    else clearMobileModalIsolation();
     storageSet('map-fp-hidden', show ? '0' : '1');
     if (map) setTimeout(() => map.resize(), 250);
     if (show && isMobileFilter()) {
@@ -810,6 +922,8 @@ const {
       filterPanel.classList.remove('collapsed');
       filtersExpanded = true;
       toggleBtn.dataset.init = '0';
+      filterPanel.setAttribute('aria-modal', 'false');
+      clearMobileModalIsolation();
     }
   }
 
@@ -3235,6 +3349,15 @@ const {
       }
       focusFilterPanel(event);
     }
+    const pointPanel = document.getElementById('point-detail-panel');
+    if (pointPanel && !pointPanel.hidden && isMobileFilter()) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closePointDetails();
+        return;
+      }
+      focusModalPanel(event, pointPanel);
+    }
     if (event.key === 'Escape') {
       closePointDetails();
       const fpBtn = document.getElementById('fp-show-btn');
@@ -3347,6 +3470,7 @@ const {
   };
   document.getElementById('fullscreen-btn').onclick = toggleFullscreen;
   document.getElementById('export-geojson-btn').onclick = exportGeoJSON;
+  document.getElementById('local-mirror-clear-btn').onclick = clearLocalMirror;
   document.getElementById('fit-bounds-toggle').onchange = (event) => {
     if (event.target.checked) document.getElementById('auto-center-toggle').checked = false;
     updateMap();
@@ -3456,6 +3580,7 @@ const {
       });
     }
     initMap();
+    void updateLocalMirrorStatus();
 
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
@@ -3481,3 +3606,15 @@ const {
     });
   });
   window.addEventListener('resize', setupMobileFilterToggle);
+  window.addEventListener('resize', () => {
+    const filterPanel = document.getElementById('map-filter-panel');
+    const pointPanel = document.getElementById('point-detail-panel');
+    if (isMobileFilter()) {
+      if (filterPanel && filtersExpanded) isolateMobileModal(filterPanel, [document.getElementById('fp-backdrop')]);
+      else if (pointPanel && !pointPanel.hidden) isolateMobileModal(pointPanel);
+    } else {
+      clearMobileModalIsolation();
+      if (filterPanel) filterPanel.setAttribute('aria-modal', 'false');
+      if (pointPanel) pointPanel.setAttribute('aria-modal', 'false');
+    }
+  });

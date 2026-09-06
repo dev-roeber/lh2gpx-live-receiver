@@ -41,7 +41,7 @@
 <div class="map-page-container">
   <button id="map-filter-toggle-btn" class="map-filter-toggle" aria-expanded="false" aria-controls="map-filter-panel">Filteroptionen ▼</button>
 
-  <div class="map-filter-panel" id="map-filter-panel" role="dialog" aria-modal="false" aria-hidden="true" aria-labelledby="map-filter-title" tabindex="-1">
+  <div class="map-filter-panel" id="map-filter-panel" role="dialog" data-mobile-modal="true" aria-modal="false" aria-hidden="true" aria-labelledby="map-filter-title" tabindex="-1">
     <div class="filter-panel-close-row">
       <button id="fp-hide-btn" class="fp-hide-btn" title="Menü ausblenden" aria-label="Filtermenü ausblenden" onclick="toggleFilterPanel(false)">◀</button>
     </div>
@@ -91,6 +91,15 @@
     <p class="fp-section-label">Aktionen</p>
     <div class="filter-actions">
       <button id="export-geojson-btn" class="button-link secondary filter-action-full" title="Alle aktuell geladenen Punkte als GeoJSON-Datei herunterladen">💾 GeoJSON exportieren</button>
+    </div>
+
+    <div class="local-mirror-panel" aria-labelledby="local-mirror-title">
+      <div class="local-mirror-heading">
+        <span class="fp-section-label" id="local-mirror-title">Lokaler Kartenspeicher</span>
+        <output id="local-mirror-count" class="local-mirror-count" aria-live="polite">—</output>
+      </div>
+      <p id="local-mirror-status" class="filter-help" role="status">Status wird gelesen…</p>
+      <button id="local-mirror-clear-btn" class="button-link secondary filter-action-full" type="button" disabled aria-describedby="local-mirror-status">Lokalen Kartenspeicher leeren</button>
     </div>
 
     <div class="fp-status-bar fp-status-panel">
@@ -161,7 +170,7 @@
         <span id="map-sync-pill-text">Synchronisiert</span>
       </div>
 
-      <aside id="point-detail-panel" class="point-detail-panel" hidden role="dialog" aria-modal="false" aria-hidden="true" aria-labelledby="point-detail-title" tabindex="-1">
+      <aside id="point-detail-panel" class="point-detail-panel" data-mobile-modal="true" hidden role="dialog" aria-modal="false" aria-hidden="true" aria-labelledby="point-detail-title" tabindex="-1">
         <div class="point-detail-head">
           <div><span class="eyebrow">Standort</span><h3 id="point-detail-title">GPS-Punkt</h3></div>
           <button id="point-detail-close" type="button" class="point-detail-close" aria-label="Punktdetails schließen">×</button>
