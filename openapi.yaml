@@ -5,8 +5,8 @@ info:
   description: >
     Contract-First-Vertrag zwischen der LH2GPX-iOS-App und dem
     Web-Receiver. Siehe docs/LIVE_UPLOAD_CONTRACT.md für Begründung und
-    Migrationshinweise. Entwurfsstatus (Phase 0 des Full-Rewrites) —
-    noch nicht gegen die iOS-Seite final abgestimmt.
+    Migrationshinweise. v1 entschieden (Phase 0 des Full-Rewrites),
+    Implementierung steht noch aus.
 
 servers:
   - url: https://devroeber.tail71a8bc.ts.net:8443
@@ -146,7 +146,7 @@ components:
 
     LiveLocationResponse:
       type: object
-      required: [status, requestId]
+      required: [status, requestId, echoRequestId]
       properties:
         status:
           type: string
@@ -157,7 +157,9 @@ components:
         echoRequestId:
           type: string
           format: uuid
-          description: Gespiegeltes Client-`requestID` zur Log-Korrelation.
+          description: >
+            Gespiegeltes Client-`requestID` zur Log-Korrelation zwischen
+            App und Server. Entschieden (Phase 0, v1 Pflichtfeld).
 
     MapEventEnvelope:
       description: >

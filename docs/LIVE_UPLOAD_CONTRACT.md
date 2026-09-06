@@ -1,9 +1,10 @@
 # Live-Upload-Contract (v1-Entwurf)
 
-Status: **Entwurf, Phase 0 des Rewrites** — noch nicht implementiert, noch
-nicht mit der iOS-Seite final abgestimmt. Ersetzt keine bestehende Route;
-dokumentiert erstmals verbindlich, was bisher nur implizit im Code
-(`app/models.py`, `app/main.py`) und in der iOS-App feststand.
+Status: **v1 entschieden (Phase 0), Implementierung steht noch aus.**
+Beide offenen Designfragen (`echoRequestId`, Idempotenz-Aufbewahrung)
+sind geklärt. Ersetzt keine bestehende Route; dokumentiert erstmals
+verbindlich, was bisher nur implizit im Code (`app/models.py`,
+`app/main.py`) und in der iOS-App feststand.
 
 ## Warum dieses Dokument
 
@@ -55,14 +56,25 @@ erneut zu schreiben. Das behebt den dokumentierten Mangel "kein echter
 Retry/Backoff bei Server-Outage" auf App-Seite (Phase 2) — der Client
 darf beim Wiederanlauf blind erneut senden.
 
+**Aufbewahrung der Idempotenz-Tabelle**: **entschieden — 7 Tage
+rollierend.** Ein Housekeeping-Job löscht `(sessionID, requestID)`-
+Einträge älter als 7 Tage; das deckt jeden realistischen
+Offline-Backoff-Zeitraum ab, ohne die Tabelle unbegrenzt wachsen zu
+lassen.
+
 **Auth**: unverändert Bearer-Token (`require_bearer_token`) + Rate-Limit
 (`apply_rate_limit`).
 
-**Response** (`202 Accepted`, `Cache-Control: no-store`):
+**Response** (`202 Accepted`, `Cache-Control: no-store`): **entschieden
+— beide IDs werden zurückgegeben**, damit App- und Server-Logs
+korrelierbar sind. `requestId` bleibt wie heute serverseitig vergeben,
+`echoRequestId` spiegelt das vom Client gesendete `requestID` und ist
+ab v1 Pflichtfeld.
 ```json
 {
   "status": "accepted",
   "requestId": "<server-request-id>",
+  "echoRequestId": "<client-requestID>",
   "...": "…bestehende storage_summary-Felder unverändert"
 }
 ```
@@ -89,13 +101,9 @@ denselben Zweck bereits erfüllt und korrekt authentifiziert ist.
 
 ## Offene Punkte für die finale Abstimmung
 
-- Format von `requestId` im Response-Body: Rückgabe des vom Client
-  gesendeten `requestID` oder weiterhin ein serverseitiger Wert?
-  → Empfehlung: beides zurückgeben (`requestId` bleibt serverseitig wie
-  heute, zusätzlich `echoRequestId` = Client-Wert), damit App-Logs beide
-  Seiten korrelieren können.
-- Aufbewahrungsdauer der Idempotenz-Tabelle (Vorschlag: 7 Tage rollierend,
-  ausreichend für jeden realistischen Offline-Backoff).
+Keine mehr offen — beide Punkte aus dem Entwurf (`echoRequestId` im
+Response-Body, 7-Tage-Aufbewahrung der Idempotenz-Tabelle) sind
+entschieden und oben eingearbeitet.
 
 ## Nächster Schritt
 
