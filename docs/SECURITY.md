@@ -21,7 +21,7 @@
 ## Netzwerk
 
 - Backend nur auf `127.0.0.1:${PORT}`
-- öffentlich nur Caddy auf `80/443`
+- im optionalen Compose-Modus öffentlich nur Caddy auf `80/443`; produktiv ist der Receiver lokal auf `127.0.0.1:8082` gebunden und nur über den zentralen Dashboard-Proxy erreichbar
 - der TLS-Einstieg muss zum Zertifikats-Hostname passen
 
 ## Nicht-Ziele

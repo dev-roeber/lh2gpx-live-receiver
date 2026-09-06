@@ -263,7 +263,7 @@ Im optionalen Compose-Modus bleibt der Backend-Port lokal auf `127.0.0.1:8080`; 
 ## Smoke-Test
 
 ```bash
-cd /home/sebastian/repos/lh2gpx-live-receiver
+cd /home/sebastian/services/lh2gpx-live-receiver
 ./scripts/smoke-test.sh
 ```
 

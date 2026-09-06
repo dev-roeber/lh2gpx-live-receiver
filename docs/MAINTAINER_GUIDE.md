@@ -7,7 +7,7 @@ Diese Datei beschreibt den aktuellen technischen Wartungsstand des Repos. Sie is
 ## Lokale Entwicklung
 
 ```bash
-cd /home/sebastian/repos/lh2gpx-live-receiver
+cd /home/sebastian/services/lh2gpx-live-receiver
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
@@ -57,7 +57,7 @@ python3 -m compileall app tests
 ## Tests
 
 ```bash
-cd /home/sebastian/repos/lh2gpx-live-receiver
+cd /home/sebastian/services/lh2gpx-live-receiver
 python3 -m compileall app tests
 ./.venv/bin/pytest -q
 ```

@@ -12,7 +12,7 @@ Dieses Runbook beschreibt nur den Receiver-/Serverbetrieb. App, Wrapper und loka
 ## Erstes Setup
 
 ```bash
-cd /home/sebastian/repos/lh2gpx-live-receiver
+cd /home/sebastian/services/lh2gpx-live-receiver
 cp .env.example .env
 mkdir -p data logs
 docker compose build
@@ -54,7 +54,7 @@ Ergebnis:
 ## Update-Deploy
 
 ```bash
-cd /home/sebastian/repos/lh2gpx-live-receiver
+cd /home/sebastian/services/lh2gpx-live-receiver
 git pull --ff-only
 docker compose build
 docker compose up -d
@@ -87,7 +87,7 @@ Der `0600`-Fix greift nur beim Anlegen neuer Raw-Payload-Dateien; bestehende Dat
 ## Rollback
 
 ```bash
-cd /home/sebastian/repos/lh2gpx-live-receiver
+cd /home/sebastian/services/lh2gpx-live-receiver
 docker compose down
 git checkout <bekannter-commit>
 docker compose build

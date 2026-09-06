@@ -33,7 +33,7 @@ Die Vorlage liegt unter `systemd/user/lh2gpx-dawarich-sync.service`. Die produkt
 
 Dawarich-Punkte werden im Receiver mit `source=dawarich` und der Dawarich-Punkt-ID als externer ID gespeichert. Wiederholte Events sind idempotent. Wird ein Punkt in Dawarich gelöscht, wird er auch im Receiver gelöscht.
 
-Der initiale Abgleich verarbeitet die vorhandenen Punkte batchweise. Danach werden Änderungen inkrementell verarbeitet. Bei einem beschädigten oder verlorenen Cursor kann ein vollständiger Abgleich durch Zurücksetzen des Sync-Status und Neustart des Dienstes durchgeführt werden. Ein verifizierter Produktionsabgleich am 2026-09-05 spiegelte 486.195 Dawarich-Punkte; der Cursor stand danach auf Event-ID 4, ohne Fehler. Die Spiegelung verwendet eine eigene Zuordnungstabelle; eine relationale Foreign-Key-Verknüpfung zu `gps_points` ist derzeit nicht eingerichtet.
+Der initiale Abgleich verarbeitet die vorhandenen Punkte batchweise. Danach werden Änderungen inkrementell verarbeitet. Bei einem beschädigten oder verlorenen Cursor kann ein vollständiger Abgleich durch Zurücksetzen des Sync-Status und Neustart des Dienstes durchgeführt werden. Ein verifizierter Produktionsabgleich spiegelte 486.210 Dawarich-Punkte; der zuletzt verifizierte Cursor stand danach auf Event-ID 72.325, ohne Fehler. Die Spiegelung verwendet eine eigene Zuordnungstabelle; eine relationale Foreign-Key-Verknüpfung zu `gps_points` ist derzeit nicht eingerichtet.
 
 ## Verifikation
 
