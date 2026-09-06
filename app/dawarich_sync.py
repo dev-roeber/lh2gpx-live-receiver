@@ -25,7 +25,13 @@ def _dsn(settings: Settings) -> str:
     )
 
 
-def _fetch_points(conn: psycopg.Connection, ids: list[int] | None = None, offset: int = 0) -> list[dict]:
+def _fetch_points(
+    conn: psycopg.Connection,
+    ids: list[int] | None = None,
+    *,
+    after_id: int = 0,
+    max_id: int | None = None,
+) -> list[dict]:
     if ids is not None:
         if not ids:
             return []
@@ -36,11 +42,15 @@ def _fetch_points(conn: psycopg.Connection, ids: list[int] | None = None, offset
             FROM points WHERE id = ANY(%s) AND lonlat IS NOT NULL ORDER BY id""", (ids,)
         ).fetchall()
     else:
+        if max_id is None:
+            raise ValueError("max_id is required for keyset pagination")
         rows = conn.execute(
             """SELECT id, user_id, timestamp::bigint AS timestamp,
             ST_Y(lonlat::geometry) AS latitude, ST_X(lonlat::geometry) AS longitude,
             accuracy, altitude, velocity, tracker_id, import_id, updated_at
-            FROM points WHERE lonlat IS NOT NULL ORDER BY id LIMIT %s OFFSET %s""", (BATCH_SIZE, offset)
+            FROM points
+            WHERE lonlat IS NOT NULL AND id > %s AND id <= %s
+            ORDER BY id LIMIT %s""", (after_id, max_id, BATCH_SIZE)
         ).fetchall()
     result = []
     for row in rows:
@@ -95,13 +105,14 @@ def run() -> None:
                 conn.execute(f"LISTEN {CHANNEL}")
                 if cursor == 0:
                     barrier = int(conn.execute("SELECT COALESCE(MAX(id), 0) AS max_id FROM receiver_sync_events").fetchone()["max_id"])
-                    offset = 0
+                    points_barrier = int(conn.execute("SELECT COALESCE(MAX(id), 0) AS max_id FROM points").fetchone()["max_id"])
+                    last_point_id = 0
                     while True:
-                        batch = _fetch_points(conn, offset=offset)
+                        batch = _fetch_points(conn, after_id=last_point_id, max_id=points_barrier)
                         if not batch:
                             break
                         storage.upsert_dawarich_points(batch, rebuild=False)
-                        offset += len(batch)
+                        last_point_id = int(batch[-1]["id"])
                     storage.rebuild_derived_data()
                     cursor = barrier
                     storage.set_dawarich_sync_state(last_event_id=cursor, last_success_at=datetime.now(timezone.utc).isoformat(), last_error=None)

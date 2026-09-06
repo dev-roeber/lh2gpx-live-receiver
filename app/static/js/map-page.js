@@ -1014,40 +1014,44 @@ const {
   }
 
   async function exportGeoJSON() {
-    const response = await fetchWithRetry(buildGeoJsonExportUrl(), { credentials: 'same-origin' });
-    if (!response.ok) {
-      showToast('GeoJSON-Export fehlgeschlagen.', 'error');
-      return;
+    try {
+      const response = await fetchWithRetry(buildGeoJsonExportUrl(), { credentials: 'same-origin' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json();
+      const exportItems = payload && payload.points && payload.points.items ? payload.points.items : [];
+      const features = exportItems.map(point => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [point.longitude, point.latitude] },
+        properties: {
+          id: point.id,
+          request_id: point.request_id,
+          received_at_utc: point.received_at_utc,
+          sent_at_utc: point.sent_at_utc,
+          point_timestamp_utc: point.point_timestamp_utc,
+          point_timestamp_local: point.point_timestamp_local,
+          point_date_local: point.point_date_local,
+          point_time_local: point.point_time_local,
+          horizontal_accuracy_m: point.horizontal_accuracy_m,
+          session_id: point.session_id,
+          source: point.source,
+          capture_mode: point.capture_mode
+        }
+      }));
+      const blob = new Blob([JSON.stringify({ type: 'FeatureCollection', features }, null, 2)], { type: 'application/geo+json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `lh2gpx-map-${new Date().toISOString().slice(0, 10)}.geojson`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      showToast(`${features.length.toLocaleString('de-DE')} Punkte exportiert.`, 'success', 3000);
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+      console.warn('GeoJSON-Export fehlgeschlagen:', error);
+      showToast('GeoJSON-Export fehlgeschlagen. Bitte erneut versuchen.', 'error');
     }
-    const payload = await response.json();
-    const exportItems = payload && payload.points && payload.points.items ? payload.points.items : [];
-    const features = exportItems.map(point => ({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [point.longitude, point.latitude] },
-      properties: {
-        id: point.id,
-        request_id: point.request_id,
-        received_at_utc: point.received_at_utc,
-        sent_at_utc: point.sent_at_utc,
-        point_timestamp_utc: point.point_timestamp_utc,
-        point_timestamp_local: point.point_timestamp_local,
-        point_date_local: point.point_date_local,
-        point_time_local: point.point_time_local,
-        horizontal_accuracy_m: point.horizontal_accuracy_m,
-        session_id: point.session_id,
-        source: point.source,
-        capture_mode: point.capture_mode
-      }
-    }));
-    const blob = new Blob([JSON.stringify({ type: 'FeatureCollection', features }, null, 2)], { type: 'application/geo+json' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `lh2gpx-map-${new Date().toISOString().slice(0, 10)}.geojson`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
   }
 
   function updateLegend() {
